@@ -1,0 +1,60 @@
+{
+    "name": "globetrotters-ai/symfony-bundle",
+    "description": "Serves the Globetrotters Official AI Presence at a Symfony site's apex: llms.txt, ai.json, schema.json and the .well-known artefact set, with scheduled refresh, stale-serve and server-rendered homepage JSON-LD.",
+    "type": "symfony-bundle",
+    "license": "MIT",
+    "keywords": ["symfony", "bundle", "ai", "llms.txt", "json-ld", "agentic", "globetrotters"],
+    "authors": [
+        {
+            "name": "Globetrotters.ai",
+            "homepage": "https://globetrotters.ai"
+        }
+    ],
+    "require": {
+        "php": ">=8.2",
+        "psr/cache": "^3.0",
+        "symfony/cache-contracts": "^3.0",
+        "symfony/clock": "^6.4|^7.0",
+        "symfony/config": "^6.4|^7.0",
+        "symfony/console": "^6.4|^7.0",
+        "symfony/dependency-injection": "^6.4|^7.0",
+        "symfony/event-dispatcher": "^6.4|^7.0",
+        "symfony/http-client": "^6.4|^7.0",
+        "symfony/http-foundation": "^6.4|^7.0",
+        "symfony/http-kernel": "^6.4|^7.0",
+        "symfony/service-contracts": "^3.0"
+    },
+    "require-dev": {
+        "friendsofphp/php-cs-fixer": "^3.75",
+        "phpstan/phpstan": "^2.1",
+        "phpunit/phpunit": "^11.5",
+        "symfony/browser-kit": "^6.4|^7.0",
+        "symfony/framework-bundle": "^6.4|^7.0",
+        "symfony/messenger": "^6.4|^7.0",
+        "symfony/scheduler": "^6.4|^7.0",
+        "symfony/twig-bundle": "^6.4|^7.0",
+        "symfony/yaml": "^6.4|^7.0"
+    },
+    "suggest": {
+        "symfony/scheduler": "Run refreshes via symfony/scheduler instead of cron",
+        "symfony/messenger": "Required together with symfony/scheduler",
+        "twig/twig": "Enables the gt_ai_presence_head() Twig function"
+    },
+    "autoload": {
+        "psr-4": {
+            "Globetrotters\\AiPresenceBundle\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Globetrotters\\AiPresenceBundle\\Tests\\": "tests/"
+        }
+    },
+    "config": {
+        "sort-packages": true,
+        "allow-plugins": {
+            "symfony/flex": true
+        }
+    },
+    "minimum-stability": "stable"
+}
