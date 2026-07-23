@@ -37,7 +37,7 @@ final class GlobetrottersAiPresenceBundle extends AbstractBundle
                     ->defaultValue('daily')
                 ->end()
                 ->scalarNode('cache_pool')
-                    ->info('PSR-6 cache pool service id used for the artefact bundle and sync state')
+                    ->info('PSR-6 cache pool service id used for the artefact bundle and sync state. For stateful symfony/scheduler runs the pool must also implement Symfony\Contracts\Cache\CacheInterface (the default cache.app does); a PSR-6-only pool still works but the schedule falls back to non-stateful.')
                     ->defaultValue('cache.app')
                 ->end()
                 ->scalarNode('homepage_path')

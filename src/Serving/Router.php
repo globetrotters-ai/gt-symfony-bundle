@@ -65,7 +65,9 @@ final class Router implements EventSubscriberInterface
         $event->setResponse(new Response($body, 200, [
             'Content-Type' => $type,
             'X-Content-Type-Options' => 'nosniff',
-            'Cache-Control' => 'public, max-age=300',
+            // Directives are ksorted by ResponseHeaderBag; written in the
+            // served order so code, README and tests all read alike.
+            'Cache-Control' => 'max-age=300, public',
         ]));
     }
 }
