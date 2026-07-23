@@ -6,6 +6,7 @@ namespace Globetrotters\AiPresenceBundle\Sync;
 
 use Globetrotters\AiPresenceBundle\Cache\ArtefactCache;
 use Globetrotters\AiPresenceBundle\Client\FetcherInterface;
+use Globetrotters\AiPresenceBundle\Client\FetchResult;
 use Globetrotters\AiPresenceBundle\Serving\ContentTypes;
 use Globetrotters\AiPresenceBundle\Settings\Options;
 use Symfony\Component\Clock\ClockInterface;
@@ -53,6 +54,14 @@ final class ArtefactSync
             return $this->fail($errors);
         }
 
+        // An individual artefact may legitimately be empty, but a well-behaved
+        // origin never serves *every* required file empty at once. An all-empty
+        // pull means a broken origin/proxy answering 200 with no body, so refuse
+        // it rather than replace the last good bundle with blanks.
+        if ([] !== $files && '' === implode('', $files)) {
+            return $this->fail(['Every artefact came back empty; keeping the last good bundle.']);
+        }
+
         $contentHash = $this->contentHash($files);
         $marker = $this->resolveVersionMarker($baseUrl, $contentHash);
 
@@ -94,17 +103,7 @@ final class ArtefactSync
             return '';
         }
 
-        $result = $this->client->fetch($baseUrl.'/'.ContentTypes::VERSION_MARKER);
-        if (!$result->isOk() || \strlen($result->body()) > FetcherInterface::MAX_BODY_BYTES) {
-            return '';
-        }
-
-        $decoded = json_decode($result->body(), true);
-        if (\is_array($decoded) && isset($decoded['version'])) {
-            return (string) $decoded['version'];
-        }
-
-        return '';
+        return $this->markerVersion($this->client->fetch($baseUrl.'/'.ContentTypes::VERSION_MARKER)) ?? '';
     }
 
     /**
@@ -126,17 +125,16 @@ final class ArtefactSync
      */
     private function resolveVersionMarker(string $baseUrl, string $contentHash): array
     {
+        // Prefer the marker Globetrotters serves verbatim; an unreachable,
+        // oversize (transport-truncated), non-JSON or version-less marker
+        // yields null and we synthesize instead.
         $result = $this->client->fetch($baseUrl.'/'.ContentTypes::VERSION_MARKER);
-        // Ignore an oversize (transport-truncated) marker and synthesize
-        // instead, mirroring the required-files size guard in run().
-        if ($result->isOk() && \strlen($result->body()) <= FetcherInterface::MAX_BODY_BYTES) {
-            $decoded = json_decode($result->body(), true);
-            if (\is_array($decoded) && isset($decoded['version'])) {
-                return [
-                    'body' => $result->body(),
-                    'version' => (string) $decoded['version'],
-                ];
-            }
+        $version = $this->markerVersion($result);
+        if (null !== $version) {
+            return [
+                'body' => $result->body(),
+                'version' => $version,
+            ];
         }
 
         $now = $this->clock->now()->setTimezone(new \DateTimeZone('UTC'));
@@ -151,6 +149,26 @@ final class ArtefactSync
         ]);
 
         return ['body' => $body, 'version' => $version];
+    }
+
+    /**
+     * Extract the version from a fetched version marker, honouring the same
+     * size cap as the required files. Returns null when the marker is
+     * unreachable, oversize, not JSON, or carries no version — the single
+     * place the marker-parsing contract lives.
+     */
+    private function markerVersion(FetchResult $result): ?string
+    {
+        if (!$result->isOk() || \strlen($result->body()) > FetcherInterface::MAX_BODY_BYTES) {
+            return null;
+        }
+
+        $decoded = json_decode($result->body(), true);
+        if (\is_array($decoded) && isset($decoded['version'])) {
+            return (string) $decoded['version'];
+        }
+
+        return null;
     }
 
     /**

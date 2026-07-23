@@ -191,6 +191,23 @@ final class ArtefactSyncTest extends TestCase
         self::assertSame('', $this->cache->get('llms.txt'));
     }
 
+    public function testAllEmptyBodiesAbortKeepingStaleBundle(): void
+    {
+        $this->serveRequiredFiles();
+        $this->sync()->run();
+
+        // A broken origin/proxy answers every required file with 200 + no body:
+        // the pull must be refused so the good bundle keeps serving.
+        foreach (array_keys(self::BODIES) as $path) {
+            $this->fetcher->on('/'.$path, FetchResult::http(200, ''));
+        }
+        $result = $this->sync()->run();
+
+        self::assertFalse($result->isSuccess());
+        self::assertStringContainsString('empty', $result->errorMessage());
+        self::assertSame('hello', $this->cache->get('llms.txt'));
+    }
+
     public function testIdenticalRepullReportsUnchanged(): void
     {
         $this->serveRequiredFiles();

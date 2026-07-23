@@ -157,6 +157,17 @@ final class HeadInjectorTest extends TestCase
         self::assertSame(1, substr_count((string) $response->getContent(), 'application/ld+json'));
     }
 
+    public function testIdempotentWhenExistingTagNewlineStripped(): void
+    {
+        // A minifier/Twig trim can drop the trailing newline render() appends;
+        // the guard must still recognise the tag and not inject a second copy.
+        $tag = rtrim(HeadInjector::render(self::SCHEMA), "\n");
+        $response = new Response('<html><head>'.$tag.'</head></html>');
+        $this->respond('/', $response);
+
+        self::assertSame(1, substr_count((string) $response->getContent(), 'application/ld+json'));
+    }
+
     public function testCustomHomepagePath(): void
     {
         $pool = new ArrayAdapter();

@@ -44,7 +44,14 @@ final class Router implements EventSubscriberInterface
             return;
         }
 
-        $path = ltrim($request->getPathInfo(), '/');
+        $pathInfo = $request->getPathInfo();
+        $path = ltrim($pathInfo, '/');
+        // Only the canonical single-slash form serves an artefact; reject
+        // non-canonical variants like //schema.json that ltrim would otherwise
+        // collapse onto the same map entry, exposing a duplicate URL.
+        if ('/'.$path !== $pathInfo) {
+            return;
+        }
         $type = ContentTypes::forPath($path);
         if (null === $type) {
             return;

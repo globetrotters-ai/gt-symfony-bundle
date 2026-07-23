@@ -137,6 +137,41 @@ final class RobotsFilterTest extends TestCase
         self::assertSame('<html></html>', $response->getContent());
     }
 
+    public function testGeneratesRobotsWhenAppReturnsExplicit404Response(): void
+    {
+        // A catch-all controller returns a 404 Response instead of throwing, so
+        // onKernelException never fires — onKernelResponse must still generate.
+        $response = new Response('Not Found', 404, ['Content-Type' => 'text/html']);
+        $generated = $this->responseEvent($this->filter(), '/robots.txt', $response);
+
+        self::assertSame(200, $generated->getStatusCode());
+        self::assertSame('text/plain; charset=utf-8', $generated->headers->get('Content-Type'));
+        self::assertStringStartsWith(RobotsFilter::MARKER, (string) $generated->getContent());
+    }
+
+    public function testDoesNotGenerateOn404WhenNotAdvertising(): void
+    {
+        $response = new Response('Not Found', 404);
+        $result = $this->responseEvent($this->filter(cached: false), '/robots.txt', $response);
+
+        self::assertSame(404, $result->getStatusCode());
+        self::assertSame('Not Found', $result->getContent());
+    }
+
+    public function testDoesNotDecorateOnPost(): void
+    {
+        $response = new Response("User-agent: *\n", 200, ['Content-Type' => 'text/plain']);
+        $event = new ResponseEvent(
+            $this->createMock(HttpKernelInterface::class),
+            Request::create('/robots.txt', 'POST'),
+            HttpKernelInterface::MAIN_REQUEST,
+            $response,
+        );
+        $this->filter()->onKernelResponse($event);
+
+        self::assertStringNotContainsString(RobotsFilter::MARKER, (string) $response->getContent());
+    }
+
     public function testServesGeneratedRobotsOn404(): void
     {
         $event = $this->exceptionEvent($this->filter(), new NotFoundHttpException());

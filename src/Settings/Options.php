@@ -99,8 +99,17 @@ final class Options implements ResetInterface
      */
     public function updateState(array $values): void
     {
-        $state = array_merge($this->state(), $values);
+        // Merge over the freshly-read pool item rather than the process-memoized
+        // snapshot: a concurrent writer (e.g. a CLI refresh while a web request
+        // holds an older state()) would otherwise be silently clobbered by our
+        // stale in-memory copy. We still only overwrite the keys in $values.
         $item = $this->pool->getItem(self::STATE_ITEM);
+        $stored = $item->isHit() ? $item->get() : [];
+        $state = array_merge(
+            self::STATE_DEFAULTS,
+            \is_array($stored) ? $stored : [],
+            $values,
+        );
         $item->set($state);
         $this->pool->save($item);
         $this->state = $state;

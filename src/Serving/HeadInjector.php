@@ -57,7 +57,11 @@ final class HeadInjector implements EventSubscriberInterface
             return;
         }
         $markup = self::render($json);
-        if ('' === $markup || str_contains($content, $markup)) {
+        // Compare against the tag without its trailing newline so the guard
+        // still detects a manually-rendered {{ gt_ai_presence_head() }} tag
+        // whose newline a Twig trim or HTML minifier may have stripped —
+        // otherwise the byte-exact match misses it and we double-inject.
+        if ('' === $markup || str_contains($content, rtrim($markup, "\n"))) {
             return;
         }
 

@@ -55,35 +55,53 @@ final class RobotsFilter implements EventSubscriberInterface
     }
 
     /**
-     * Decorate an app-served robots.txt.
+     * Decorate an app-served robots.txt, or generate one when the app returns
+     * an explicit 404 Response (a catch-all controller that returns rather than
+     * throws — the thrown case is handled in onKernelException instead).
      */
     public function onKernelResponse(ResponseEvent $event): void
     {
         if (!$event->isMainRequest()) {
             return;
         }
-        if ('/robots.txt' !== $event->getRequest()->getPathInfo()) {
+        $request = $event->getRequest();
+        if ('/robots.txt' !== $request->getPathInfo()) {
+            return;
+        }
+        if (!\in_array($request->getMethod(), ['GET', 'HEAD'], true)) {
+            return;
+        }
+        if (!$this->shouldAdvertise()) {
             return;
         }
 
         $response = $event->getResponse();
-        if (200 !== $response->getStatusCode()) {
-            return;
-        }
-        $contentType = $response->headers->get('Content-Type');
-        if (null !== $contentType && !str_starts_with($contentType, 'text/plain')) {
-            return;
-        }
-        $content = $response->getContent();
-        if (false === $content) {
-            return;
-        }
-        if (!$this->shouldAdvertise() || str_contains($content, self::MARKER)) {
+        $status = $response->getStatusCode();
+
+        if (200 === $status) {
+            $contentType = $response->headers->get('Content-Type');
+            if (null !== $contentType && !str_starts_with($contentType, 'text/plain')) {
+                return;
+            }
+            $content = $response->getContent();
+            if (false === $content || str_contains($content, self::MARKER)) {
+                return;
+            }
+
+            $response->setContent(rtrim($content, "\n")."\n\n".self::buildBlock($this->options->baseUrl()));
+            $response->headers->remove('Content-Length');
+
             return;
         }
 
-        $response->setContent(rtrim($content, "\n")."\n\n".self::buildBlock($this->options->baseUrl()));
-        $response->headers->remove('Content-Length');
+        // The app served a plain 404 Response (never threw), so onKernelException
+        // never fired — generate the robots.txt in its place.
+        if (404 === $status) {
+            $response->setStatusCode(200);
+            $response->setContent(self::buildBlock($this->options->baseUrl()));
+            $response->headers->set('Content-Type', 'text/plain; charset=utf-8');
+            $response->headers->remove('Content-Length');
+        }
     }
 
     /**

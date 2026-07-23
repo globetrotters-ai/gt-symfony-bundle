@@ -24,6 +24,14 @@ use Symfony\Component\Console\Style\SymfonyStyle;
 #[AsCommand(name: 'gt:refresh', description: 'Pull the Globetrotters AI presence artefacts into the cache')]
 final class RefreshCommand extends Command
 {
+    /**
+     * Tolerance applied to the due-check so a cron firing on the same cadence
+     * as the configured interval doesn't drift into refreshing every *other*
+     * cycle: each run's last_refresh lands a few seconds after the cron fired,
+     * leaving the next same-time run just under a full interval elapsed.
+     */
+    private const DUE_SLACK_SECONDS = 900;
+
     public function __construct(
         private readonly ArtefactSync $sync,
         private readonly Options $options,
@@ -77,6 +85,6 @@ final class RefreshCommand extends Command
             return true;
         }
 
-        return $this->clock->now()->getTimestamp() - $lastRefresh >= $this->options->refreshIntervalSeconds();
+        return $this->clock->now()->getTimestamp() - $lastRefresh >= $this->options->refreshIntervalSeconds() - self::DUE_SLACK_SECONDS;
     }
 }

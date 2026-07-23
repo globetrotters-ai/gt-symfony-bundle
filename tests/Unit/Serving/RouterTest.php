@@ -76,6 +76,22 @@ final class RouterTest extends TestCase
         self::assertNotNull($event->getResponse());
     }
 
+    public function testNonCanonicalDoubleSlashPathFallsThrough(): void
+    {
+        // Request::create normalises "//llms.txt" away, so drive getPathInfo()
+        // through the raw REQUEST_URI the way a real double-slash request would.
+        $request = Request::create('/x');
+        $request->server->set('REQUEST_URI', '//llms.txt');
+        $event = new RequestEvent(
+            $this->createMock(HttpKernelInterface::class),
+            $request,
+            HttpKernelInterface::MAIN_REQUEST,
+        );
+        $this->router->onKernelRequest($event);
+
+        self::assertNull($event->getResponse());
+    }
+
     public function testUnknownPathFallsThrough(): void
     {
         $event = $this->event('/about');
