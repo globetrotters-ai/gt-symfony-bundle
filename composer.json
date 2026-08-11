@@ -1,6 +1,6 @@
 {
     "name": "globetrotters-ai/symfony-bundle",
-    "description": "Serves the Globetrotters Official AI Presence at a Symfony site's apex: llms.txt, ai.json, schema.json and the .well-known artefact set, with scheduled refresh, stale-serve and server-rendered homepage JSON-LD.",
+    "description": "Serves the Globetrotters Official AI Presence at a Symfony site's apex: llms.txt, ai.json, schema.json and the .well-known artefact set, with scheduled refresh, stale-serve, server-rendered homepage JSON-LD and agent-traffic reporting.",
     "type": "symfony-bundle",
     "license": "MIT",
     "keywords": ["symfony", "bundle", "ai", "llms.txt", "json-ld", "agentic", "globetrotters"],
@@ -38,7 +38,8 @@
     "suggest": {
         "symfony/scheduler": "Run refreshes via symfony/scheduler instead of cron",
         "symfony/messenger": "Required together with symfony/scheduler",
-        "twig/twig": "Enables the gt_ai_presence_head() Twig function"
+        "twig/twig": "Enables the gt_ai_presence_head() Twig function",
+        "ext-zlib": "Gzips the agent-traffic reporting payload, which the ingest endpoint accepts at a tighter size cap"
     },
     "autoload": {
         "psr-4": {

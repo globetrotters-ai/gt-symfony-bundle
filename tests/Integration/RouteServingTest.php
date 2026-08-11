@@ -21,7 +21,8 @@ final class RouteServingTest extends IntegrationTestCase
             self::assertSame(200, $response->getStatusCode(), $path);
             self::assertSame(ContentTypes::forPath($path), $response->headers->get('Content-Type'), $path);
             self::assertSame('nosniff', $response->headers->get('X-Content-Type-Options'), $path);
-            self::assertSame('max-age=300, public', $response->headers->get('Cache-Control'), $path);
+            self::assertSame('no-store, private', $response->headers->get('Cache-Control'), $path);
+            self::assertSame('no-store', $response->headers->get('Surrogate-Control'), $path);
             self::assertNotSame('ANTAGONIST', $response->getContent(), $path);
 
             if (ContentTypes::VERSION_MARKER !== $path) {

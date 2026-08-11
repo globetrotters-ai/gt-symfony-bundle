@@ -4,6 +4,11 @@ declare(strict_types=1);
 
 namespace Symfony\Component\DependencyInjection\Loader\Configurator;
 
+use Globetrotters\AiPresenceBundle\Analytics\AnalyticsOptions;
+use Globetrotters\AiPresenceBundle\Analytics\AnalyticsState;
+use Globetrotters\AiPresenceBundle\Analytics\BufferDirectory;
+use Globetrotters\AiPresenceBundle\Analytics\EventBuffer;
+use Globetrotters\AiPresenceBundle\Analytics\FlushGate;
 use Globetrotters\AiPresenceBundle\Cache\ArtefactCache;
 use Globetrotters\AiPresenceBundle\Client\FetcherInterface;
 use Globetrotters\AiPresenceBundle\Client\GtClient;
@@ -78,6 +83,11 @@ return static function (ContainerConfigurator $container): void {
             service(Options::class),
             service(ArtefactCache::class),
             service(ArtefactSync::class),
+            service(AnalyticsOptions::class),
+            service(AnalyticsState::class),
+            service(EventBuffer::class),
+            service(FlushGate::class),
+            service(BufferDirectory::class),
         ])
         ->tag('console.command');
 };

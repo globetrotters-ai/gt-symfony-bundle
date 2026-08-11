@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Globetrotters\AiPresenceBundle\Scheduler;
 
+use Globetrotters\AiPresenceBundle\Analytics\FlushGate;
 use Globetrotters\AiPresenceBundle\Settings\Options;
 use Psr\Cache\CacheItemPoolInterface;
 use Symfony\Component\Scheduler\RecurringMessage;
@@ -30,6 +31,14 @@ final class RefreshScheduleProvider implements ScheduleProviderInterface
 
         $schedule = (new Schedule())
             ->add(RecurringMessage::every($every, new RefreshMessage()))
+            // Reporting rides the same schedule object but deliberately not the
+            // same cadence: refresh_interval is a content-freshness choice the
+            // customer makes (down to weekly), while the flush interval is
+            // fixed by the ingest contract at 15 minutes. Sharing the cadence
+            // would let a weekly refresh sit the buffer for days, well past the
+            // backend's 90-minute staleness window, where hits are re-stamped
+            // to arrival time and land in the wrong buckets.
+            ->add(RecurringMessage::every(FlushGate::INTERVAL_SECONDS, new FlushMessage()))
             // A full re-pull is idempotent — collapse missed runs.
             ->processOnlyLastMissedRun(true);
 
