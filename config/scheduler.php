@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Symfony\Component\DependencyInjection\Loader\Configurator;
 
+use Globetrotters\AiPresenceBundle\Analytics\Flusher;
+use Globetrotters\AiPresenceBundle\Scheduler\FlushMessageHandler;
 use Globetrotters\AiPresenceBundle\Scheduler\RefreshMessageHandler;
 use Globetrotters\AiPresenceBundle\Scheduler\RefreshScheduleProvider;
 use Globetrotters\AiPresenceBundle\Settings\Options;
@@ -14,6 +16,10 @@ return static function (ContainerConfigurator $container): void {
 
     $services->set(RefreshMessageHandler::class)
         ->args([service(ArtefactSync::class)])
+        ->tag('messenger.message_handler');
+
+    $services->set(FlushMessageHandler::class)
+        ->args([service(Flusher::class)])
         ->tag('messenger.message_handler');
 
     $services->set(RefreshScheduleProvider::class)

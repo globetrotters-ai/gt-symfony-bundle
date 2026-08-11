@@ -55,8 +55,40 @@ final class RouterTest extends TestCase
         self::assertSame('llms body', $response->getContent());
         self::assertSame('text/plain; charset=utf-8', $response->headers->get('Content-Type'));
         self::assertSame('nosniff', $response->headers->get('X-Content-Type-Options'));
-        self::assertSame('max-age=300, public', $response->headers->get('Cache-Control'));
+        // Uncacheable is a precondition for measurement, not an optimisation:
+        // a shared TTL in front of the origin means the app never runs and the
+        // reported hit count is silently low.
+        self::assertSame('no-store, private', $response->headers->get('Cache-Control'));
+        self::assertSame('no-store', $response->headers->get('Surrogate-Control'));
         self::assertTrue($event->isPropagationStopped());
+    }
+
+    public function testMarksTheRequestForCapture(): void
+    {
+        $event = $this->event('/llms.txt');
+        $this->router->onKernelRequest($event);
+
+        $attributes = $event->getRequest()->attributes;
+        self::assertSame('/llms.txt', $attributes->get(Router::ATTRIBUTE_PATH));
+        self::assertSame(\strlen('llms body'), $attributes->get(Router::ATTRIBUTE_BYTES));
+    }
+
+    public function testReportsTheCanonicalPathRatherThanTheRequestUri(): void
+    {
+        // The backend matches the six paths exactly and drops /llms.txt?v=2 at
+        // ingest, so the query string must not reach the reported path.
+        $event = $this->event('/llms.txt?v=2');
+        $this->router->onKernelRequest($event);
+
+        self::assertSame('/llms.txt', $event->getRequest()->attributes->get(Router::ATTRIBUTE_PATH));
+    }
+
+    public function testDoesNotMarkARequestItDidNotServe(): void
+    {
+        $event = $this->event('/llms-full.txt');
+        $this->router->onKernelRequest($event);
+
+        self::assertFalse($event->getRequest()->attributes->has(Router::ATTRIBUTE_PATH));
     }
 
     public function testServesWellKnownPath(): void
