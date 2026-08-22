@@ -37,11 +37,13 @@ final class RouterTest extends TestCase
         );
     }
 
-    public function testSubscribesBeforeRouterAndFirewall(): void
+    public function testSubscribesAfterValidationButBeforeRouterAndFirewall(): void
     {
         $events = Router::getSubscribedEvents();
 
-        self::assertSame(['onKernelRequest', 512], $events[KernelEvents::REQUEST]);
+        self::assertSame(['onKernelRequest', 64], $events[KernelEvents::REQUEST]);
+        self::assertLessThan(256, Router::PRIORITY, 'Symfony request validation must run first');
+        self::assertGreaterThan(32, Router::PRIORITY, 'The bundle must still pre-empt routing');
     }
 
     public function testServesCachedArtefactWithExactHeaders(): void

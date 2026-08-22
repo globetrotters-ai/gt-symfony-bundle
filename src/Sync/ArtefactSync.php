@@ -73,7 +73,14 @@ final class ArtefactSync
         // differ on every run, reporting a spurious "changed" even for
         // byte-identical content.
         $previousHash = (string) $this->options->state()['content_hash'];
-        $this->cache->store($files, $marker['version'], $this->clock->now()->getTimestamp());
+        try {
+            $stored = $this->cache->store($files, $marker['version'], $this->clock->now()->getTimestamp());
+        } catch (\Throwable) {
+            $stored = false;
+        }
+        if (!$stored) {
+            return $this->fail(['Failed to persist refreshed artefacts; keeping the last good bundle.']);
+        }
 
         $this->options->updateState([
             'installed_version' => $marker['version'],

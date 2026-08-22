@@ -8,16 +8,30 @@ use Psr\Cache\CacheItemPoolInterface;
 use Symfony\Contracts\Service\ResetInterface;
 
 /**
- * The pulled artefact bundle, stored as a single cache item with no
- * expiration. Stale-serve is structural: only a *successful* full pull calls
- * store(), so an unreachable Globetrotters leaves the previous bundle serving.
+ * The pulled artefact bundle, published through a small atomic manifest.
+ *
+ * Each body lives in its own content-addressed cache item. A refresh writes all
+ * bodies first and only then switches the manifest, so readers see either the
+ * complete old generation or the complete new one. Keeping bodies separate
+ * avoids deserializing the whole (potentially multi-megabyte) bundle for every
+ * artefact request and avoids exceeding a cache backend's per-item limit merely
+ * because otherwise-independent bodies were combined.
+ *
+ * Legacy v1 single-item bundles remain readable and are migrated on the next
+ * successful refresh.
  */
 final class ArtefactCache implements ResetInterface
 {
     public const ITEM = 'globetrotters_ai_presence.artefacts';
 
+    private const FORMAT = 2;
+    private const FILE_ITEM_PREFIX = 'globetrotters_ai_presence.file.';
+
     /** @var array<string, mixed>|null */
-    private ?array $bundle = null;
+    private ?array $manifest = null;
+
+    /** @var array<string, string|null> */
+    private array $fileMemo = [];
 
     public function __construct(private readonly CacheItemPoolInterface $pool)
     {
@@ -25,12 +39,32 @@ final class ArtefactCache implements ResetInterface
 
     public function get(string $path): ?string
     {
-        $files = $this->files();
-        if (!\array_key_exists($path, $files)) {
-            return null;
+        if (\array_key_exists($path, $this->fileMemo)) {
+            return $this->fileMemo[$path];
         }
 
-        return (string) $files[$path];
+        $manifest = $this->manifest();
+        if ($this->isCurrentFormat($manifest)) {
+            $fileItems = $manifest['file_items'];
+            \assert(\is_array($fileItems));
+            $key = $fileItems[$path] ?? null;
+            if (!\is_string($key) || '' === $key) {
+                return $this->fileMemo[$path] = null;
+            }
+
+            $item = $this->pool->getItem($key);
+            $body = $item->isHit() ? $item->get() : null;
+
+            return $this->fileMemo[$path] = \is_string($body) ? $body : null;
+        }
+
+        // v1 stored the bodies directly under `files` in the manifest item.
+        $files = $manifest['files'] ?? null;
+        if (!\is_array($files) || !\array_key_exists($path, $files)) {
+            return $this->fileMemo[$path] = null;
+        }
+
+        return $this->fileMemo[$path] = (string) $files[$path];
     }
 
     /**
@@ -38,59 +72,176 @@ final class ArtefactCache implements ResetInterface
      */
     public function files(): array
     {
-        $files = $this->bundle()['files'] ?? null;
+        $manifest = $this->manifest();
+        $paths = $this->isCurrentFormat($manifest)
+            ? array_keys($manifest['file_items'])
+            : array_keys(\is_array($manifest['files'] ?? null) ? $manifest['files'] : []);
 
-        return \is_array($files) ? $files : [];
+        $files = [];
+        foreach ($paths as $path) {
+            if (!\is_string($path)) {
+                continue;
+            }
+            $body = $this->get($path);
+            if (null !== $body) {
+                $files[$path] = $body;
+            }
+        }
+
+        return $files;
     }
 
     public function version(): string
     {
-        return (string) ($this->bundle()['version'] ?? '');
+        return (string) ($this->manifest()['version'] ?? '');
     }
 
     public function hasAny(): bool
     {
-        return [] !== $this->files();
+        $manifest = $this->manifest();
+        $paths = $this->isCurrentFormat($manifest)
+            ? array_keys($manifest['file_items'])
+            : array_keys(\is_array($manifest['files'] ?? null) ? $manifest['files'] : []);
+
+        foreach ($paths as $path) {
+            if (\is_string($path) && null !== $this->get($path)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
+     * Persist and atomically publish a complete bundle.
+     *
+     * Returns false without changing the published manifest or the process memo
+     * when any cache write reports failure.
+     *
      * @param array<string, string> $files
      */
-    public function store(array $files, string $version, int $storedAt): void
+    public function store(array $files, string $version, int $storedAt): bool
     {
-        $bundle = [
-            'files' => $files,
+        $oldManifest = $this->manifest();
+        $oldCurrentItems = $this->fileItemKeys($oldManifest['file_items'] ?? null);
+        $oldPreviousItems = $this->stringList($oldManifest['previous_file_items'] ?? null);
+
+        $fileItems = [];
+        foreach ($files as $path => $body) {
+            $key = self::fileItemKey($path, $body);
+            $item = $this->pool->getItem($key);
+            $item->set($body);
+            if (!$this->pool->save($item)) {
+                return false;
+            }
+            $fileItems[$path] = $key;
+        }
+
+        $manifest = [
+            'format' => self::FORMAT,
+            'file_items' => $fileItems,
+            // Keep one previous generation so a reader that loaded the old
+            // manifest just before publication can still resolve every body.
+            'previous_file_items' => array_values(array_unique($oldCurrentItems)),
             'version' => $version,
             'stored_at' => $storedAt,
         ];
         $item = $this->pool->getItem(self::ITEM);
-        $item->set($bundle);
-        $this->pool->save($item);
-        $this->bundle = $bundle;
+        $item->set($manifest);
+        if (!$this->pool->save($item)) {
+            return false;
+        }
+
+        $this->manifest = $manifest;
+        $this->fileMemo = $files;
+
+        // Items older than the retained previous generation are no longer
+        // reachable. Cleanup is best-effort and cannot undo a published bundle.
+        $keep = array_flip(array_merge(array_values($fileItems), $oldCurrentItems));
+        $stale = array_values(array_filter(
+            $oldPreviousItems,
+            static fn (string $key): bool => !isset($keep[$key]),
+        ));
+        if ([] !== $stale) {
+            try {
+                $this->pool->deleteItems($stale);
+            } catch (\Throwable) {
+                // Publication already succeeded; eventual cache eviction can
+                // reclaim an orphan if this backend cannot delete it now.
+            }
+        }
+
+        return true;
     }
 
     public function clear(): void
     {
-        $this->pool->deleteItem(self::ITEM);
-        $this->bundle = null;
+        $manifest = $this->manifest();
+        $keys = array_values(array_unique(array_merge(
+            $this->fileItemKeys($manifest['file_items'] ?? null),
+            $this->stringList($manifest['previous_file_items'] ?? null),
+        )));
+
+        if (!$this->pool->deleteItem(self::ITEM)) {
+            return;
+        }
+        if ([] !== $keys) {
+            $this->pool->deleteItems($keys);
+        }
+        $this->reset();
     }
 
     public function reset(): void
     {
-        $this->bundle = null;
+        $this->manifest = null;
+        $this->fileMemo = [];
     }
 
     /**
      * @return array<string, mixed>
      */
-    private function bundle(): array
+    private function manifest(): array
     {
-        if (null === $this->bundle) {
+        if (null === $this->manifest) {
             $item = $this->pool->getItem(self::ITEM);
             $stored = $item->isHit() ? $item->get() : [];
-            $this->bundle = \is_array($stored) ? $stored : [];
+            $this->manifest = \is_array($stored) ? $stored : [];
         }
 
-        return $this->bundle;
+        return $this->manifest;
+    }
+
+    /**
+     * @param array<string, mixed> $manifest
+     */
+    private function isCurrentFormat(array $manifest): bool
+    {
+        return self::FORMAT === ($manifest['format'] ?? null)
+            && \is_array($manifest['file_items'] ?? null);
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function fileItemKeys(mixed $value): array
+    {
+        return \is_array($value) ? $this->stringList(array_values($value)) : [];
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function stringList(mixed $value): array
+    {
+        if (!\is_array($value)) {
+            return [];
+        }
+
+        return array_values(array_filter($value, static fn (mixed $key): bool => \is_string($key) && '' !== $key));
+    }
+
+    private static function fileItemKey(string $path, string $body): string
+    {
+        return self::FILE_ITEM_PREFIX.hash('sha256', $path."\0".$body);
     }
 }

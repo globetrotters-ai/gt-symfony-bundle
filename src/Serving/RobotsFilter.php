@@ -26,6 +26,17 @@ final class RobotsFilter implements EventSubscriberInterface
 {
     public const MARKER = '# Globetrotters AI Presence';
 
+    /** @see HeadInjector::onKernelResponse() */
+    private const BODY_METADATA_HEADERS = [
+        'Content-Length',
+        'ETag',
+        'Last-Modified',
+        'Content-MD5',
+        'Digest',
+        'Content-Digest',
+        'Repr-Digest',
+    ];
+
     private const AI_BOTS = [
         'GPTBot',
         'ChatGPT-User',
@@ -89,7 +100,7 @@ final class RobotsFilter implements EventSubscriberInterface
             }
 
             $response->setContent(rtrim($content, "\n")."\n\n".self::buildBlock($this->options->baseUrl()));
-            $response->headers->remove('Content-Length');
+            self::invalidateBodyMetadata($response);
 
             return;
         }
@@ -100,7 +111,7 @@ final class RobotsFilter implements EventSubscriberInterface
             $response->setStatusCode(200);
             $response->setContent(self::buildBlock($this->options->baseUrl()));
             $response->headers->set('Content-Type', 'text/plain; charset=utf-8');
-            $response->headers->remove('Content-Length');
+            self::invalidateBodyMetadata($response);
         }
     }
 
@@ -152,5 +163,12 @@ final class RobotsFilter implements EventSubscriberInterface
     private function shouldAdvertise(): bool
     {
         return $this->options->isConnected() && $this->cache->hasAny();
+    }
+
+    private static function invalidateBodyMetadata(Response $response): void
+    {
+        foreach (self::BODY_METADATA_HEADERS as $header) {
+            $response->headers->remove($header);
+        }
     }
 }

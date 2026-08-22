@@ -244,12 +244,14 @@ final class FlusherTest extends TestCase
         self::assertSame('', $state['last_flush_error']);
     }
 
-    public function testAnEmptyBufferStillStampsTheAttempt(): void
+    public function testAnEmptyBufferSendsAHealthHeartbeat(): void
     {
-        self::assertFalse($this->flusher->run(AnalyticsState::LANE_COMMAND));
+        self::assertTrue($this->flusher->run(AnalyticsState::LANE_COMMAND));
 
-        self::assertCount(0, $this->transport->sent);
+        self::assertCount(1, $this->transport->sent);
+        self::assertSame([], $this->transport->envelopes()[0]['events']);
         self::assertSame($this->clock->now()->getTimestamp(), $this->state->state()['last_flush_attempt']);
+        self::assertSame($this->clock->now()->getTimestamp(), $this->state->state()['last_flush_ok']);
     }
 
     public function testDoesNothingWithoutCredentials(): void
