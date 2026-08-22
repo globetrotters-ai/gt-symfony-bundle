@@ -71,7 +71,9 @@ final class HeadInjector implements EventSubscriberInterface
         }
 
         $response->setContent(substr_replace($content, $markup, $position, 0));
-        $response->headers->remove('Content-Length');
+        // The injected JSON-LD changed the body, so anything describing the
+        // original representation must go with it.
+        BodyMetadata::invalidate($response);
     }
 
     /**

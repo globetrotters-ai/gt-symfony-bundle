@@ -12,10 +12,12 @@ use Symfony\Component\HttpKernel\KernelEvents;
 
 /**
  * Serves the cached apex artefacts from a kernel.request subscriber that runs
- * before routing (priority 512, ahead of RouterListener at 32 and the security
- * firewall at 8), so the artefact paths work even when a catch-all controller
- * or another bundle would otherwise claim them. Setting the event response
- * stops propagation, the Symfony analogue of the WP plugin's exit.
+ * before routing (priority 64, ahead of RouterListener at 32 and the security
+ * firewall at 8, but after ValidateRequestListener at 256), so the artefact
+ * paths work even when a catch-all controller or another bundle would otherwise
+ * claim them without bypassing Symfony's trusted-host/request validation.
+ * Setting the event response stops propagation, the Symfony analogue of the WP
+ * plugin's exit.
  *
  * A path miss or cold cache returns without touching the response, letting the
  * app handle the request normally.
@@ -27,7 +29,7 @@ use Symfony\Component\HttpKernel\KernelEvents;
  */
 final class Router implements EventSubscriberInterface
 {
-    public const PRIORITY = 512;
+    public const PRIORITY = 64;
 
     /**
      * Request attributes marking a response this subscriber produced, read by

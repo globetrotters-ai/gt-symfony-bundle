@@ -106,9 +106,27 @@ final class Flusher
 
         $claimed = $this->buffer->claim(IngestTransportInterface::MAX_EVENTS_PER_BATCH);
         if ([] === $claimed) {
-            $this->state->update(['last_flush_attempt' => $this->now(), 'last_flush_lane' => $lane]);
+            // Empty envelopes are health heartbeats: the backend stamps the
+            // install's "producer is alive" watermark even when no agent has
+            // visited since the previous run. They also carry and settle any
+            // pending overflow count left after the last event was removed.
+            $dropped = $this->buffer->droppedPending();
+            $json = $this->encode([], $dropped);
+            if (!$this->fits($json)) {
+                return false;
+            }
 
-            return false;
+            $result = $this->transport->post(
+                $this->options->endpoint(),
+                $this->options->ingestToken(),
+                $json,
+            );
+            $this->recordAttempt($result, $lane, 0);
+            if ($result->isAccepted()) {
+                $this->buffer->settleDropped($dropped);
+            }
+
+            return $result->isAccepted();
         }
 
         $dropped = $this->buffer->droppedPending();

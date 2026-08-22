@@ -40,7 +40,10 @@ final class IngestResult
 
     public function isAccepted(): bool
     {
-        return $this->status >= 200 && $this->status < 300;
+        // The ingest contract has exactly one hand-off response. Treating a
+        // generic 2xx as acceptance can discard a batch when a misconfigured
+        // endpoint answers with a login page or another unrelated success.
+        return 202 === $this->status;
     }
 
     /**

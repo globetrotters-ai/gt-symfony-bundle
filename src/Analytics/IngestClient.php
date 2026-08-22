@@ -58,6 +58,9 @@ final class IngestClient implements IngestTransportInterface
             $response = $this->client->request('POST', $url, [
                 'timeout' => self::TIMEOUT_SECONDS,
                 'max_duration' => self::MAX_DURATION_SECONDS,
+                // The issued endpoint is final. Following a redirect can turn
+                // the POST into a GET whose unrelated 2xx would look accepted.
+                'max_redirects' => 0,
                 'headers' => $headers,
                 'body' => $body,
             ]);

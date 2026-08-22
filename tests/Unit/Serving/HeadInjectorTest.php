@@ -83,13 +83,21 @@ final class HeadInjectorTest extends TestCase
         self::assertStringContainsString('application/ld+json', (string) $response->getContent());
     }
 
-    public function testRemovesStaleContentLength(): void
+    public function testRemovesStaleBodyMetadata(): void
     {
         $response = new Response('<html><head></head><body></body></html>');
         $response->headers->set('Content-Length', '38');
+        $response->headers->set('ETag', '"homepage-v1"');
+        $response->headers->set('Last-Modified', 'Wed, 21 Oct 2015 07:28:00 GMT');
+        $response->headers->set('Content-MD5', 'old-md5');
+        $response->headers->set('Digest', 'sha-256=old');
+        $response->headers->set('Content-Digest', 'sha-256=:old:');
+        $response->headers->set('Repr-Digest', 'sha-256=:old:');
         $this->respond('/', $response);
 
-        self::assertFalse($response->headers->has('Content-Length'));
+        foreach (['Content-Length', 'ETag', 'Last-Modified', 'Content-MD5', 'Digest', 'Content-Digest', 'Repr-Digest'] as $header) {
+            self::assertFalse($response->headers->has($header), $header.' must not describe the pre-injection body');
+        }
     }
 
     public function testSkipsNonHomepagePath(): void

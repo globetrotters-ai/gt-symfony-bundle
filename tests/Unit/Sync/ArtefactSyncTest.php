@@ -12,6 +12,7 @@ use Globetrotters\AiPresenceBundle\Settings\Options;
 use Globetrotters\AiPresenceBundle\Sync\ArtefactSync;
 use Globetrotters\AiPresenceBundle\Tests\Support\FakeFetcher;
 use PHPUnit\Framework\TestCase;
+use Psr\Cache\CacheItemInterface;
 use Symfony\Component\Cache\Adapter\ArrayAdapter;
 use Symfony\Component\Clock\MockClock;
 
@@ -147,6 +148,67 @@ final class ArtefactSyncTest extends TestCase
         // Stale bundle untouched.
         self::assertSame('{"a":1}', $this->cache->get('ai.json'));
         self::assertSame($result->errorMessage(), $this->options->state()['last_error']);
+    }
+
+    public function testCachePersistenceFailureIsReportedAndKeepsStaleBundle(): void
+    {
+        $pool = new class extends ArrayAdapter {
+            public bool $failManifest = false;
+
+            public function save(CacheItemInterface $item): bool
+            {
+                if ($this->failManifest && ArtefactCache::ITEM === $item->getKey()) {
+                    return false;
+                }
+
+                return parent::save($item);
+            }
+        };
+        $this->pool = $pool;
+        $this->options = new Options($pool, self::BASE_URL, 'daily', '/');
+        $this->cache = new ArtefactCache($pool);
+        $this->serveRequiredFiles();
+        self::assertTrue($this->sync()->run()->isSuccess());
+
+        $pool->failManifest = true;
+        $this->fetcher->on('/llms.txt', FetchResult::http(200, 'new content'));
+        $result = $this->sync()->run();
+
+        self::assertFalse($result->isSuccess());
+        self::assertStringContainsString('persist', $result->errorMessage());
+        self::assertSame('hello', $this->cache->get('llms.txt'));
+        self::assertSame('hello', (new ArtefactCache($pool))->get('llms.txt'));
+    }
+
+    public function testCachePersistenceExceptionIsSurfacedInTheError(): void
+    {
+        $pool = new class extends ArrayAdapter {
+            public bool $throwOnManifest = false;
+
+            public function save(CacheItemInterface $item): bool
+            {
+                if ($this->throwOnManifest && ArtefactCache::ITEM === $item->getKey()) {
+                    throw new \RuntimeException('Redis server went away');
+                }
+
+                return parent::save($item);
+            }
+        };
+        $this->pool = $pool;
+        $this->options = new Options($pool, self::BASE_URL, 'daily', '/');
+        $this->cache = new ArtefactCache($pool);
+        $this->serveRequiredFiles();
+        self::assertTrue($this->sync()->run()->isSuccess());
+
+        $pool->throwOnManifest = true;
+        $this->fetcher->on('/llms.txt', FetchResult::http(200, 'new content'));
+        $result = $this->sync()->run();
+
+        // A backend that blew up must be diagnosable, not just "failed".
+        self::assertFalse($result->isSuccess());
+        self::assertStringContainsString('Redis server went away', $result->errorMessage());
+        self::assertStringContainsString('Redis server went away', (string) $this->options->state()['last_error']);
+        self::assertSame('hello', $this->cache->get('llms.txt'));
     }
 
     public function testTransportErrorAborts(): void

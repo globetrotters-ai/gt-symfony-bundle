@@ -95,6 +95,25 @@ final class RobotsFilterTest extends TestCase
         self::assertStringContainsString('Sitemap: '.self::BASE_URL.'/sitemap.xml', $content);
     }
 
+    public function testDecorationRemovesStaleBodyMetadata(): void
+    {
+        $response = new Response("User-agent: *\n", 200, [
+            'Content-Type' => 'text/plain',
+            'Content-Length' => '14',
+            'ETag' => '"robots-v1"',
+            'Last-Modified' => 'Wed, 21 Oct 2015 07:28:00 GMT',
+            'Content-MD5' => 'old-md5',
+            'Digest' => 'sha-256=old',
+            'Content-Digest' => 'sha-256=:old:',
+            'Repr-Digest' => 'sha-256=:old:',
+        ]);
+        $this->responseEvent($this->filter(), '/robots.txt', $response);
+
+        foreach (['Content-Length', 'ETag', 'Last-Modified', 'Content-MD5', 'Digest', 'Content-Digest', 'Repr-Digest'] as $header) {
+            self::assertFalse($response->headers->has($header), $header.' must not describe the undecorated body');
+        }
+    }
+
     public function testDoesNotDecorateTwice(): void
     {
         $response = new Response("User-agent: *\n", 200, ['Content-Type' => 'text/plain']);

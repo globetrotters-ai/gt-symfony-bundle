@@ -77,7 +77,13 @@ final class PresenceFlushCommand extends Command
         if (0 === $buffered) {
             // Still runs: an empty flush is how the backend's "no batch
             // received in 24h" install-health watermark gets stamped.
-            $this->flusher->run(AnalyticsState::LANE_COMMAND);
+            $accepted = $this->flusher->run(AnalyticsState::LANE_COMMAND);
+            if (!$accepted) {
+                $error = (string) $this->state->state()['last_flush_error'];
+                $io->warning('Health heartbeat not accepted; it will be retried.'.('' !== $error ? ' '.$error : ''));
+
+                return Command::FAILURE;
+            }
             $io->writeln('Nothing buffered.');
 
             return Command::SUCCESS;

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Globetrotters\AiPresenceBundle\Tests\Integration;
 
 use Globetrotters\AiPresenceBundle\Serving\ContentTypes;
+use Symfony\Component\HttpFoundation\Request;
 
 final class RouteServingTest extends IntegrationTestCase
 {
@@ -38,6 +39,23 @@ final class RouteServingTest extends IntegrationTestCase
         $client->request('GET', '/llms.txt');
 
         self::assertSame('ANTAGONIST', $client->getResponse()->getContent());
+    }
+
+    public function testTrustedHostValidationRunsBeforeArtefactRouting(): void
+    {
+        $client = $this->bootClient();
+        $this->serveRequiredFiles();
+        $this->refresh();
+        Request::setTrustedHosts(['^allowed\\.test$']);
+
+        try {
+            $client->request('GET', '/llms.txt', server: ['HTTP_HOST' => 'evil.test']);
+
+            self::assertSame(400, $client->getResponse()->getStatusCode());
+            self::assertNotSame('llms body', $client->getResponse()->getContent());
+        } finally {
+            Request::setTrustedHosts([]);
+        }
     }
 
     public function testUnknownPathsStayWithTheApp(): void

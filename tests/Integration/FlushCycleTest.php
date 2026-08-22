@@ -95,7 +95,19 @@ final class FlushCycleTest extends IntegrationTestCase
 
         self::assertSame(Command::SUCCESS, $tester->getStatusCode());
         self::assertStringContainsString('Nothing buffered', $tester->getDisplay());
-        self::assertCount(0, $this->transport()->sent);
+        self::assertCount(1, $this->transport()->sent);
+        self::assertSame([], $this->transport()->envelopes()[0]['events']);
+    }
+
+    public function testARejectedEmptyHeartbeatFailsTheCommand(): void
+    {
+        $this->bootClient();
+        $this->transport()->willReturn(IngestResult::http(503));
+
+        $tester = $this->runCommand('gt:presence:flush', ['--force' => true]);
+
+        self::assertSame(Command::FAILURE, $tester->getStatusCode());
+        self::assertStringContainsString('heartbeat not accepted', $tester->getDisplay());
     }
 
     public function testStatusReportsReportingHealth(): void

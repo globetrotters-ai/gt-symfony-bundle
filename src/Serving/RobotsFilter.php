@@ -89,7 +89,7 @@ final class RobotsFilter implements EventSubscriberInterface
             }
 
             $response->setContent(rtrim($content, "\n")."\n\n".self::buildBlock($this->options->baseUrl()));
-            $response->headers->remove('Content-Length');
+            BodyMetadata::invalidate($response);
 
             return;
         }
@@ -100,7 +100,7 @@ final class RobotsFilter implements EventSubscriberInterface
             $response->setStatusCode(200);
             $response->setContent(self::buildBlock($this->options->baseUrl()));
             $response->headers->set('Content-Type', 'text/plain; charset=utf-8');
-            $response->headers->remove('Content-Length');
+            BodyMetadata::invalidate($response);
         }
     }
 
