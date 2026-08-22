@@ -196,9 +196,14 @@ final class ArtefactCache implements ResetInterface
         // Unconditional: a pool that reports a failed manifest delete must not
         // leave the bodies behind as unreachable garbage, nor leave this
         // process serving a bundle the caller asked to remove.
-        $this->pool->deleteItem(self::ITEM);
-        if ([] !== $keys) {
-            $this->pool->deleteItems($keys);
+        try {
+            $this->pool->deleteItem(self::ITEM);
+            if ([] !== $keys) {
+                $this->pool->deleteItems($keys);
+            }
+        } catch (\Throwable) {
+            // Best-effort, as in store(): a backend that cannot delete right
+            // now must still not leave this process serving the bundle.
         }
         $this->reset();
     }

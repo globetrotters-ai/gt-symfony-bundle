@@ -180,6 +180,37 @@ final class ArtefactSyncTest extends TestCase
         self::assertSame('hello', (new ArtefactCache($pool))->get('llms.txt'));
     }
 
+    public function testCachePersistenceExceptionIsSurfacedInTheError(): void
+    {
+        $pool = new class extends ArrayAdapter {
+            public bool $throwOnManifest = false;
+
+            public function save(CacheItemInterface $item): bool
+            {
+                if ($this->throwOnManifest && ArtefactCache::ITEM === $item->getKey()) {
+                    throw new \RuntimeException('Redis server went away');
+                }
+
+                return parent::save($item);
+            }
+        };
+        $this->pool = $pool;
+        $this->options = new Options($pool, self::BASE_URL, 'daily', '/');
+        $this->cache = new ArtefactCache($pool);
+        $this->serveRequiredFiles();
+        self::assertTrue($this->sync()->run()->isSuccess());
+
+        $pool->throwOnManifest = true;
+        $this->fetcher->on('/llms.txt', FetchResult::http(200, 'new content'));
+        $result = $this->sync()->run();
+
+        // A backend that blew up must be diagnosable, not just "failed".
+        self::assertFalse($result->isSuccess());
+        self::assertStringContainsString('Redis server went away', $result->errorMessage());
+        self::assertStringContainsString('Redis server went away', (string) $this->options->state()['last_error']);
+        self::assertSame('hello', $this->cache->get('llms.txt'));
+    }
+
     public function testTransportErrorAborts(): void
     {
         $this->serveRequiredFiles();

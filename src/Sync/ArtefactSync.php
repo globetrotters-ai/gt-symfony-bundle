@@ -73,13 +73,20 @@ final class ArtefactSync
         // differ on every run, reporting a spurious "changed" even for
         // byte-identical content.
         $previousHash = (string) $this->options->state()['content_hash'];
+        $reason = '';
         try {
             $stored = $this->cache->store($files, $marker['version'], $this->clock->now()->getTimestamp());
-        } catch (\Throwable) {
+        } catch (\Throwable $error) {
+            // Keep the backend's own message: a misconfigured or unreachable
+            // cache pool is otherwise indistinguishable from one that simply
+            // refused the write, and both surface as the same bare failure.
             $stored = false;
+            $reason = $error->getMessage();
         }
         if (!$stored) {
-            return $this->fail(['Failed to persist refreshed artefacts; keeping the last good bundle.']);
+            $detail = '' !== $reason ? \sprintf(' (%s)', $reason) : '';
+
+            return $this->fail([\sprintf('Failed to persist refreshed artefacts%s; keeping the last good bundle.', $detail)]);
         }
 
         $this->options->updateState([

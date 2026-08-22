@@ -167,6 +167,28 @@ final class ArtefactCacheTest extends TestCase
         self::assertFalse($cache->hasAny());
     }
 
+    public function testClearStopsServingEvenWhenThePoolThrows(): void
+    {
+        $pool = new class extends ArrayAdapter {
+            /**
+             * @param array<string> $keys
+             */
+            public function deleteItems(array $keys): bool
+            {
+                throw new \RuntimeException('backend unavailable');
+            }
+        };
+        $cache = new ArtefactCache($pool);
+        $cache->store(['llms.txt' => 'body'], 'v1', 1000);
+
+        $cache->clear();
+
+        // Deleting the bodies blew up, but the caller asked for the bundle to
+        // go: the manifest is gone and the memo was dropped regardless.
+        self::assertFalse($cache->hasAny());
+        self::assertNull($cache->get('llms.txt'));
+    }
+
     public function testResetDropsMemo(): void
     {
         $pool = new ArrayAdapter();
