@@ -17,21 +17,6 @@ use Symfony\Component\HttpKernel\KernelEvents;
  */
 final class HeadInjector implements EventSubscriberInterface
 {
-    /**
-     * Metadata derived from the original representation becomes invalid when
-     * the JSON-LD changes the body. In particular, retaining an ETag lets a
-     * client receive 304 for an older injected schema.
-     */
-    private const BODY_METADATA_HEADERS = [
-        'Content-Length',
-        'ETag',
-        'Last-Modified',
-        'Content-MD5',
-        'Digest',
-        'Content-Digest',
-        'Repr-Digest',
-    ];
-
     public function __construct(
         private readonly ArtefactCache $cache,
         private readonly Options $options,
@@ -86,9 +71,9 @@ final class HeadInjector implements EventSubscriberInterface
         }
 
         $response->setContent(substr_replace($content, $markup, $position, 0));
-        foreach (self::BODY_METADATA_HEADERS as $header) {
-            $response->headers->remove($header);
-        }
+        // The injected JSON-LD changed the body, so anything describing the
+        // original representation must go with it.
+        BodyMetadata::invalidate($response);
     }
 
     /**

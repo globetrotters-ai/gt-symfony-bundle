@@ -126,14 +126,23 @@ final class ArtefactCache implements ResetInterface
         $oldCurrentItems = $this->fileItemKeys($oldManifest['file_items'] ?? null);
         $oldPreviousItems = $this->stringList($oldManifest['previous_file_items'] ?? null);
 
+        // Every generation that stays published if this call aborts. A body
+        // whose content did not change is addressed by the same key in both, so
+        // rolling back must never delete one of these.
+        $published = array_merge($oldCurrentItems, $oldPreviousItems);
+
         $fileItems = [];
+        $written = [];
         foreach ($files as $path => $body) {
             $key = self::fileItemKey($path, $body);
             $item = $this->pool->getItem($key);
             $item->set($body);
             if (!$this->pool->save($item)) {
+                $this->discardOrphans($written, $published);
+
                 return false;
             }
+            $written[] = $key;
             $fileItems[$path] = $key;
         }
 
@@ -149,6 +158,8 @@ final class ArtefactCache implements ResetInterface
         $item = $this->pool->getItem(self::ITEM);
         $item->set($manifest);
         if (!$this->pool->save($item)) {
+            $this->discardOrphans($written, $published);
+
             return false;
         }
 
@@ -182,9 +193,10 @@ final class ArtefactCache implements ResetInterface
             $this->stringList($manifest['previous_file_items'] ?? null),
         )));
 
-        if (!$this->pool->deleteItem(self::ITEM)) {
-            return;
-        }
+        // Unconditional: a pool that reports a failed manifest delete must not
+        // leave the bodies behind as unreachable garbage, nor leave this
+        // process serving a bundle the caller asked to remove.
+        $this->pool->deleteItem(self::ITEM);
         if ([] !== $keys) {
             $this->pool->deleteItems($keys);
         }
@@ -240,8 +252,35 @@ final class ArtefactCache implements ResetInterface
         return array_values(array_filter($value, static fn (mixed $key): bool => \is_string($key) && '' !== $key));
     }
 
+    /**
+     * Drop bodies written for a publication that never happened.
+     *
+     * @param list<string> $written   keys this aborted call created
+     * @param list<string> $published keys the still-published generations need
+     */
+    private function discardOrphans(array $written, array $published): void
+    {
+        $keep = array_flip($published);
+        $orphans = array_values(array_filter(
+            $written,
+            static fn (string $key): bool => !isset($keep[$key]),
+        ));
+        if ([] === $orphans) {
+            return;
+        }
+
+        try {
+            $this->pool->deleteItems($orphans);
+        } catch (\Throwable) {
+            // Best-effort: the published bundle is intact either way.
+        }
+    }
+
     private static function fileItemKey(string $path, string $body): string
     {
-        return self::FILE_ITEM_PREFIX.hash('sha256', $path."\0".$body);
+        // Truncated to keep the whole key inside the 64 characters every PSR-6
+        // pool is required to support (31-character prefix + 32 hex digits).
+        // 128 bits is ample for addressing a handful of artefact bodies.
+        return self::FILE_ITEM_PREFIX.substr(hash('sha256', $path."\0".$body), 0, 32);
     }
 }
