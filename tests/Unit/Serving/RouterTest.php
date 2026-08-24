@@ -62,6 +62,7 @@ final class RouterTest extends TestCase
         // reported hit count is silently low.
         self::assertSame('no-store, private', $response->headers->get('Cache-Control'));
         self::assertSame('no-store', $response->headers->get('Surrogate-Control'));
+        self::assertSame('*', $response->headers->get('Access-Control-Allow-Origin'));
         self::assertTrue($event->isPropagationStopped());
     }
 
