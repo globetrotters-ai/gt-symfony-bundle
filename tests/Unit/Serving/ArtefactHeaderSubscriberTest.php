@@ -37,6 +37,7 @@ final class ArtefactHeaderSubscriberTest extends TestCase
         self::assertSame('no-store, private', $response->headers->get('Cache-Control'));
         self::assertSame('no-store', $response->headers->get('Surrogate-Control'));
         self::assertSame('nosniff', $response->headers->get('X-Content-Type-Options'));
+        self::assertSame('*', $response->headers->get('Access-Control-Allow-Origin'));
     }
 
     public function testLeavesTheRestOfTheApplicationAlone(): void

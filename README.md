@@ -13,7 +13,7 @@ What your apex serves once installed:
 | `/.well-known/agent-card.json` | `application/json; charset=utf-8` |
 | `/.well-known/globetrotters-apex-version.json` | `application/json; charset=utf-8` (version/drift marker) |
 
-Every artefact response carries `X-Content-Type-Options: nosniff`, `Cache-Control: no-store, private` and `Surrogate-Control: no-store`. Heavy files (`llms-full.txt`, `content.md`) are intentionally not served locally — they are linked back to Globetrotters by absolute URL.
+Every artefact response carries `X-Content-Type-Options: nosniff`, `Cache-Control: no-store, private`, `Surrogate-Control: no-store` and `Access-Control-Allow-Origin: *` (every artefact is public, unauthenticated, read-only metadata, so it's readable cross-origin by browser-context agent clients). Heavy files (`llms-full.txt`, `content.md`) are intentionally not served locally — they are linked back to Globetrotters by absolute URL.
 
 On top of the routes, the bundle:
 

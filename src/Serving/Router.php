@@ -59,6 +59,29 @@ final class Router implements EventSubscriberInterface
         'Surrogate-Control' => 'no-store',
     ];
 
+    /**
+     * Open CORS for the artefact surface, re-asserted alongside
+     * {@see self::NO_STORE_HEADERS}.
+     *
+     * Every artefact is public, unauthenticated, read-only agent metadata: the
+     * same bytes go to any anonymous GET, no credential is in play, and a
+     * browser-context agent client cannot read a discovery document without
+     * this. Kept out of NO_STORE_HEADERS because it has nothing to do with
+     * cacheability and that constant's name should keep meaning what it says.
+     *
+     * Scoped to the artefact paths this router serves, never the rest of the
+     * host application: the attribute check in ArtefactHeaderSubscriber is what
+     * enforces that.
+     *
+     * `Access-Control-Allow-Methods` is deliberately absent — a simple
+     * cross-origin GET is not preflighted, so nothing would ever read it.
+     *
+     * @var array<string, string>
+     */
+    public const CORS_HEADERS = [
+        'Access-Control-Allow-Origin' => '*',
+    ];
+
     public function __construct(private readonly ArtefactCache $cache)
     {
     }
@@ -129,6 +152,6 @@ final class Router implements EventSubscriberInterface
      */
     public static function headers(string $contentType): array
     {
-        return ['Content-Type' => $contentType] + self::NO_STORE_HEADERS;
+        return ['Content-Type' => $contentType] + self::NO_STORE_HEADERS + self::CORS_HEADERS;
     }
 }
