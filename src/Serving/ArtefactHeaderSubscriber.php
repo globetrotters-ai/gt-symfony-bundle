@@ -46,7 +46,7 @@ final class ArtefactHeaderSubscriber implements EventSubscriberInterface
         }
 
         $headers = $event->getResponse()->headers;
-        foreach (Router::NO_STORE_HEADERS as $name => $value) {
+        foreach (Router::NO_STORE_HEADERS + Router::CORS_HEADERS as $name => $value) {
             $headers->set($name, $value);
         }
     }
