@@ -2,6 +2,7 @@
     "name": "globetrotters-ai/symfony-bundle",
     "description": "Serves the Globetrotters Official AI Presence at a Symfony site's apex: llms.txt, ai.json, schema.json and the .well-known artefact set, with scheduled refresh, stale-serve, server-rendered homepage JSON-LD and agent-traffic reporting.",
     "type": "symfony-bundle",
+    "homepage": "https://globetrotters.ai",
     "license": "MIT",
     "keywords": ["symfony", "bundle", "ai", "llms.txt", "json-ld", "agentic", "globetrotters"],
     "authors": [
@@ -10,6 +11,10 @@
             "homepage": "https://globetrotters.ai"
         }
     ],
+    "support": {
+        "issues": "https://github.com/globetrotters-ai/gt-symfony-bundle/issues",
+        "source": "https://github.com/globetrotters-ai/gt-symfony-bundle"
+    },
     "require": {
         "php": ">=8.2",
         "psr/cache": "^3.0",
@@ -55,6 +60,11 @@
         "sort-packages": true,
         "allow-plugins": {
             "symfony/flex": true
+        }
+    },
+    "extra": {
+        "branch-alias": {
+            "dev-main": "0.2.x-dev"
         }
     },
     "minimum-stability": "stable"

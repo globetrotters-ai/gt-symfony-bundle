@@ -1,0 +1,12 @@
+# Keep the dist archive to what a consumer actually needs.
+# config/ must ship: GlobetrottersAiPresenceBundle::getPath() points the bundle
+# at the repo root, so config/*.php is loaded from there.
+/.github                export-ignore
+/.context               export-ignore
+/tests                  export-ignore
+/.gitattributes         export-ignore
+/.gitignore             export-ignore
+/.php-cs-fixer.dist.php export-ignore
+/phpstan.neon.dist      export-ignore
+/phpunit.xml.dist       export-ignore
+/Makefile               export-ignore
