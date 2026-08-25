@@ -1,5 +1,11 @@
 # Globetrotters AI Presence — Symfony Bundle
 
+[![Latest Version](https://img.shields.io/packagist/v/globetrotters-ai/symfony-bundle.svg)](https://packagist.org/packages/globetrotters-ai/symfony-bundle)
+[![Downloads](https://img.shields.io/packagist/dt/globetrotters-ai/symfony-bundle.svg)](https://packagist.org/packages/globetrotters-ai/symfony-bundle)
+[![CI](https://github.com/globetrotters-ai/gt-symfony-bundle/actions/workflows/ci.yml/badge.svg)](https://github.com/globetrotters-ai/gt-symfony-bundle/actions/workflows/ci.yml)
+[![PHP Version](https://img.shields.io/packagist/php-v/globetrotters-ai/symfony-bundle.svg)](composer.json)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 Serves your [Globetrotters](https://globetrotters.ai) Official AI Presence at your site's apex domain. The bundle pulls the published artefact set from your Globetrotters subdomain on a schedule, caches it, and serves it from a `kernel.request` subscriber that runs **before routing** — so it works even when a reverse proxy, security bundle, or catch-all controller would otherwise intercept `/.well-known/*`, and serving needs no filesystem write access.
 
 What your apex serves once installed:
@@ -157,3 +163,7 @@ make ci        # php-cs-fixer + phpstan + phpunit (unit + integration)
 ```
 
 The integration suite boots a real `HttpKernel` with a catch-all "antagonist" controller and a network-free fake fetcher, proving route pre-emption, robots decoration, raw-HTML JSON-LD, and stale-serve end to end. It also covers the reporting lane: capture through a live kernel, the console and `kernel.terminate` flush lanes, the buffer under forked concurrent writers, and the no-store headers surviving Symfony's own `HttpCache`.
+
+## License
+
+Released under the [MIT License](LICENSE). © 2026 Globetrotters.ai
