@@ -82,7 +82,7 @@ final class BreadcrumbInjector implements EventSubscriberInterface
             $content,
             '</head>',
             $this->renderer->headBlock(),
-            Breadcrumb::MARKER,
+            Breadcrumb::headGuard(),
             false,
         );
         if ($this->breadcrumb->injectsAnchor()) {

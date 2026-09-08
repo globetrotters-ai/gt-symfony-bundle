@@ -44,10 +44,11 @@ namespace Globetrotters\AiPresenceBundle\Serving;
 final class Breadcrumb
 {
     /**
-     * Opens the injected head block, and is what the double-injection guard
-     * looks for. Matches the Studio's copy-paste snippet verbatim
-     * (``serve-inbound-link.component.ts``) so a customer who pasted the block
-     * by hand before installing the bundle does not end up with it twice.
+     * Opens the injected head block. Matches the Studio's copy-paste snippet
+     * verbatim (``serve-inbound-link.component.ts``) so a customer who pasted
+     * the block by hand ends up with the same markup the bundle would inject.
+     *
+     * Not the double-injection guard — see {@see self::headGuard()}.
      */
     public const MARKER = '<!-- Globetrotters — AI presence -->';
 
@@ -149,6 +150,26 @@ final class Breadcrumb
         }
 
         return \sprintf('<a href="%s">%s</a>', self::escape($origin), self::escape($text))."\n";
+    }
+
+    /**
+     * What "this page already carries the head block" looks like.
+     *
+     * Deliberately a ``<link>`` relation rather than {@see self::MARKER}: the
+     * marker is an HTML comment, and stripping comments is what an HTML
+     * minifier does by default — so keying the guard on it would fail in
+     * exactly the case the guard exists for, and inject a second copy of every
+     * relation. ``rel="ai-catalog"`` survives minification and appears nowhere
+     * else in this bundle's output.
+     *
+     * Origin-independent on purpose: after a custom-hostname flip a hand-placed
+     * block still names the old host, and a second block for the new one is
+     * worse than one stale block, which the next refresh's own injection cannot
+     * fix anyway.
+     */
+    public static function headGuard(): string
+    {
+        return 'rel="ai-catalog"';
     }
 
     /**

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Globetrotters\AiPresenceBundle\Tests\Unit\Serving;
 
 use Globetrotters\AiPresenceBundle\Cache\ArtefactCache;
+use Globetrotters\AiPresenceBundle\Serving\Breadcrumb;
 use Globetrotters\AiPresenceBundle\Serving\BreadcrumbInjector;
 use Globetrotters\AiPresenceBundle\Serving\BreadcrumbRenderer;
 use Globetrotters\AiPresenceBundle\Settings\BreadcrumbOptions;
@@ -163,11 +164,28 @@ final class BreadcrumbInjectorTest extends TestCase
 
     public function testInjectsTheAnchorEvenWhenOnlyTheHeadBlockWasPlacedByHand(): void
     {
-        $page = '<html><head><!-- Globetrotters — AI presence --></head><body>x</body></html>';
+        $page = '<html><head>'.Breadcrumb::headBlock('https://ai.nantes.fr').'</head><body>x</body></html>';
         $content = $this->homepage($this->injector(), $page);
 
-        self::assertSame(1, substr_count($content, 'Globetrotters — AI presence'));
+        self::assertSame(1, substr_count($content, 'rel="ai-catalog"'));
         self::assertStringContainsString('<a href="https://ai.nantes.fr">', $content);
+    }
+
+    /**
+     * The guard must survive an HTML minifier, which strips comments by
+     * default — keying it on the marker comment would double-inject every
+     * relation in exactly the case the guard exists for.
+     */
+    public function testDoesNotDoubleInjectWhenAMinifierStrippedTheMarkerComment(): void
+    {
+        $placed = Breadcrumb::headBlock('https://ai.nantes.fr');
+        $minified = str_replace(Breadcrumb::MARKER."\n", '', $placed);
+        $page = '<html><head>'.$minified.'</head><body>x</body></html>';
+
+        $content = $this->homepage($this->injector(), $page);
+
+        self::assertSame(1, substr_count($content, 'rel="ai-catalog"'));
+        self::assertSame(1, substr_count($content, 'rel="mcp"'));
     }
 
     public function testInjectsIntoUppercaseTags(): void
