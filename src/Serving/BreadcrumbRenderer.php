@@ -36,46 +36,58 @@ final class BreadcrumbRenderer
     }
 
     /**
-     * The canonical Globetrotters origin as of the last refresh, or ''.
+     * Both halves plus their guards, derived from one read of the cached
+     * ai.json, or null when this install emits no breadcrumb.
      *
-     * Read from the cache per call rather than memoized: a refresh can land
-     * between two requests of a long-lived worker, and picking up a hostname
-     * flip without a redeploy is the entire reason this is derived rather than
-     * configured.
+     * Read per call rather than memoized here: a refresh can land between two
+     * requests of a long-lived worker, and picking up a hostname flip without a
+     * redeploy is the entire reason the origin is derived rather than
+     * configured. Within one call everything comes from the same bytes.
      */
-    public function origin(): string
+    public function render(): ?RenderedBreadcrumb
     {
         if (!$this->isEnabled()) {
-            return '';
+            return null;
         }
 
-        return Breadcrumb::originFrom($this->cache->get('ai.json'));
+        $aiJson = $this->cache->get('ai.json');
+        $origin = Breadcrumb::originFrom($aiJson);
+        if ('' === $origin) {
+            return null;
+        }
+
+        $text = $this->options->anchorText();
+        if ('' === $text) {
+            $text = Breadcrumb::defaultAnchorText($aiJson);
+        }
+
+        return new RenderedBreadcrumb(
+            $origin,
+            Breadcrumb::headBlock($origin),
+            Breadcrumb::anchor($origin, $text),
+            Breadcrumb::anchorGuards($origin),
+        );
     }
 
+    /** The head half, for explicit placement from Twig. */
     public function headBlock(): string
     {
-        return Breadcrumb::headBlock($this->origin());
+        $breadcrumb = $this->render();
+
+        return null === $breadcrumb ? '' : $breadcrumb->headBlock;
     }
 
     /**
-     * The visible anchor, using the configured text or the destination name.
+     * The visible anchor, for explicit placement from Twig.
      *
      * Deliberately ignores ``breadcrumb.inject_anchor``: that switch turns off
      * *automatic* placement, and an integrator who turned it off in order to
-     * place the anchor themselves must still get markup back from the Twig
-     * function.
+     * place the anchor themselves must still get markup back here.
      */
     public function anchor(): string
     {
-        $origin = $this->origin();
-        if ('' === $origin) {
-            return '';
-        }
-        $text = $this->options->anchorText();
-        if ('' === $text) {
-            $text = Breadcrumb::defaultAnchorText($this->cache->get('ai.json'));
-        }
+        $breadcrumb = $this->render();
 
-        return Breadcrumb::anchor($origin, $text);
+        return null === $breadcrumb ? '' : $breadcrumb->anchor;
     }
 }

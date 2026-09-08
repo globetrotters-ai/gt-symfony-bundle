@@ -73,24 +73,27 @@ final class BreadcrumbInjector implements EventSubscriberInterface
             return;
         }
 
-        $origin = $this->renderer->origin();
-        if ('' === $origin) {
+        // One snapshot for the whole response: both halves and the guard that
+        // decides whether to place them come from the same read, so they can
+        // never describe two different hosts.
+        $breadcrumb = $this->renderer->render();
+        if (null === $breadcrumb) {
             return;
         }
 
         $updated = $this->insertBefore(
             $content,
             '</head>',
-            $this->renderer->headBlock(),
-            Breadcrumb::headGuard(),
+            $breadcrumb->headBlock,
+            Breadcrumb::headGuards(),
             false,
         );
         if ($this->breadcrumb->injectsAnchor()) {
             $updated = $this->insertBefore(
                 $updated,
                 '</body>',
-                $this->renderer->anchor(),
-                Breadcrumb::anchorGuard($origin),
+                $breadcrumb->anchor,
+                $breadcrumb->anchorGuards,
                 true,
             );
         }
@@ -117,14 +120,21 @@ final class BreadcrumbInjector implements EventSubscriberInterface
      * comparison — and defeating it means injecting a *second* copy, which is
      * the failure this check exists to prevent.
      *
-     * @param bool $last match the final occurrence — right for ``</body>``,
-     *                   which can legitimately appear escaped in page content,
-     *                   whereas the first ``</head>`` is the document's own
+     * @param list<string> $guards any match means "already present"
+     * @param bool         $last   match the final occurrence — right for
+     *                             ``</body>``, which can legitimately appear
+     *                             escaped in page content, whereas the first
+     *                             ``</head>`` is the document's own
      */
-    private function insertBefore(string $content, string $tag, string $markup, string $guard, bool $last): string
+    private function insertBefore(string $content, string $tag, string $markup, array $guards, bool $last): string
     {
-        if ('' === $markup || ('' !== $guard && str_contains($content, $guard))) {
+        if ('' === $markup) {
             return $content;
+        }
+        foreach ($guards as $guard) {
+            if ('' !== $guard && str_contains($content, $guard)) {
+                return $content;
+            }
         }
         $position = $last ? strripos($content, $tag) : stripos($content, $tag);
         if (false === $position) {

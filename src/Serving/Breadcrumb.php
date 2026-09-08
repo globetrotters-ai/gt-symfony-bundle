@@ -166,10 +166,12 @@ final class Breadcrumb
      * block still names the old host, and a second block for the new one is
      * worse than one stale block, which the next refresh's own injection cannot
      * fix anyway.
+     *
+     * @return list<string>
      */
-    public static function headGuard(): string
+    public static function headGuards(): array
     {
-        return 'rel="ai-catalog"';
+        return ['rel="ai-catalog"'];
     }
 
     /**
@@ -179,10 +181,26 @@ final class Breadcrumb
      * hand-placed Twig call made before ``anchor_text`` was configured, or
      * before the destination was named), and a second anchor to the same host
      * is the one outcome worth preventing.
+     *
+     * Both the bare origin and its trailing-slash form count, because a
+     * hand-written link to a host root very often carries the slash. The
+     * closing quote stays in each variant: without it, ``https://ai.nantes.fr``
+     * would also match ``https://ai.nantes.fr.example.test`` and silently
+     * suppress a legitimate anchor.
+     *
+     * @return list<string>
      */
-    public static function anchorGuard(string $origin): string
+    public static function anchorGuards(string $origin): array
     {
-        return '' === $origin ? '' : \sprintf('<a href="%s"', self::escape($origin));
+        if ('' === $origin) {
+            return [];
+        }
+        $escaped = self::escape($origin);
+
+        return [
+            \sprintf('<a href="%s"', $escaped),
+            \sprintf('<a href="%s/"', $escaped),
+        ];
     }
 
     /**

@@ -151,18 +151,48 @@ final class BreadcrumbTest extends TestCase
         self::assertSame('', Breadcrumb::anchor('https://ai.nantes.fr', '   '));
     }
 
-    public function testAnchorGuardMatchesAnyAnchorToTheOrigin(): void
+    public function testAnchorGuardsMatchAnyAnchorToTheOrigin(): void
     {
-        $guard = Breadcrumb::anchorGuard('https://ai.nantes.fr');
+        $guards = Breadcrumb::anchorGuards('https://ai.nantes.fr');
+        // Not array_any(): that is PHP 8.4+, and this project supports 8.2.
+        $matches = static function (string $markup) use ($guards): bool {
+            foreach ($guards as $guard) {
+                if (str_contains($markup, $guard)) {
+                    return true;
+                }
+            }
 
-        self::assertStringContainsString($guard, Breadcrumb::anchor('https://ai.nantes.fr', 'One text'));
-        self::assertStringContainsString($guard, Breadcrumb::anchor('https://ai.nantes.fr', 'Another text'));
-        self::assertStringNotContainsString($guard, Breadcrumb::anchor('https://other.example', 'One text'));
+            return false;
+        };
+
+        self::assertTrue($matches(Breadcrumb::anchor('https://ai.nantes.fr', 'One text')));
+        self::assertTrue($matches(Breadcrumb::anchor('https://ai.nantes.fr', 'Another text')));
+        self::assertFalse($matches(Breadcrumb::anchor('https://other.example', 'One text')));
     }
 
-    public function testAnchorGuardIsEmptyWithoutAnOrigin(): void
+    /** A hand-written link to a host root very often carries the slash. */
+    public function testAnchorGuardsCoverTheTrailingSlashForm(): void
     {
-        self::assertSame('', Breadcrumb::anchorGuard(''));
+        $guards = Breadcrumb::anchorGuards('https://ai.nantes.fr');
+
+        self::assertContains('<a href="https://ai.nantes.fr"', $guards);
+        self::assertContains('<a href="https://ai.nantes.fr/"', $guards);
+    }
+
+    /**
+     * Without the closing quote each guard would also match a lookalike host
+     * and silently suppress a legitimate anchor.
+     */
+    public function testAnchorGuardsDoNotMatchALookalikeHost(): void
+    {
+        foreach (Breadcrumb::anchorGuards('https://ai.nantes.fr') as $guard) {
+            self::assertStringNotContainsString($guard, '<a href="https://ai.nantes.fr.example.test">x</a>');
+        }
+    }
+
+    public function testAnchorGuardsAreEmptyWithoutAnOrigin(): void
+    {
+        self::assertSame([], Breadcrumb::anchorGuards(''));
     }
 
     public function testDefaultAnchorTextUsesTheDestinationName(): void
