@@ -76,6 +76,18 @@ final class BreadcrumbTest extends TestCase
         self::assertSame('https://ai.nantes.fr', Breadcrumb::originFrom($json));
     }
 
+    /**
+     * parse_url preserves the case it was given, but scheme and host are
+     * case-insensitive per RFC 3986 — a mixed-case URL must still be
+     * recognised rather than silently disabling the breadcrumb.
+     */
+    public function testOriginNormalisesSchemeAndHostCase(): void
+    {
+        $json = '{"metadata":{"relatedFiles":[{"url":"HTTPS://AI.Nantes.FR/llms.txt"}]}}';
+
+        self::assertSame('https://ai.nantes.fr', Breadcrumb::originFrom($json));
+    }
+
     public function testOriginKeepsANonDefaultPort(): void
     {
         $json = '{"metadata":{"relatedFiles":[{"url":"http://localhost:8080/llms.txt"}]}}';

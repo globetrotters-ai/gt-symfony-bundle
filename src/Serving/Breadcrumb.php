@@ -48,7 +48,7 @@ final class Breadcrumb
      * verbatim (``serve-inbound-link.component.ts``) so a customer who pasted
      * the block by hand ends up with the same markup the bundle would inject.
      *
-     * Not the double-injection guard — see {@see self::headGuard()}.
+     * Not the double-injection guard — see {@see self::headGuards()}.
      */
     public const MARKER = '<!-- Globetrotters — AI presence -->';
 
@@ -248,8 +248,12 @@ final class Breadcrumb
         if (!\is_array($parts)) {
             return '';
         }
-        $scheme = $parts['scheme'] ?? '';
-        $host = $parts['host'] ?? '';
+        // Scheme and host are case-insensitive (RFC 3986 §3.1, §3.2.2) and
+        // parse_url preserves the case it was given, so normalise before
+        // comparing. Without this an "HTTPS://" URL fails the allow-list and
+        // silently disables the breadcrumb rather than being recognised.
+        $scheme = strtolower((string) ($parts['scheme'] ?? ''));
+        $host = strtolower((string) ($parts['host'] ?? ''));
         if (!\in_array($scheme, ['http', 'https'], true) || '' === $host) {
             return '';
         }
