@@ -14,9 +14,12 @@ use Globetrotters\AiPresenceBundle\Client\FetcherInterface;
 use Globetrotters\AiPresenceBundle\Client\GtClient;
 use Globetrotters\AiPresenceBundle\Command\RefreshCommand;
 use Globetrotters\AiPresenceBundle\Command\StatusCommand;
+use Globetrotters\AiPresenceBundle\Serving\BreadcrumbInjector;
+use Globetrotters\AiPresenceBundle\Serving\BreadcrumbRenderer;
 use Globetrotters\AiPresenceBundle\Serving\HeadInjector;
 use Globetrotters\AiPresenceBundle\Serving\RobotsFilter;
 use Globetrotters\AiPresenceBundle\Serving\Router;
+use Globetrotters\AiPresenceBundle\Settings\BreadcrumbOptions;
 use Globetrotters\AiPresenceBundle\Settings\Options;
 use Globetrotters\AiPresenceBundle\Sync\ArtefactSync;
 use Symfony\Component\Clock\NativeClock;
@@ -64,6 +67,24 @@ return static function (ContainerConfigurator $container): void {
 
     $services->set(HeadInjector::class)
         ->args([service(ArtefactCache::class), service(Options::class)])
+        ->tag('kernel.event_subscriber');
+
+    $services->set(BreadcrumbOptions::class)
+        ->args([
+            param('globetrotters_ai_presence.profile'),
+            param('globetrotters_ai_presence.breadcrumb.anchor_text'),
+            param('globetrotters_ai_presence.breadcrumb.inject_anchor'),
+        ]);
+
+    $services->set(BreadcrumbRenderer::class)
+        ->args([service(ArtefactCache::class), service(BreadcrumbOptions::class)]);
+
+    $services->set(BreadcrumbInjector::class)
+        ->args([
+            service(Options::class),
+            service(BreadcrumbOptions::class),
+            service(BreadcrumbRenderer::class),
+        ])
         ->tag('kernel.event_subscriber');
 
     $services->set(RobotsFilter::class)

@@ -18,7 +18,7 @@ use Symfony\Component\Scheduler\Schedule;
  */
 final class GlobetrottersAiPresenceBundle extends AbstractBundle
 {
-    public const VERSION = '0.2.0';
+    public const VERSION = '0.3.0';
 
     public function getPath(): string
     {
@@ -40,6 +40,25 @@ final class GlobetrottersAiPresenceBundle extends AbstractBundle
                 ->scalarNode('cache_pool')
                     ->info('PSR-6 cache pool service id used for the artefact bundle and sync state. For stateful symfony/scheduler runs the pool must also implement Symfony\Contracts\Cache\CacheInterface (the default cache.app does); a PSR-6-only pool still works but the schedule falls back to non-stateful.')
                     ->defaultValue('cache.app')
+                ->end()
+                ->enumNode('profile')
+                    ->info('Install profile, mirroring the Studio\'s. "full_apex": this site is the whole presence. "subdomain_breadcrumb" (recommended, both lanes): keep serving the artefacts here AND link back to the presence published at your Globetrotters host, so that host stops being unreachable to crawlers. The set of paths served locally is the same either way.')
+                    ->values(['full_apex', 'subdomain_breadcrumb'])
+                    ->defaultValue('full_apex')
+                ->end()
+                ->arrayNode('breadcrumb')
+                    ->info('The link back to the Globetrotters-hosted presence. Only has an effect on the "subdomain_breadcrumb" profile. The host itself is never configured here: it is derived from the artefacts on every refresh, so it survives a custom-hostname activation or detach.')
+                    ->addDefaultsIfNotSet()
+                    ->children()
+                        ->scalarNode('anchor_text')
+                            ->info('Text of the visible footer link. It lands on your own pages, so set it in your site\'s language. Empty uses the destination name from ai.json ("AI presence for <name>").')
+                            ->defaultValue('')
+                        ->end()
+                        ->booleanNode('inject_anchor')
+                            ->info('Append the visible footer link to the homepage automatically. Turn off to place it yourself with {{ gt_ai_presence_breadcrumb_link() }} — the Twig function keeps working either way. The <link> tags in the head are unaffected.')
+                            ->defaultTrue()
+                        ->end()
+                    ->end()
                 ->end()
                 ->scalarNode('homepage_path')
                     ->info('Path where the JSON-LD head injection applies')
@@ -83,6 +102,11 @@ final class GlobetrottersAiPresenceBundle extends AbstractBundle
      *     website_url: string,
      *     refresh_interval: string,
      *     cache_pool: string,
+     *     profile: string,
+     *     breadcrumb: array{
+     *         anchor_text: string,
+     *         inject_anchor: bool,
+     *     },
      *     homepage_path: string,
      *     reporting: array{
      *         enabled: bool,
@@ -100,6 +124,9 @@ final class GlobetrottersAiPresenceBundle extends AbstractBundle
             ->set('globetrotters_ai_presence.website_url', $config['website_url'])
             ->set('globetrotters_ai_presence.refresh_interval', $config['refresh_interval'])
             ->set('globetrotters_ai_presence.homepage_path', $config['homepage_path'])
+            ->set('globetrotters_ai_presence.profile', $config['profile'])
+            ->set('globetrotters_ai_presence.breadcrumb.anchor_text', $config['breadcrumb']['anchor_text'])
+            ->set('globetrotters_ai_presence.breadcrumb.inject_anchor', $config['breadcrumb']['inject_anchor'])
             ->set('globetrotters_ai_presence.reporting.buffer_dir', $config['reporting']['buffer_dir']);
 
         $container->services()->alias('globetrotters_ai_presence.cache_pool', $config['cache_pool']);

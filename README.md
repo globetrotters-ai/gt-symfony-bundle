@@ -54,6 +54,7 @@ globetrotters_ai_presence:
     refresh_interval: 'daily'                          # daily | weekly
     cache_pool: 'cache.app'                            # optional: which PSR-6 pool to use
     homepage_path: '/'                                 # optional: where the JSON-LD head injection applies
+    profile: 'full_apex'                               # full_apex | subdomain_breadcrumb — see "Install profiles"
 
     reporting:                                         # optional: see "Reporting agent traffic"
         endpoint: '%env(GLOBETROTTERS_INGEST_ENDPOINT)%'
@@ -138,13 +139,63 @@ globetrotters_ai_presence:
         trust_cloudflare_header: false                       # read CF-Connecting-IP
 ```
 
-## Twig alternative for the head injection
+## Install profiles
 
-The JSON-LD injection is automatic on `homepage_path`. If you'd rather place the tag explicitly, use the Twig function in your base template — the automatic injector detects the rendered tag and won't duplicate it:
+`profile` mirrors the install profile shown in the Studio.
+
+| Profile | What this site does |
+|---|---|
+| `full_apex` (default) | This site **is** the presence. Artefacts served here, JSON-LD inlined, nothing pointing elsewhere. |
+| `subdomain_breadcrumb` | **Both lanes**, and what the product recommends. Everything `full_apex` does, **plus** a link back to the presence published at your Globetrotters host. |
+
+### Why the second lane exists
+
+If you also publish at `ai.<your-domain>` (or `<slug>.globetrotters.ai`), that host is a **separate site** to every crawler. It inherits none of your apex's index membership, crawl budget or authority, and nothing on the public web points at it — so it is reached only by something that already knows the hostname. `subdomain_breadcrumb` fixes that from the one place that already has the authority: your own homepage.
+
+It injects two things, which do two different jobs:
+
+```html
+<!-- in <head> — machine-readable pointers -->
+<!-- Globetrotters — AI presence -->
+<link rel="alternate" type="application/ld+json" href="https://ai.your-domain.example/schema.json">
+<link rel="ai-catalog" href="https://ai.your-domain.example/.well-known/ai-catalog.json">
+<link rel="mcp" href="https://ai.your-domain.example/.well-known/mcp.json">
+<link rel="agent-card" href="https://ai.your-domain.example/.well-known/agent-card.json">
+
+<!-- before </body> — the actual discovery signal -->
+<a href="https://ai.your-domain.example">AI presence for Your Destination</a>
+```
+
+The visible anchor is the load-bearing half: a crawler follows an `<a href>`, and the `<link>` relations above it carry no discovery signal on their own.
+
+```yaml
+globetrotters_ai_presence:
+    profile: 'subdomain_breadcrumb'
+    breadcrumb:
+        anchor_text: ''        # optional: defaults to "AI presence for <destination>" from ai.json.
+                               # Set it in your site's language.
+        inject_anchor: true    # optional: false to place the anchor yourself (see below)
+```
+
+**You never configure the host.** It is derived from the cached `ai.json` on every refresh, so when a custom hostname activates (or is detached) the links follow it on the next ordinary refresh — no config change, no redeploy. A configured host would keep resolving after such a flip while pointing at the wrong place, which is the one failure you would never notice.
+
+Nothing is injected when no host can be derived: a breadcrumb to nowhere is worse than none.
+
+**The locally served paths are identical on both profiles.** All six stay at your apex either way — the backend's split is an *offload* list, and none of them is on it. This profile changes the breadcrumb, not the footprint.
+
+## Twig alternatives to the automatic injection
+
+Each injection is automatic on `homepage_path`. If you'd rather place markup explicitly, use these in your base template — the automatic injectors detect what you rendered and won't duplicate it:
 
 ```twig
-{{ gt_ai_presence_head() }}
+{{ gt_ai_presence_head() }}             {# the JSON-LD tag, any profile #}
+
+{# subdomain_breadcrumb only; both render '' on other profiles #}
+{{ gt_ai_presence_breadcrumb_head() }}  {# in <head> #}
+{{ gt_ai_presence_breadcrumb_link() }}  {# in your footer #}
 ```
+
+`inject_anchor: false` turns off only the *automatic* footer anchor; `gt_ai_presence_breadcrumb_link()` keeps working, which is the point of the pair.
 
 ## Caveats
 
@@ -153,6 +204,7 @@ The JSON-LD injection is automatic on `homepage_path`. If you'd rather place the
 - **Don't use a per-process pool.** `cache_pool` must be shared between CLI and web (filesystem, Redis, shared APCu) — with an in-memory pool, CLI refreshes would be invisible to web requests.
 - The configured `website_url` is fetched with an SSRF guard (private/reserved IPs are rejected), a 5-second timeout, and a 1 MiB per-file size cap.
 - **Reporting needs a writable `buffer_dir`**, shared by the web user and whoever runs the flush — the rest of the bundle needs no filesystem write access, and an install that doesn't report never creates the directory. It holds at most 5000 events or 512KB; past that the oldest are dropped and counted, and the count is reported so the gap is visible rather than silent. `gt:status` shows both.
+- **The breadcrumb needs a `</head>` and a `</body>` in the response.** Each half is inserted before its closing tag, so a homepage that streams, is served from a static cache, or omits either tag gets that half skipped — place it with the Twig functions instead.
 - **An accepted flush is not proof the token is right.** The ingest endpoint answers `202` to a bad token, an unknown install and a malformed body alike, deliberately revealing nothing about which tokens exist. `gt:status` distinguishes "configured but never accepted" from "reporting normally", but confirm the numbers in Studio.
 
 ## Development
