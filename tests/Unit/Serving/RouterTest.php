@@ -188,12 +188,16 @@ final class RouterTest extends TestCase
         self::assertTrue($event->isPropagationStopped());
     }
 
-    public function testTheKeyResponseIsNotCrossOriginReadable(): void
+    public function testTheBundleGrantsNoCorsOnAServedIndexNowKey(): void
     {
         // Deliberate: CORS is granted to the artefacts because a browser-context
         // agent client cannot read a discovery document without it. The key file
         // is fetched server-side by a search engine and needs no such grant, and
         // this is the apex of a site we do not own.
+        //
+        // Scoped claim on purpose — the bundle does not *add* the header. An app
+        // that stamps CORS on every response keeps doing so here and is not
+        // undone, which costs nothing: the key is public by construction.
         $this->storeKey(self::INDEXNOW_KEY);
 
         $event = $this->event('/'.self::INDEXNOW_KEY.'.txt');

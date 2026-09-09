@@ -91,6 +91,25 @@ final class ArtefactHeaderSubscriberTest extends TestCase
         self::assertFalse($response->headers->has('Access-Control-Allow-Origin'));
     }
 
+    public function testLeavesAnApplicationsOwnCorsHeaderOnAServedKeyAlone(): void
+    {
+        // The counterpart to the test above, pinning the limit of that claim:
+        // not granting is not the same as stripping. An app with a global CORS
+        // policy (NelmioCorsBundle over `^/`) keeps it here, deliberately — the
+        // key is public by construction, so cross-origin readability discloses
+        // nothing, and undoing an integrator's policy on their own domain would
+        // cost them something for no gain. Contrast Cache-Control just below,
+        // where a shared TTL breaks verification and the override is earned.
+        $response = new Response('e715a2e7bf3c4a1d8e0b6f9c2d5a7e14');
+        $response->headers->set('Access-Control-Allow-Origin', 'https://app.example');
+        $response->setSharedMaxAge(600);
+
+        $this->subscribeKey($response);
+
+        self::assertSame('https://app.example', $response->headers->get('Access-Control-Allow-Origin'));
+        self::assertSame('no-store, private', $response->headers->get('Cache-Control'));
+    }
+
     private function subscribeKey(Response $response): void
     {
         $request = Request::create('/e715a2e7bf3c4a1d8e0b6f9c2d5a7e14.txt');

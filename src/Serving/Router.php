@@ -209,6 +209,18 @@ final class Router implements EventSubscriberInterface
      * grant. This is the apex of a site we do not own, so the grant stays scoped
      * to the paths that need it.
      *
+     * That is a statement about what *this bundle* grants, not a guarantee that
+     * the response reaches the client without CORS headers: an application that
+     * stamps them on every response (NelmioCorsBundle over `^/`, say) still
+     * does so here, and {@see ArtefactHeaderSubscriber} deliberately does not
+     * strip them back off. Nothing is lost by that. The key is public by
+     * construction — its entire job is to be readable off the host it verifies,
+     * and it is committed in tfvars — so cross-origin readability discloses
+     * nothing. Overriding an integrator's own CORS policy on their own domain
+     * would be a real cost for no benefit, which is not the trade the
+     * `Cache-Control` override makes: there a shared TTL breaks verification
+     * and measurement outright.
+     *
      * @return array<string, string>
      */
     public static function keyHeaders(): array

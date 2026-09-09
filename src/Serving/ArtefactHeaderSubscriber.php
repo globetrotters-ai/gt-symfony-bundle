@@ -28,6 +28,14 @@ use Symfony\Component\HttpKernel\KernelEvents;
  * — but **not** the CORS grant. That grant exists so a browser-context agent
  * client can read a discovery document; the key file is fetched server-side by a
  * search engine, and this is the apex of a site we do not own.
+ *
+ * Not granting is all this does: a CORS header an application stamps on every
+ * response is left in place rather than stripped. Deliberate. The key is public
+ * by construction — its whole job is to be readable off the host it verifies —
+ * so cross-origin readability discloses nothing, and reaching in to undo an
+ * integrator's own CORS policy on their own domain would cost them something
+ * for no gain. The no-store override earns its intrusion because a shared TTL
+ * breaks verification and measurement; there is no equivalent failure here.
  */
 final class ArtefactHeaderSubscriber implements EventSubscriberInterface
 {
