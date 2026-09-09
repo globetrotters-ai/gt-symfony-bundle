@@ -50,9 +50,13 @@ final class IndexNowKey
      * The key a requested path would be the file for, or '' when it cannot be
      * one — a cheap structural test that runs before any stored value is read.
      *
-     * Returns '' for every path in {@see ContentTypes}: none of them is a
-     * root-level ``<key>.txt`` for a key of the required length, so a request
-     * for a served artefact can never be read as a key lookup.
+     * No path {@see ContentTypes} serves today parses as a candidate — none is a
+     * root-level ``<key>.txt`` whose stem is eight or more ``[A-Za-z0-9-]``
+     * characters. Convenience, not the guarantee: ``llms-full.txt`` has a stem
+     * that *is* well-formed, and it is one decision away from being served
+     * locally. What actually stops a key shadowing an artefact is that
+     * {@see Router::onKernelRequest} matches the map **first**, pinned by
+     * RouterTest over every path in it rather than over a hand-listed sample.
      */
     public static function candidateFromPath(string $path): string
     {

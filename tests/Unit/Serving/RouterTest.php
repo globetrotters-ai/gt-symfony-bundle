@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Globetrotters\AiPresenceBundle\Tests\Unit\Serving;
 
 use Globetrotters\AiPresenceBundle\Cache\ArtefactCache;
+use Globetrotters\AiPresenceBundle\Serving\ContentTypes;
 use Globetrotters\AiPresenceBundle\Serving\Router;
 use Globetrotters\AiPresenceBundle\Settings\Options;
 use PHPUnit\Framework\TestCase;
@@ -228,18 +229,35 @@ final class RouterTest extends TestCase
         self::assertNull($event->getResponse());
     }
 
-    public function testTheArtefactStillWinsForLlmsTxtWithAKeyStored(): void
+    #[\PHPUnit\Framework\Attributes\DataProvider('servedPaths')]
+    public function testNoServedArtefactCanBeShadowedByAStoredKey(string $path): void
     {
-        // The artefact set is matched first, so no key can ever shadow a served
-        // file — the inverse of the edge proxy's declaration order, with the same
-        // outcome and without depending on the key grammar to guarantee it.
-        $this->storeKey(self::INDEXNOW_KEY);
+        // Driven off ContentTypes::paths(), not a hand-listed sample, because the
+        // guarantee is the matching *order* in onKernelRequest() rather than a
+        // coincidence of the key grammar — `llms-full.txt` would parse as a
+        // well-formed key file, and it is one decision away from being served
+        // here. A path added to the map is covered by this test on its own.
+        $pool = new ArrayAdapter();
+        $cache = new ArtefactCache($pool);
+        $cache->store([$path => 'artefact body'], 'v1', 0);
+        $options = new Options($pool, 'https://nantes.globetrotters.ai', 'daily', '/');
+        $options->updateState(['indexnow_key' => self::INDEXNOW_KEY]);
 
-        $event = $this->event('/llms.txt');
-        $this->router->onKernelRequest($event);
+        $event = $this->event('/'.$path);
+        (new Router($cache, $options))->onKernelRequest($event);
 
         self::assertNotNull($event->getResponse());
-        self::assertSame('llms body', $event->getResponse()->getContent());
+        self::assertSame('artefact body', $event->getResponse()->getContent());
+    }
+
+    /**
+     * @return iterable<string, array{0: string}>
+     */
+    public static function servedPaths(): iterable
+    {
+        foreach (ContentTypes::paths() as $path) {
+            yield $path => [$path];
+        }
     }
 
     public function testServingTheKeyIsNotMarkedAsAgentTraffic(): void
