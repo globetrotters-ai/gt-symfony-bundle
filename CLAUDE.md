@@ -31,7 +31,7 @@ Module map:
 
 | Directory | Role |
 |---|---|
-| `src/Serving/` | The request path: `Router` plus the response/terminate subscribers |
+| `src/Serving/` | The request path: `Router` plus the response/terminate subscribers, and the locally generated `Sitemap` |
 | `src/Client/`, `src/Sync/`, `src/Cache/` | Pull artefacts from the subdomain, validate, cache |
 | `src/Analytics/` | Agent-traffic reporting: NDJSON buffer, flush gate, ingest client |
 | `src/Command/` | `gt:refresh`, `gt:status`, `gt:presence:flush` |
@@ -47,6 +47,7 @@ Ordering is load-bearing and every priority below is a deliberate choice, not a 
 | `kernel.request` | `Serving\Router` | 64 | Ahead of `RouterListener` (32) and the security firewall (8) so a catch-all controller or security bundle cannot claim the artefact paths; behind `ValidateRequestListener` (256) so trusted-host validation still runs |
 | `kernel.response` | `Serving\HeadInjector` | -10 | Injects server-rendered JSON-LD into the homepage HTML |
 | `kernel.response` | `Serving\RobotsFilter` | -20 | Decorates or generates `/robots.txt` |
+| `kernel.response` | `Serving\SitemapFallback` | -20 | Generates `/sitemap.xml` **only** on a 404 — never decorates a 200 |
 | `kernel.response` | `Serving\ArtefactHeaderSubscriber` | -1024 | Runs *last* on purpose, so it re-asserts `Router::NO_STORE_HEADERS` after anything downstream has had its chance to rewrite them |
 | `kernel.terminate` | `Serving\ArtefactCaptureSubscriber` | 0 | Records the served request, after the response is sent |
 | `kernel.terminate` | `Serving\OpportunisticFlushSubscriber` | -256 | Flushes after the capture above, at most every 15 min, for hosts with no cron and no Messenger worker |
@@ -74,6 +75,9 @@ Rotation carries a lag this lane cannot avoid: a rotated key reaches an install 
 - **The artefact set is matched before the key.** The edge proxy declares `serve_indexnow_key` *before* its `/{filename}` catch-all and relies on the key grammar to keep `/llms.txt` reaching the artefact handler; `Router::onKernelRequest` reaches the same outcome structurally, so no key can ever shadow a served file.
 - **The key response is not CORS-readable.** `Router::CORS_HEADERS` is granted to the artefacts because a browser-context agent client cannot read a discovery document without it. The key file is fetched server-side by a search engine, so the grant stays scoped to the paths that need it — `Router::keyHeaders()` is `NO_STORE_HEADERS` only. It *does* carry both no-store headers, for the artefacts' measurement reason and one of its own: a cached copy of a rotated-away key fails verification for as long as it lives.
 - **Serving the key is not agent traffic.** Presence Analytics counts agent fetches of the artefact set; a search engine reading the key to verify host control is neither, and folding it in would inflate the numbers a customer reads as demand for their presence.
+- **The sitemap is generated, never fetched.** Globetrotters publishes a per-tenant `sitemap.xml`, but its URLs are in the GT host's space and `src/Sync/` caches every artefact **verbatim** — there is no origin-rewriting machinery in this repo, and adding one for a single file is not worth it. `Serving\Sitemap` builds the listing from the paths the cache would actually serve, in the request's own URL space, so it structurally cannot list a URL this install does not answer. That is the failure the backend's `offloaded_paths` strip exists to prevent, closed by construction.
+- **The sitemap yields; the artefacts pre-empt.** `Router` runs before routing precisely so nothing can claim the artefact paths, and no app serves `/llms.txt`. Plenty serve `/sitemap.xml`, and that one is theirs — so `SitemapFallback` uses `RobotsFilter`'s 404 lanes instead, and a 200 is a deliberate no-op. Not even decoration: a `<sitemapindex>` has no `</urlset>`, big sitemaps are streamed or gzipped, and `public/sitemap.xml` never reaches the kernel, so decoration would apply on some installs and silently not on others.
+- **`content_changed_at` is not `last_refresh`.** The sitemap's `<lastmod>` reads the former. Refreshes run daily whether or not anything moved; stamping URLs with the refresh date claims a freshness the content does not have. `ArtefactSync` writes it only when the content hash changes.
 - **Heavy files stay remote.** `llms-full.txt` and `content.md` are linked back to Globetrotters by absolute URL, never served locally.
 
 - **The robots.txt AI user-agent list is a mirror, not a source.** `RobotsFilter::AI_BOTS` and `tests/Fixtures/robots-ai-user-agent-groups.txt` follow gt-backend's `libs/globetrotters-business/.../presence/services/ai_user_agents.py`. Regenerate the fixture from that module (the command is in `RobotsFilterTest`'s docblock) rather than editing either by hand, and keep `gt-wordpress-plugin` in step in the same cycle.

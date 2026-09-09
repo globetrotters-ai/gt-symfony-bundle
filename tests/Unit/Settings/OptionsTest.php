@@ -60,6 +60,7 @@ final class OptionsTest extends TestCase
             'content_hash' => '',
             'indexnow_key' => '',
             'last_refresh' => 0,
+            'content_changed_at' => 0,
             'last_error' => '',
         ], $this->options()->state());
     }

@@ -28,6 +28,12 @@ final class Options implements ResetInterface
         // copy in config would rot silently.
         'indexnow_key' => '',
         'last_refresh' => 0,
+        // When the served content last actually *changed*, as opposed to when
+        // it was last confirmed unchanged. The generated sitemap's <lastmod>
+        // reads this: refreshes run daily whether or not anything moved, so
+        // stamping URLs with `last_refresh` would claim a freshness the content
+        // does not have.
+        'content_changed_at' => 0,
         'last_error' => '',
     ];
 

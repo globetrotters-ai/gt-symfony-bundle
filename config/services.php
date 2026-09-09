@@ -20,6 +20,8 @@ use Globetrotters\AiPresenceBundle\Serving\ConditionalGetSubscriber;
 use Globetrotters\AiPresenceBundle\Serving\HeadInjector;
 use Globetrotters\AiPresenceBundle\Serving\RobotsFilter;
 use Globetrotters\AiPresenceBundle\Serving\Router;
+use Globetrotters\AiPresenceBundle\Serving\Sitemap;
+use Globetrotters\AiPresenceBundle\Serving\SitemapFallback;
 use Globetrotters\AiPresenceBundle\Settings\BreadcrumbOptions;
 use Globetrotters\AiPresenceBundle\Settings\Options;
 use Globetrotters\AiPresenceBundle\Sync\ArtefactSync;
@@ -93,6 +95,13 @@ return static function (ContainerConfigurator $container): void {
 
     $services->set(RobotsFilter::class)
         ->args([service(Options::class), service(ArtefactCache::class)])
+        ->tag('kernel.event_subscriber');
+
+    $services->set(Sitemap::class)
+        ->args([service(Options::class), service(ArtefactCache::class)]);
+
+    $services->set(SitemapFallback::class)
+        ->args([service(Options::class), service(ArtefactCache::class), service(Sitemap::class)])
         ->tag('kernel.event_subscriber');
 
     $services->set(RefreshCommand::class)

@@ -14,7 +14,7 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 use Symfony\Component\HttpKernel\KernelEvents;
 
 /**
- * Advertises the AI-crawler allow-list plus the GT-hosted sitemap on
+ * Advertises the AI-crawler allow-list plus this site's own sitemap on
  * /robots.txt: decorates the response when the app serves one, and serves a
  * generated robots.txt when the app would 404. Only advertises once a bundle
  * is actually cached.
@@ -133,7 +133,7 @@ final class RobotsFilter implements EventSubscriberInterface
                 return;
             }
 
-            $response->setContent(rtrim($content, "\n")."\n\n".self::buildBlock($this->options->baseUrl()));
+            $response->setContent(rtrim($content, "\n")."\n\n".self::buildBlock($request->getSchemeAndHttpHost()));
             BodyMetadata::invalidate($response, $request);
 
             return;
@@ -143,7 +143,7 @@ final class RobotsFilter implements EventSubscriberInterface
         // never fired — generate the robots.txt in its place.
         if (404 === $status) {
             $response->setStatusCode(200);
-            $response->setContent(self::buildBlock($this->options->baseUrl()));
+            $response->setContent(self::buildBlock($request->getSchemeAndHttpHost()));
             $response->headers->set('Content-Type', 'text/plain; charset=utf-8');
             BodyMetadata::invalidate($response, $request);
         }
@@ -174,20 +174,42 @@ final class RobotsFilter implements EventSubscriberInterface
         // Without this the kernel would force the response status back to the
         // exception's 404 (see HttpKernel::handleThrowable).
         $event->allowCustomResponseCode();
-        $event->setResponse(new Response(self::buildBlock($this->options->baseUrl()), 200, [
+        $event->setResponse(new Response(self::buildBlock($request->getSchemeAndHttpHost()), 200, [
             'Content-Type' => 'text/plain; charset=utf-8',
         ]));
     }
 
-    public static function buildBlock(string $baseUrl): string
+    /**
+     * `$origin` is the scheme-and-host the request arrived on — **this** site,
+     * not the configured Globetrotters origin.
+     *
+     * A `Sitemap:` directive naming another host is ignored by Google and Bing
+     * without cross-domain sitemap verification, so the old cross-host line was
+     * inert rather than harmful; but in bundle mode the content is served from
+     * the customer's apex, and that is where the sitemap belongs. The apex is
+     * whatever the install answers on, so the request is the only thing that
+     * knows it — no new setting, and a site reachable on several hosts gets the
+     * right line on each.
+     *
+     * The host arrives in a client-controlled header, and reflecting it is safe
+     * here for the usual reason: the value only ever reaches the client that
+     * sent it, a crawler sends the real host, and Symfony has already rejected
+     * a malformed one (`Request::getHost()`), plus any host outside
+     * `trusted_hosts` when the application configures it.
+     *
+     * The line is emitted whether or not this bundle serves the sitemap
+     * itself — {@see SitemapFallback} yields to an application-served one, and
+     * either way the URL is same-host and correct.
+     */
+    public static function buildBlock(string $origin): string
     {
         $block = self::MARKER."\n".self::aiUserAgentGroups();
 
-        if ('' === $baseUrl) {
+        if ('' === $origin) {
             return rtrim($block, "\n")."\n";
         }
 
-        return $block.'Sitemap: '.$baseUrl."/sitemap.xml\n";
+        return $block.'Sitemap: '.rtrim($origin, '/').'/'.Sitemap::PATH."\n";
     }
 
     /**

@@ -302,6 +302,32 @@ final class ArtefactSyncTest extends TestCase
         self::assertTrue($result->hasChanged());
     }
 
+    /**
+     * `content_changed_at` is what the generated sitemap reports as
+     * `<lastmod>`, so it must move only when the content does — a daily
+     * refresh that changed nothing must not restamp every URL as fresh.
+     */
+    public function testContentChangedAtOnlyMovesWhenTheContentDoes(): void
+    {
+        $this->serveRequiredFiles();
+        $this->sync()->run();
+        $firstPull = $this->clock->now()->getTimestamp();
+
+        self::assertSame($firstPull, $this->options->state()['content_changed_at']);
+
+        $this->clock->modify('+1 day');
+        $this->sync()->run();
+
+        self::assertSame($firstPull, $this->options->state()['content_changed_at']);
+        self::assertSame($this->clock->now()->getTimestamp(), $this->options->state()['last_refresh']);
+
+        $this->clock->modify('+1 day');
+        $this->fetcher->on('/llms.txt', FetchResult::http(200, 'republished'));
+        $this->sync()->run();
+
+        self::assertSame($this->clock->now()->getTimestamp(), $this->options->state()['content_changed_at']);
+    }
+
     public function testNotConnectedFails(): void
     {
         $this->options = new Options($this->pool, '', 'daily', '/');

@@ -23,11 +23,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   most-specific matching group, so a single copy at the top of the file would
   reach none of the named agents.
 
+- **`robots.txt`'s `Sitemap:` line now names your own host**, not the
+  configured Globetrotters origin. A cross-host `Sitemap:` directive is ignored
+  by Google and Bing without cross-domain verification, so the old line was
+  inert rather than harmful — but in bundle mode the content is served from
+  your apex, and that is where the sitemap belongs. The host comes from the
+  request, so a site reachable on several hostnames gets the right line on
+  each, with nothing to configure.
+
 ### Added
 
 - A fixture test (`tests/Fixtures/robots-ai-user-agent-groups.txt`) that fails
   the build if the emitted block drifts from the backend registry's own output,
   byte for byte. The fixture is generated from that module, not typed.
+- **A locally generated `/sitemap.xml`**, served only when your application does
+  not serve one itself. It lists the homepage plus every artefact currently in
+  the cache, in the URL space of the request it arrives on — so it can never
+  advertise a URL this install does not answer, and it needs no configuration
+  to know your domain. Globetrotters publishes a per-tenant `sitemap.xml`, but
+  every URL in it is in the *GT host* URL space and this bundle serves artefacts
+  verbatim; generating locally is what keeps the listing and the serving in step
+  by construction.
+- An application-served `/sitemap.xml` is left byte-for-byte alone — not even
+  decorated. It is a manifest of *your* site; the `Sitemap:` line in robots.txt
+  points at it either way.
+- `<lastmod>` on each URL, dated from the new `content_changed_at` state value:
+  it moves only when the pulled content actually changes, so a daily refresh
+  that changed nothing does not restamp every URL as fresh. Installs upgrading
+  from an earlier version fall back to the last-refresh date until their next
+  content change.
 
 ## [0.4.0] - 2026-09-09
 

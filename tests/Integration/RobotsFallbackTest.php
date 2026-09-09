@@ -36,7 +36,9 @@ final class RobotsFallbackTest extends IntegrationTestCase
         // Generated, not decorated — but still no wildcard group, so both
         // lanes emit one canonical block.
         self::assertStringNotContainsString('User-agent: *', $content);
-        self::assertStringContainsString('Sitemap: '.TestKernel::WEBSITE_URL.'/sitemap.xml', $content);
+        // This host's own sitemap, not the Globetrotters origin's.
+        self::assertStringContainsString('Sitemap: http://localhost/sitemap.xml', $content);
+        self::assertStringNotContainsString(TestKernel::WEBSITE_URL, $content);
     }
 
     public function testStays404WhenNoBundleCached(): void

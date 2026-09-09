@@ -21,6 +21,9 @@ final class RobotsFilterTest extends TestCase
 {
     private const BASE_URL = 'https://nantes.globetrotters.ai';
 
+    /** The origin Request::create() gives a path-only URI — this site, not Globetrotters. */
+    private const REQUEST_ORIGIN = 'http://localhost';
+
     private function filter(bool $connected = true, bool $cached = true): RobotsFilter
     {
         $pool = new ArrayAdapter();
@@ -78,7 +81,7 @@ final class RobotsFilterTest extends TestCase
 
     public function testEveryNamedGroupCarriesItsOwnContentSignal(): void
     {
-        $block = RobotsFilter::buildBlock(self::BASE_URL);
+        $block = RobotsFilter::buildBlock(self::REQUEST_ORIGIN);
 
         // A crawler obeys only its own most-specific group (RFC 9309 §2.2.1),
         // so one signal line per group is the only placement that reaches
@@ -93,9 +96,17 @@ final class RobotsFilterTest extends TestCase
     {
         $expected = RobotsFilter::MARKER."\n"
             .RobotsFilter::aiUserAgentGroups()
-            .'Sitemap: '.self::BASE_URL."/sitemap.xml\n";
+            .'Sitemap: '.self::REQUEST_ORIGIN."/sitemap.xml\n";
 
-        self::assertSame($expected, RobotsFilter::buildBlock(self::BASE_URL));
+        self::assertSame($expected, RobotsFilter::buildBlock(self::REQUEST_ORIGIN));
+    }
+
+    public function testBuildBlockTrimsATrailingSlashFromTheOrigin(): void
+    {
+        self::assertStringContainsString(
+            'Sitemap: https://example.test/sitemap.xml',
+            RobotsFilter::buildBlock('https://example.test/'),
+        );
     }
 
     /**
@@ -106,7 +117,7 @@ final class RobotsFilterTest extends TestCase
      */
     public function testEmitsNoWildcardGroup(): void
     {
-        self::assertStringNotContainsString('User-agent: *', RobotsFilter::buildBlock(self::BASE_URL));
+        self::assertStringNotContainsString('User-agent: *', RobotsFilter::buildBlock(self::REQUEST_ORIGIN));
     }
 
     /**
@@ -117,7 +128,7 @@ final class RobotsFilterTest extends TestCase
      */
     public function testEmitsNoAgentmapLine(): void
     {
-        self::assertStringNotContainsString('Agentmap:', RobotsFilter::buildBlock(self::BASE_URL));
+        self::assertStringNotContainsString('Agentmap:', RobotsFilter::buildBlock(self::REQUEST_ORIGIN));
     }
 
     public function testBuildBlockWithoutBaseUrlOmitsSitemap(): void
@@ -133,9 +144,34 @@ final class RobotsFilterTest extends TestCase
         $content = (string) $decorated->getContent();
         self::assertStringStartsWith("User-agent: *\nDisallow: /admin\n\n# Globetrotters AI Presence\n", $content);
         self::assertStringContainsString("User-agent: GPTBot\nAllow: /\nContent-Signal: search=yes, ai-input=yes, ai-train=yes\n", $content);
-        self::assertStringContainsString('Sitemap: '.self::BASE_URL.'/sitemap.xml', $content);
+        self::assertStringContainsString('Sitemap: '.self::REQUEST_ORIGIN.'/sitemap.xml', $content);
         // The app's own wildcard group is the only one in the file.
         self::assertSame(1, substr_count($content, 'User-agent: *'));
+    }
+
+    public function testSitemapLineNamesTheRequestHostNotTheGlobetrottersOrigin(): void
+    {
+        $response = new Response("User-agent: *\n", 200, ['Content-Type' => 'text/plain']);
+        $event = new ResponseEvent(
+            $this->createMock(HttpKernelInterface::class),
+            Request::create('https://apex.example/robots.txt'),
+            HttpKernelInterface::MAIN_REQUEST,
+            $response,
+        );
+        $this->filter()->onKernelResponse($event);
+
+        $content = (string) $response->getContent();
+        self::assertStringContainsString('Sitemap: https://apex.example/sitemap.xml', $content);
+        self::assertStringNotContainsString(self::BASE_URL, $content);
+    }
+
+    public function testGeneratedRobotsAlsoNamesTheRequestHost(): void
+    {
+        $event = $this->exceptionEvent($this->filter(), new NotFoundHttpException(), 'https://apex.example/robots.txt');
+
+        $response = $event->getResponse();
+        self::assertNotNull($response);
+        self::assertStringContainsString('Sitemap: https://apex.example/sitemap.xml', (string) $response->getContent());
     }
 
     public function testDecorationRemovesStaleBodyMetadata(): void
