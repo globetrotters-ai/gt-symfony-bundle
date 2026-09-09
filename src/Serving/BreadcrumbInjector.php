@@ -84,7 +84,7 @@ final class BreadcrumbInjector implements EventSubscriberInterface
             return;
         }
 
-        $breadcrumb = $this->renderer->render();
+        $breadcrumb = $this->renderer->render($event->getRequest());
         if (null === $breadcrumb) {
             return;
         }

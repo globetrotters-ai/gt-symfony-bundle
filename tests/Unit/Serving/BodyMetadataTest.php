@@ -81,58 +81,26 @@ final class BodyMetadataTest extends TestCase
     }
 
     /**
-     * The point of keeping the tag: a client holding the post-injection
-     * representation revalidates to a real 304 rather than re-downloading.
+     * The revalidation itself is deferred: another subscriber may rewrite this
+     * body again, so the decision belongs below all of them.
+     * {@see ConditionalGetSubscriberTest} covers what happens then.
      */
-    public function testMatchingClientTagBecomesA304(): void
-    {
-        $etag = '"'.hash('sha256', 'new body').'"';
-        $request = Request::create('/');
-        $request->headers->set('If-None-Match', $etag);
-        $response = $this->rewritten('new body', ['ETag' => '"stale"']);
-
-        BodyMetadata::invalidate($response, $request);
-
-        self::assertSame(304, $response->getStatusCode());
-        self::assertSame($etag, $response->getEtag());
-        self::assertEmpty((string) $response->getContent());
-    }
-
-    public function testNonMatchingClientTagStillGets200(): void
+    public function testMarksTheRequestForRevalidation(): void
     {
         $request = Request::create('/');
-        $request->headers->set('If-None-Match', '"something-else"');
         $response = $this->rewritten('new body', ['ETag' => '"stale"']);
 
         BodyMetadata::invalidate($response, $request);
 
-        self::assertSame(200, $response->getStatusCode());
-        self::assertSame('new body', (string) $response->getContent());
+        self::assertTrue($request->attributes->get(BodyMetadata::ATTRIBUTE_REWRITTEN));
+        self::assertSame(200, $response->getStatusCode(), 'the 304 decision is not made here');
     }
 
-    /**
-     * The application's own pre-injection tag is exactly what a client can never
-     * be holding, so it must not revalidate.
-     */
-    public function testTheSupersededTagDoesNotRevalidate(): void
+    public function testDoesNotMarkARequestItWasNotGiven(): void
     {
-        $request = Request::create('/');
-        $request->headers->set('If-None-Match', '"stale"');
         $response = $this->rewritten('new body', ['ETag' => '"stale"']);
 
-        BodyMetadata::invalidate($response, $request);
-
-        self::assertSame(200, $response->getStatusCode());
-    }
-
-    public function testUnsafeMethodsNeverRevalidate(): void
-    {
-        $etag = '"'.hash('sha256', 'new body').'"';
-        $request = Request::create('/', 'POST');
-        $request->headers->set('If-None-Match', $etag);
-        $response = $this->rewritten('new body', ['ETag' => '"stale"']);
-
-        BodyMetadata::invalidate($response, $request);
+        BodyMetadata::invalidate($response);
 
         self::assertSame(200, $response->getStatusCode());
     }

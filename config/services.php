@@ -16,6 +16,7 @@ use Globetrotters\AiPresenceBundle\Command\RefreshCommand;
 use Globetrotters\AiPresenceBundle\Command\StatusCommand;
 use Globetrotters\AiPresenceBundle\Serving\BreadcrumbInjector;
 use Globetrotters\AiPresenceBundle\Serving\BreadcrumbRenderer;
+use Globetrotters\AiPresenceBundle\Serving\ConditionalGetSubscriber;
 use Globetrotters\AiPresenceBundle\Serving\HeadInjector;
 use Globetrotters\AiPresenceBundle\Serving\RobotsFilter;
 use Globetrotters\AiPresenceBundle\Serving\Router;
@@ -85,6 +86,9 @@ return static function (ContainerConfigurator $container): void {
 
     $services->set(BreadcrumbInjector::class)
         ->args([service(BreadcrumbRenderer::class)])
+        ->tag('kernel.event_subscriber');
+
+    $services->set(ConditionalGetSubscriber::class)
         ->tag('kernel.event_subscriber');
 
     $services->set(RobotsFilter::class)

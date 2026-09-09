@@ -7,6 +7,7 @@ namespace Globetrotters\AiPresenceBundle\Serving;
 use Globetrotters\AiPresenceBundle\Cache\ArtefactCache;
 use Globetrotters\AiPresenceBundle\Settings\BreadcrumbOptions;
 use Globetrotters\AiPresenceBundle\Settings\Options;
+use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\RequestStack;
 
 /**
@@ -50,7 +51,7 @@ final class BreadcrumbRenderer
      * redeploy is the entire reason the origin is derived rather than
      * configured. Within one call everything comes from the same bytes.
      */
-    public function render(): ?RenderedBreadcrumb
+    public function render(?Request $request = null): ?RenderedBreadcrumb
     {
         if (!$this->isEnabled()) {
             return null;
@@ -69,7 +70,7 @@ final class BreadcrumbRenderer
 
         return new RenderedBreadcrumb(
             $origin,
-            Breadcrumb::headBlock($origin, $this->isHomepage()),
+            Breadcrumb::headBlock($origin, $this->isHomepage($request)),
             Breadcrumb::anchor($origin, $text),
         );
     }
@@ -99,13 +100,17 @@ final class BreadcrumbRenderer
      * Whether the request being rendered is the configured homepage, which is
      * the only page whose ``rel="alternate"`` claim is true.
      *
+     * A caller holding the request passes it: a response subscriber has the
+     * authoritative one and should not have to trust that the stack agrees.
+     * Twig has no request to hand, so it falls back to the stack.
+     *
      * No request at all (a console render, a warm-up) is treated as "not the
      * homepage": the site-scoped relations are correct everywhere, and asserting
      * the document-scoped one with no page to assert it about would be a guess.
      */
-    private function isHomepage(): bool
+    private function isHomepage(?Request $request): bool
     {
-        $request = $this->requests->getCurrentRequest();
+        $request ??= $this->requests->getCurrentRequest();
 
         return null !== $request && $request->getPathInfo() === $this->settings->homepagePath();
     }

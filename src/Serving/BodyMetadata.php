@@ -28,9 +28,12 @@ use Symfony\Component\HttpFoundation\Response;
  * kernel.response and compares the client's ``If-None-Match`` against the
  * application's pre-injection tag, which can never match the post-injection tag
  * a client actually holds. The result would be a correct-looking ETag that
- * revalidates to a full 200 every single time. So when the caller can supply the
- * request, the revalidation is redone here against the tag we just computed, and
- * a match becomes a real 304 — which is the whole point of keeping the tag.
+ * revalidates to a full 200 every single time. So the revalidation has to be
+ * redone against the tag we compute — but **not here**: this body may still be
+ * rewritten again by another subscriber, and its tag is then one no client will
+ * ever be sent. Passing the request marks it instead, and
+ * {@see ConditionalGetSubscriber} makes the call once, below every rewriter,
+ * against the final bytes.
  *
  * A response that carried **no** ETag is left without one. Inventing an
  * entity-tag would impose a caching contract the application never opted into,
@@ -67,8 +70,15 @@ final class BodyMetadata
     ];
 
     /**
-     * @param Request|null $request when given, a client whose ``If-None-Match``
-     *                              matches the recomputed tag gets a 304
+     * Marks a response this bundle has rewritten as needing revalidation once
+     * every rewriter has run.
+     */
+    public const ATTRIBUTE_REWRITTEN = '_gt_body_rewritten';
+
+    /**
+     * @param Request|null $request when given, flags the request so
+     *                              {@see ConditionalGetSubscriber} revalidates
+     *                              the final response against the final tag
      */
     public static function invalidate(Response $response, ?Request $request = null): void
     {
@@ -96,12 +106,9 @@ final class BodyMetadata
         // does not turn that into a stronger promise.
         $response->setEtag(hash('sha256', $content), str_starts_with($etag, 'W/'));
 
-        // Redo the revalidation the application could only do against its own,
-        // now-superseded tag. isNotModified() gates on a cacheable method itself
-        // and turns a match into a 304; Last-Modified is already gone, so only
-        // If-None-Match can decide it.
-        if (null !== $request) {
-            $response->isNotModified($request);
-        }
+        // Deliberately not revalidated here: another subscriber may rewrite this
+        // body again, and a 304 decided against an intermediate representation
+        // would strand the client on bytes we are no longer serving.
+        $request?->attributes->set(self::ATTRIBUTE_REWRITTEN, true);
     }
 }
