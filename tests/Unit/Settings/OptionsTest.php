@@ -58,9 +58,28 @@ final class OptionsTest extends TestCase
             'installed_version' => '',
             'latest_version' => '',
             'content_hash' => '',
+            'indexnow_key' => '',
             'last_refresh' => 0,
             'last_error' => '',
         ], $this->options()->state());
+    }
+
+    public function testIndexNowKeyIsEmptyUntilASyncLearnsOne(): void
+    {
+        self::assertSame('', $this->options()->indexNowKey());
+    }
+
+    public function testIndexNowKeyIsSanitizedOnRead(): void
+    {
+        $pool = new ArrayAdapter();
+        $options = new Options($pool, 'https://x.example', 'daily', '/');
+        $options->updateState(['indexnow_key' => 'e715a2e7bf3c4a1d8e0b6f9c2d5a7e14']);
+        self::assertSame('e715a2e7bf3c4a1d8e0b6f9c2d5a7e14', $options->indexNowKey());
+
+        // The state item is a cache entry an operator can edit, and its value
+        // decides both which path is answered and what its body is.
+        $options->updateState(['indexnow_key' => 'nope']);
+        self::assertSame('', $options->indexNowKey());
     }
 
     public function testUpdateStateMergesAndPersists(): void

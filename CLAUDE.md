@@ -53,6 +53,16 @@ Ordering is load-bearing and every priority below is a deliberate choice, not a 
 
 `Router` sets the response and stops propagation. A path miss or cold cache returns without touching the response so the app handles the request normally. Requests it serves are tagged with `Router::ATTRIBUTE_PATH` / `ATTRIBUTE_BYTES`, which is how the two later subscribers recognise them, so those attribute constants are an internal contract between four files.
 
+### The IndexNow key
+
+`Router` answers one path that is not in `ContentTypes::MAP`, because its name is only known at runtime: the IndexNow key file at `/<key>.txt`. IndexNow verifies control of a host by reading it and comparing the body to the key, and the file must sit at the apex **root** — a key under `/.well-known/` scopes submissions to that directory and would cover none of the artefacts. The apex is served by the integrator's own stack, so nothing Globetrotters hosts can supply it there; without this route a file-drop apex cannot be announced at all and every publish announces only the weaker GT-hosted mirror.
+
+The key rides on the version marker (`Sync\ArtefactSync::resolveVersionMarker` → `Options` state `indexnow_key`), the only channel that costs nothing elsewhere. It is not a required fetched path: adding it to `requiredPaths()` would 404 in every keyless environment — dev, and staging, where IndexNow is off permanently — and abort *every* sync there. It is not a bundle file either: the marker is injected after hashing, so the key cannot perturb `contentHash` or trip drift detection. `Serving\IndexNowKey` applies the backend's own key grammar (`[A-Za-z0-9-]{8,128}`, `deploy_config_renderer._INDEXNOW_KEY_RE`) on the way in and on the way out — the marker arrives from `website_url`, which is untrusted input.
+
+A served key is tagged with `Router::ATTRIBUTE_KEY`, deliberately **not** `ATTRIBUTE_PATH`: `ArtefactHeaderSubscriber` re-asserts the no-store headers for it, while `ArtefactCaptureSubscriber` — which keys off `ATTRIBUTE_PATH` — never sees it.
+
+Rotation carries a lag this lane cannot avoid: a rotated key reaches an install only on its next refresh (daily by default), and submissions for that host fail verification during the window. Documented, not engineered around.
+
 ## Invariants worth preserving
 
 - **Stale-serve.** The cached bundle is only ever replaced by a *fully successful* pull. A partial or failed refresh must leave the last known good version serving. `tests/Integration/RefreshStaleServeTest.php` guards this.
@@ -60,11 +70,15 @@ Ordering is load-bearing and every priority below is a deliberate choice, not a 
 - **`website_url` is untrusted input.** It is fetched through `NoPrivateNetworkHttpClient` (wired in `config/services.php`) so a configured URL cannot be pointed at a private or reserved IP, including across redirects. Keep any new outbound fetch on that client, not on raw `http_client`.
 - **`reporting.ingest_token` is deliberately not a container parameter.** It is injected straight into `AnalyticsOptions`, because a parameter would land in the compiled container's parameter bag and in `debug:container --parameters`. See the comment in `loadExtension()` before changing how it is wired.
 - **Header text is duplicated on purpose.** `Router::NO_STORE_HEADERS` is written in served order so the code, the README table and the tests all read identically. Change all three together.
+- **The key is served only when one is stored, and only at its own URL.** No stored key means the path falls through to the application's normal 404 — never a 200 with an empty body, which would answer a verification fetch with a file that fails it. `ArtefactSync` writes `indexnow_key` on every *successful* pull including a keyless one, so a key rotated away upstream stops being served rather than lingering; a failed pull writes nothing, so the last known key keeps serving alongside the last known good bundle.
+- **The artefact set is matched before the key.** The edge proxy declares `serve_indexnow_key` *before* its `/{filename}` catch-all and relies on the key grammar to keep `/llms.txt` reaching the artefact handler; `Router::onKernelRequest` reaches the same outcome structurally, so no key can ever shadow a served file.
+- **The key response is not CORS-readable.** `Router::CORS_HEADERS` is granted to the artefacts because a browser-context agent client cannot read a discovery document without it. The key file is fetched server-side by a search engine, so the grant stays scoped to the paths that need it — `Router::keyHeaders()` is `NO_STORE_HEADERS` only. It *does* carry both no-store headers, for the artefacts' measurement reason and one of its own: a cached copy of a rotated-away key fails verification for as long as it lives.
+- **Serving the key is not agent traffic.** Presence Analytics counts agent fetches of the artefact set; a search engine reading the key to verify host control is neither, and folding it in would inflate the numbers a customer reads as demand for their presence.
 - **Heavy files stay remote.** `llms-full.txt` and `content.md` are linked back to Globetrotters by absolute URL, never served locally.
 
 ## Releasing
 
-The version lives in three places that must move together: `GlobetrottersAiPresenceBundle::VERSION`, the `CHANGELOG.md` heading, and the `extra.branch-alias.dev-main` constraint in `composer.json`. Packagist publishes from the git tag, so tag only after all three agree. CHANGELOG follows Keep a Changelog and the project is on semver (currently 0.2.0, first public release 2026-08-25).
+The version lives in three places that must move together: `GlobetrottersAiPresenceBundle::VERSION`, the `CHANGELOG.md` heading, and the `extra.branch-alias.dev-main` constraint in `composer.json`. Packagist publishes from the git tag, so tag only after all three agree. CHANGELOG follows Keep a Changelog and the project is on semver (currently 0.4.0, first public release 2026-08-25). The number is kept in step with `gt-wordpress-plugin` so the same behaviour ships under the same version on both.
 
 ## Local testing against a real app
 

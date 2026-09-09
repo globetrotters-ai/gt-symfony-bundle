@@ -63,7 +63,7 @@ return static function (ContainerConfigurator $container): void {
         ]);
 
     $services->set(Router::class)
-        ->args([service(ArtefactCache::class)])
+        ->args([service(ArtefactCache::class), service(Options::class)])
         ->tag('kernel.event_subscriber');
 
     $services->set(HeadInjector::class)

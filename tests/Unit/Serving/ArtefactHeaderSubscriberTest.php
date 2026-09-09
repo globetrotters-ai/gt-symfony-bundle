@@ -62,6 +62,67 @@ final class ArtefactHeaderSubscriberTest extends TestCase
         self::assertStringContainsString('public', (string) $response->headers->get('Cache-Control'));
     }
 
+    public function testRestoresNoStoreOnAServedIndexNowKey(): void
+    {
+        // The key is mutable state that reaches an install only on its next
+        // refresh, so a shared TTL over it fails verification for as long as the
+        // cached copy lives — on top of the measurement reason above.
+        $response = new Response('e715a2e7bf3c4a1d8e0b6f9c2d5a7e14');
+        $response->setPublic();
+        $response->setSharedMaxAge(600);
+
+        $this->subscribeKey($response);
+
+        self::assertSame('no-store, private', $response->headers->get('Cache-Control'));
+        self::assertSame('no-store', $response->headers->get('Surrogate-Control'));
+        self::assertSame('nosniff', $response->headers->get('X-Content-Type-Options'));
+    }
+
+    public function testDoesNotGrantCorsOnAServedIndexNowKey(): void
+    {
+        // CORS is granted to the artefacts because a browser-context agent
+        // client cannot read a discovery document without it. The key file is
+        // fetched server-side by a search engine, and this is the apex of a site
+        // we do not own, so the grant stays scoped to the paths that need it.
+        $response = new Response('e715a2e7bf3c4a1d8e0b6f9c2d5a7e14');
+
+        $this->subscribeKey($response);
+
+        self::assertFalse($response->headers->has('Access-Control-Allow-Origin'));
+    }
+
+    public function testLeavesAnApplicationsOwnCorsHeaderOnAServedKeyAlone(): void
+    {
+        // The counterpart to the test above, pinning the limit of that claim:
+        // not granting is not the same as stripping. An app with a global CORS
+        // policy (NelmioCorsBundle over `^/`) keeps it here, deliberately — the
+        // key is public by construction, so cross-origin readability discloses
+        // nothing, and undoing an integrator's policy on their own domain would
+        // cost them something for no gain. Contrast Cache-Control just below,
+        // where a shared TTL breaks verification and the override is earned.
+        $response = new Response('e715a2e7bf3c4a1d8e0b6f9c2d5a7e14');
+        $response->headers->set('Access-Control-Allow-Origin', 'https://app.example');
+        $response->setSharedMaxAge(600);
+
+        $this->subscribeKey($response);
+
+        self::assertSame('https://app.example', $response->headers->get('Access-Control-Allow-Origin'));
+        self::assertSame('no-store, private', $response->headers->get('Cache-Control'));
+    }
+
+    private function subscribeKey(Response $response): void
+    {
+        $request = Request::create('/e715a2e7bf3c4a1d8e0b6f9c2d5a7e14.txt');
+        $request->attributes->set(Router::ATTRIBUTE_KEY, true);
+
+        (new ArtefactHeaderSubscriber())->onKernelResponse(new ResponseEvent(
+            $this->createStub(HttpKernelInterface::class),
+            $request,
+            HttpKernelInterface::MAIN_REQUEST,
+            $response,
+        ));
+    }
+
     private function subscribe(Response $response, bool $marked, bool $main = true): void
     {
         $request = Request::create('/llms.txt');

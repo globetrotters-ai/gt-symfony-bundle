@@ -5,6 +5,34 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-09-09
+
+### Added
+
+- **IndexNow key serving.** When Globetrotters has issued your environment a
+  key, the bundle serves it at `/<key>.txt` — the apex root, which is where
+  IndexNow looks and the only location whose scope covers every artefact. This
+  is what makes an apex install announceable at all: the apex is served by your
+  own stack, so nothing Globetrotters hosts can supply the file there, and
+  without it every publish announces only the weaker GT-hosted mirror.
+- The key rides on the version marker your normal refresh already pulls, so
+  there is nothing to configure. It is never a required fetched path and never
+  enters the bundle content hash: a keyless environment syncs exactly as before,
+  byte for byte, and a key appearing, rotating or being withdrawn cannot trip
+  drift detection.
+- A refresh whose marker carries no key **clears** any key previously stored, so
+  a withdrawn key stops being served rather than lingering as a file that
+  verifies nothing. A *failed* refresh changes nothing, matching stale-serve.
+- The key response carries `nosniff` and both `no-store` headers — a cached copy
+  of a rotated-away key fails verification for as long as it lives — but not
+  `Access-Control-Allow-Origin`: it is fetched server-side by a search engine,
+  so the cross-origin grant stays scoped to the discovery documents that need
+  it. Serving it is not recorded as agent traffic.
+- A value outside IndexNow's own key grammar (`[A-Za-z0-9-]{8,128}`) reads as no
+  key at all, matching the backend's own check — the marker arrives over the
+  network and the value decides both which path is answered and what its body
+  is.
+
 ## [0.3.0] - 2026-09-09
 
 ### Added
