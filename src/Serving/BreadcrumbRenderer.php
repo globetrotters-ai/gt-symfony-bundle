@@ -6,6 +6,8 @@ namespace Globetrotters\AiPresenceBundle\Serving;
 
 use Globetrotters\AiPresenceBundle\Cache\ArtefactCache;
 use Globetrotters\AiPresenceBundle\Settings\BreadcrumbOptions;
+use Globetrotters\AiPresenceBundle\Settings\Options;
+use Symfony\Component\HttpFoundation\RequestStack;
 
 /**
  * Renders the breadcrumb halves against the current cache and configuration.
@@ -14,14 +16,18 @@ use Globetrotters\AiPresenceBundle\Settings\BreadcrumbOptions;
  * must never disagree: {@see BreadcrumbInjector}, which places the markup
  * automatically, and
  * {@see \Globetrotters\AiPresenceBundle\Twig\AiPresenceExtension}, which lets an
- * integrator place it themselves. Both go through here so "which origin" and
- * "which anchor text" are answered in exactly one place.
+ * integrator place it themselves. Both go through here so "which origin",
+ * "which anchor text" and "is this the homepage" are answered in exactly one
+ * place — a Twig call in a base template must produce the same block the
+ * subscriber would have injected into that same page.
  */
 final class BreadcrumbRenderer
 {
     public function __construct(
         private readonly ArtefactCache $cache,
         private readonly BreadcrumbOptions $options,
+        private readonly Options $settings,
+        private readonly RequestStack $requests,
     ) {
     }
 
@@ -63,7 +69,7 @@ final class BreadcrumbRenderer
 
         return new RenderedBreadcrumb(
             $origin,
-            Breadcrumb::headBlock($origin),
+            Breadcrumb::headBlock($origin, $this->isHomepage()),
             Breadcrumb::anchor($origin, $text),
         );
     }
@@ -87,5 +93,20 @@ final class BreadcrumbRenderer
         $breadcrumb = $this->render();
 
         return null === $breadcrumb ? '' : $breadcrumb->anchor;
+    }
+
+    /**
+     * Whether the request being rendered is the configured homepage, which is
+     * the only page whose ``rel="alternate"`` claim is true.
+     *
+     * No request at all (a console render, a warm-up) is treated as "not the
+     * homepage": the site-scoped relations are correct everywhere, and asserting
+     * the document-scoped one with no page to assert it about would be a guess.
+     */
+    private function isHomepage(): bool
+    {
+        $request = $this->requests->getCurrentRequest();
+
+        return null !== $request && $request->getPathInfo() === $this->settings->homepagePath();
     }
 }

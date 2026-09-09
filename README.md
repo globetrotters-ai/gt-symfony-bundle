@@ -152,7 +152,7 @@ globetrotters_ai_presence:
 
 If you also publish at `ai.<your-domain>` (or `<slug>.globetrotters.ai`), that host is a **separate site** to every crawler. It inherits none of your apex's index membership, crawl budget or authority, and nothing on the public web points at it — so it is reached only by something that already knows the hostname. `subdomain_breadcrumb` fixes that from the one place that already has the authority: your own homepage.
 
-It injects discovery `<link>` relations into the homepage `<head>`, and **nothing else**:
+It injects discovery `<link>` relations into `<head>`, and **nothing else**:
 
 ```html
 <!-- Globetrotters — AI presence -->
@@ -161,6 +161,8 @@ It injects discovery `<link>` relations into the homepage `<head>`, and **nothin
 <link rel="mcp" href="/.well-known/mcp.json">
 <link rel="agent-card" href="/.well-known/agent-card.json">
 ```
+
+`rel="alternate"` appears on `homepage_path` only — it points at a document describing the destination, so claiming it as an interior page's alternate would assert something untrue about that page. The three agent-discovery relations name where your *site's* surfaces live, which is equally true from every page, so they are emitted on **every HTML page**: an agent that arrives on a deep page is exactly the case that needs a pointer.
 
 **Installing this bundle is transparent to your visitors.** It never injects anything visible: it does not know your layout, and has no safe position to put an element into a design it does not own. Head markup only.
 
@@ -210,7 +212,8 @@ Each injection is automatic on `homepage_path`. If you'd rather place markup exp
 - **Don't use a per-process pool.** `cache_pool` must be shared between CLI and web (filesystem, Redis, shared APCu) — with an in-memory pool, CLI refreshes would be invisible to web requests.
 - The configured `website_url` is fetched with an SSRF guard (private/reserved IPs are rejected), a 5-second timeout, and a 1 MiB per-file size cap.
 - **Reporting needs a writable `buffer_dir`**, shared by the web user and whoever runs the flush — the rest of the bundle needs no filesystem write access, and an install that doesn't report never creates the directory. It holds at most 5000 events or 512KB; past that the oldest are dropped and counted, and the count is reported so the gap is visible rather than silent. `gt:status` shows both.
-- **The breadcrumb needs a `</head>` in the response.** The block is inserted before the closing tag, so a homepage that streams, is served from a static cache, or omits `</head>` gets nothing — place it with `gt_ai_presence_breadcrumb_head()` instead.
+- **The breadcrumb needs a `</head>` in the response.** The block is inserted before the closing tag, so a page that streams, is served from a static cache, or omits `</head>` gets nothing — place it with `gt_ai_presence_breadcrumb_head()` instead.
+- **`ETag` and `Last-Modified` are dropped from every page the breadcrumb touches.** Rewriting the body makes metadata describing the original representation untrue, so it is removed. On the `subdomain_breadcrumb` profile that now applies to every HTML page, not just the homepage — if your app serves conditional GETs and you would rather keep them, place the block with `gt_ai_presence_breadcrumb_head()` and the subscriber will leave the response alone.
 - **An accepted flush is not proof the token is right.** The ingest endpoint answers `202` to a bad token, an unknown install and a malformed body alike, deliberately revealing nothing about which tokens exist. `gt:status` distinguishes "configured but never accepted" from "reporting normally", but confirm the numbers in Studio.
 
 ## Development

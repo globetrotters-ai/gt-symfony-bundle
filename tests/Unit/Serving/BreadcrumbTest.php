@@ -131,7 +131,7 @@ final class BreadcrumbTest extends TestCase
             .'<link rel="ai-catalog" href="https://ai.nantes.fr/.well-known/ai-catalog.json">'."\n"
             .'<link rel="mcp" href="/.well-known/mcp.json">'."\n"
             .'<link rel="agent-card" href="/.well-known/agent-card.json">'."\n",
-            Breadcrumb::headBlock('https://ai.nantes.fr'),
+            Breadcrumb::headBlock('https://ai.nantes.fr', true),
         );
     }
 
@@ -141,7 +141,7 @@ final class BreadcrumbTest extends TestCase
      */
     public function testLocallyServedRelationsAreRootRelative(): void
     {
-        $block = Breadcrumb::headBlock('https://ai.nantes.fr');
+        $block = Breadcrumb::headBlock('https://ai.nantes.fr', true);
 
         foreach (['schema.json', '.well-known/mcp.json', '.well-known/agent-card.json'] as $path) {
             self::assertTrue(ContentTypes::has($path), $path.' is expected to be served locally');
@@ -154,9 +154,25 @@ final class BreadcrumbTest extends TestCase
         self::assertStringContainsString('href="https://ai.nantes.fr/.well-known/ai-catalog.json">', $block);
     }
 
+    /**
+     * rel="alternate" points at a document describing the destination, so
+     * claiming it as an interior page's alternate would be untrue. The
+     * site-scoped relations are correct from any page and stay.
+     */
+    public function testAlternateIsOmittedOffTheHomepage(): void
+    {
+        $block = Breadcrumb::headBlock('https://ai.nantes.fr', false);
+
+        self::assertStringNotContainsString('rel="alternate"', $block);
+        self::assertStringContainsString('rel="ai-catalog"', $block);
+        self::assertStringContainsString('rel="mcp"', $block);
+        self::assertStringContainsString('rel="agent-card"', $block);
+        self::assertStringStartsWith(Breadcrumb::MARKER, $block);
+    }
+
     public function testHeadBlockIsEmptyWithoutAnOrigin(): void
     {
-        self::assertSame('', Breadcrumb::headBlock(''));
+        self::assertSame('', Breadcrumb::headBlock('', true));
     }
 
     public function testAnchorRendersAVisibleLink(): void

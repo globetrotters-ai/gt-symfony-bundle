@@ -76,10 +76,15 @@ return static function (ContainerConfigurator $container): void {
         ]);
 
     $services->set(BreadcrumbRenderer::class)
-        ->args([service(ArtefactCache::class), service(BreadcrumbOptions::class)]);
+        ->args([
+            service(ArtefactCache::class),
+            service(BreadcrumbOptions::class),
+            service(Options::class),
+            service('request_stack'),
+        ]);
 
     $services->set(BreadcrumbInjector::class)
-        ->args([service(Options::class), service(BreadcrumbRenderer::class)])
+        ->args([service(BreadcrumbRenderer::class)])
         ->tag('kernel.event_subscriber');
 
     $services->set(RobotsFilter::class)

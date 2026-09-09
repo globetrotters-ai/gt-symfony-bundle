@@ -111,6 +111,17 @@ final class Breadcrumb
      * non-standard agent-discovery relations the published pages already emit
      * server-side.
      *
+     * **Two scopes, and only one of them is page-specific.** ``rel="alternate"``
+     * points at a JSON-LD document describing *the destination*, so claiming it
+     * as an interior page's alternate representation would assert something
+     * untrue about that page — it is emitted on the homepage only, via
+     * ``$withAlternate``. The three agent-discovery relations name where the
+     * *site's* surfaces live, which is equally true from every page, so they are
+     * emitted site-wide: an agent that arrives on a deep page is precisely the
+     * case that needs a pointer. This mirrors ``Breadcrumbs::inject_head()`` in
+     * gt-wordpress-plugin, which gates ``is_front_page()`` around the alternate
+     * alone.
+     *
      * **Each relation points at the canonical copy of its own file, which is not
      * the same host for all four.** The apex is canonical: where this install
      * serves the file itself — everything in {@see ContentTypes} — the href is
@@ -138,19 +149,32 @@ final class Breadcrumb
      * These are pointers, not the discovery signal. A crawler follows the
      * anchor; see {@see self::anchor()}.
      */
-    public static function headBlock(string $origin): string
+    public static function headBlock(string $origin, bool $withAlternate): string
     {
         if ('' === $origin) {
             return '';
         }
 
-        return implode("\n", [
-            self::MARKER,
-            \sprintf('<link rel="alternate" type="application/ld+json" href="%s">', self::href('schema.json', $origin)),
-            \sprintf('<link rel="ai-catalog" href="%s">', self::href('.well-known/ai-catalog.json', $origin)),
-            \sprintf('<link rel="mcp" href="%s">', self::href('.well-known/mcp.json', $origin)),
-            \sprintf('<link rel="agent-card" href="%s">', self::href('.well-known/agent-card.json', $origin)),
-        ])."\n";
+        $links = [self::MARKER];
+
+        // Document-scoped: the JSON-LD describes *the destination*, so
+        // advertising it as an interior page's alternate representation would be
+        // a claim about that page which is not true. Front page only.
+        if ($withAlternate) {
+            $links[] = \sprintf(
+                '<link rel="alternate" type="application/ld+json" href="%s">',
+                self::href('schema.json', $origin),
+            );
+        }
+
+        // Site-scoped: these name where the *site's* agent surfaces live, which
+        // is equally true from any page, and an agent that lands on an interior
+        // page is exactly the case worth serving.
+        $links[] = \sprintf('<link rel="ai-catalog" href="%s">', self::href('.well-known/ai-catalog.json', $origin));
+        $links[] = \sprintf('<link rel="mcp" href="%s">', self::href('.well-known/mcp.json', $origin));
+        $links[] = \sprintf('<link rel="agent-card" href="%s">', self::href('.well-known/agent-card.json', $origin));
+
+        return implode("\n", $links)."\n";
     }
 
     /**

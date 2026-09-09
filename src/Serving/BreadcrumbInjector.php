@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Globetrotters\AiPresenceBundle\Serving;
 
-use Globetrotters\AiPresenceBundle\Settings\Options;
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
 use Symfony\Component\HttpKernel\Event\ResponseEvent;
 use Symfony\Component\HttpKernel\KernelEvents;
@@ -30,20 +29,30 @@ use Symfony\Component\HttpKernel\KernelEvents;
  * Under {@see \Globetrotters\AiPresenceBundle\Settings\Profile::FullApex} this
  * subscriber does nothing at all.
  *
+ * **Every HTML page, not only the homepage.** The three agent-discovery
+ * relations name where the site's surfaces live, which is true from any page,
+ * and an agent that lands on a deep page is exactly the case that needs them.
+ * Only ``rel="alternate"`` is homepage-scoped, and {@see BreadcrumbRenderer}
+ * decides that per request. {@see HeadInjector}, which injects the JSON-LD
+ * document itself, stays homepage-only.
+ *
+ * The cost of running site-wide: this rewrites the body, so
+ * {@see BodyMetadata::invalidate()} drops ``ETag`` and ``Last-Modified`` from
+ * every HTML response it touches, not just the homepage. An application serving
+ * conditional GETs loses them on those pages. It is the price of injecting into
+ * a response the application already rendered.
+ *
  * Runs beside {@see HeadInjector} at the same priority and applies the same
- * gates (main request, configured homepage path, 200, HTML). Both subscribers
- * mutate the homepage body independently, and each invalidates the metadata
- * that describes it.
+ * remaining gates (main request, 200, HTML). Both subscribers mutate the body
+ * independently, and each invalidates the metadata that describes it.
  *
  * The injection is idempotent against ``gt_ai_presence_breadcrumb_head()``, so
  * an integrator who places the head block themselves does not get it twice.
  */
 final class BreadcrumbInjector implements EventSubscriberInterface
 {
-    public function __construct(
-        private readonly Options $options,
-        private readonly BreadcrumbRenderer $renderer,
-    ) {
+    public function __construct(private readonly BreadcrumbRenderer $renderer)
+    {
     }
 
     public static function getSubscribedEvents(): array
@@ -59,10 +68,6 @@ final class BreadcrumbInjector implements EventSubscriberInterface
         if (!$event->isMainRequest()) {
             return;
         }
-        if ($event->getRequest()->getPathInfo() !== $this->options->homepagePath()) {
-            return;
-        }
-
         $response = $event->getResponse();
         if (200 !== $response->getStatusCode()) {
             return;

@@ -16,7 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   published at the Globetrotters host, which is otherwise unreachable to a
   crawler that does not already know its name.
 - Breadcrumb injection on the `subdomain_breadcrumb` profile: the agent
-  discovery `<link>` relations in the homepage `<head>`, and nothing else.
+  discovery `<link>` relations in `<head>`, and nothing else. The three
+  agent-discovery relations are emitted on every HTML page, since they name
+  site-level surfaces and an agent may arrive on any page; `rel="alternate"`
+  stays on `homepage_path` alone, because it points at a document describing
+  the destination rather than that page. Matches the WordPress plugin.
   Installing the bundle is transparent to visitors — it never injects visible
   markup into a design it does not own. The visible anchor, which is the half
   that actually passes crawl authority, is available as

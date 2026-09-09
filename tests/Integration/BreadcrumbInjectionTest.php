@@ -115,6 +115,26 @@ final class BreadcrumbInjectionTest extends IntegrationTestCase
         self::assertStringNotContainsString('demo.globetrotters.ai', $content);
     }
 
+    /**
+     * The whole point of the site-wide scope: an agent that arrives on a deep
+     * page still finds the pointers. Only the destination-scoped alternate is
+     * withheld there.
+     */
+    public function testInteriorPagesCarryTheDiscoveryRelations(): void
+    {
+        $client = $this->bootClient();
+        $this->refreshWith(self::AI_JSON);
+
+        $client->request('GET', '/interior');
+        $content = (string) $client->getResponse()->getContent();
+
+        self::assertStringContainsString('<link rel="mcp" href="/.well-known/mcp.json">', $content);
+        self::assertStringContainsString('<link rel="agent-card" href="/.well-known/agent-card.json">', $content);
+        self::assertStringNotContainsString('rel="alternate"', $content);
+        // The JSON-LD document itself stays homepage-only.
+        self::assertStringNotContainsString('<script type="application/ld+json">', $content);
+    }
+
     public function testNoBreadcrumbWhenTheCacheIsCold(): void
     {
         $client = $this->bootClient();

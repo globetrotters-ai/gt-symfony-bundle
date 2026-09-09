@@ -13,6 +13,7 @@ use Globetrotters\AiPresenceBundle\Settings\Options;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Cache\Adapter\ArrayAdapter;
 use Symfony\Component\HttpFoundation\Request;
+use Symfony\Component\HttpFoundation\RequestStack;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\Event\ResponseEvent;
 use Symfony\Component\HttpKernel\HttpKernelInterface;
@@ -32,7 +33,10 @@ final class BreadcrumbInjectorTest extends TestCase
         $this->cache = new ArtefactCache($pool);
         $this->cache->store(['ai.json' => self::AI_JSON], 'v1', 0);
         $this->options = new Options($pool, 'https://nantes.globetrotters.ai', 'daily', '/');
+        $this->requests = new RequestStack();
     }
+
+    private RequestStack $requests;
 
     private function injector(
         string $profile = 'subdomain_breadcrumb',
@@ -41,8 +45,7 @@ final class BreadcrumbInjectorTest extends TestCase
         $options = new BreadcrumbOptions($profile, $anchorText);
 
         return new BreadcrumbInjector(
-            $this->options,
-            new BreadcrumbRenderer($this->cache, $options),
+            new BreadcrumbRenderer($this->cache, $options, $this->options, $this->requests),
         );
     }
 
@@ -52,13 +55,16 @@ final class BreadcrumbInjectorTest extends TestCase
         string $uri = '/',
         int $type = HttpKernelInterface::MAIN_REQUEST,
     ): Response {
+        $request = Request::create($uri);
+        $this->requests->push($request);
         $event = new ResponseEvent(
             $this->createMock(HttpKernelInterface::class),
-            Request::create($uri),
+            $request,
             $type,
             $response,
         );
         $injector->onKernelResponse($event);
+        $this->requests->pop();
 
         return $event->getResponse();
     }
@@ -105,11 +111,27 @@ final class BreadcrumbInjectorTest extends TestCase
         self::assertSame(self::PAGE, $this->homepage($this->injector(profile: 'full_apex')));
     }
 
-    public function testNoInjectionOffTheHomepage(): void
+    /**
+     * The discovery relations name site-level surfaces, so they belong on every
+     * page — an agent that lands deep in the site is the case worth serving.
+     */
+    public function testInjectsOnInteriorPagesToo(): void
     {
-        $response = $this->respond($this->injector(), new Response(self::PAGE), '/some-page');
+        $content = (string) $this->respond($this->injector(), new Response(self::PAGE), '/some-page')->getContent();
 
-        self::assertSame(self::PAGE, (string) $response->getContent());
+        self::assertStringContainsString('rel="ai-catalog"', $content);
+        self::assertStringContainsString('rel="mcp"', $content);
+        self::assertStringContainsString('rel="agent-card"', $content);
+    }
+
+    /** But the destination-scoped alternate stays on the homepage alone. */
+    public function testAlternateOnlyOnTheHomepage(): void
+    {
+        $home = (string) $this->respond($this->injector(), new Response(self::PAGE), '/')->getContent();
+        $interior = (string) $this->respond($this->injector(), new Response(self::PAGE), '/some-page')->getContent();
+
+        self::assertStringContainsString('rel="alternate"', $home);
+        self::assertStringNotContainsString('rel="alternate"', $interior);
     }
 
     public function testNoInjectionOnASubRequest(): void
@@ -165,7 +187,7 @@ final class BreadcrumbInjectorTest extends TestCase
      */
     public function testDoesNotDoubleInjectWhenAMinifierStrippedTheMarkerComment(): void
     {
-        $placed = Breadcrumb::headBlock('https://ai.nantes.fr');
+        $placed = Breadcrumb::headBlock('https://ai.nantes.fr', true);
         $minified = str_replace(Breadcrumb::MARKER."\n", '', $placed);
         $page = '<html><head>'.$minified.'</head><body>x</body></html>';
 
