@@ -157,16 +157,18 @@ It injects two things, which do two different jobs:
 ```html
 <!-- in <head> — machine-readable pointers -->
 <!-- Globetrotters — AI presence -->
-<link rel="alternate" type="application/ld+json" href="https://ai.your-domain.example/schema.json">
+<link rel="alternate" type="application/ld+json" href="/schema.json">
 <link rel="ai-catalog" href="https://ai.your-domain.example/.well-known/ai-catalog.json">
-<link rel="mcp" href="https://ai.your-domain.example/.well-known/mcp.json">
-<link rel="agent-card" href="https://ai.your-domain.example/.well-known/agent-card.json">
+<link rel="mcp" href="/.well-known/mcp.json">
+<link rel="agent-card" href="/.well-known/agent-card.json">
 
 <!-- before </body> — the actual discovery signal -->
 <a href="https://ai.your-domain.example">AI presence for Your Destination</a>
 ```
 
 The visible anchor is the load-bearing half: a crawler follows an `<a href>`, and the `<link>` relations above it carry no discovery signal on their own.
+
+**Each relation points at the canonical copy of its own file.** Anything this install serves itself (the six paths above) is linked root-relative, so agents are sent to *your* domain — the copy carrying your index membership, not the mirror. Only `.well-known/ai-catalog.json` names the Globetrotters host, because the apex bundle does not contain it. The split follows the served set, so a file added there starts resolving locally on its own.
 
 ```yaml
 globetrotters_ai_presence:

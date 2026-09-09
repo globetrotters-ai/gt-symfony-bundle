@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Globetrotters\AiPresenceBundle\Tests\Unit\Serving;
 
 use Globetrotters\AiPresenceBundle\Serving\Breadcrumb;
+use Globetrotters\AiPresenceBundle\Serving\ContentTypes;
 use PHPUnit\Framework\TestCase;
 
 final class BreadcrumbTest extends TestCase
@@ -116,16 +117,41 @@ final class BreadcrumbTest extends TestCase
         self::assertSame('', Breadcrumb::originFrom($json));
     }
 
-    public function testHeadBlockMirrorsTheStudioSnippet(): void
+    /**
+     * Each relation points at the canonical copy of its own file: the apex for
+     * everything this install serves, the Globetrotters host only for
+     * ai-catalog.json, which the apex bundle does not contain. Matches
+     * Breadcrumbs::href() in gt-wordpress-plugin.
+     */
+    public function testHeadBlockPointsEachRelationAtItsCanonicalCopy(): void
     {
         self::assertSame(
             '<!-- Globetrotters — AI presence -->'."\n"
-            .'<link rel="alternate" type="application/ld+json" href="https://ai.nantes.fr/schema.json">'."\n"
+            .'<link rel="alternate" type="application/ld+json" href="/schema.json">'."\n"
             .'<link rel="ai-catalog" href="https://ai.nantes.fr/.well-known/ai-catalog.json">'."\n"
-            .'<link rel="mcp" href="https://ai.nantes.fr/.well-known/mcp.json">'."\n"
-            .'<link rel="agent-card" href="https://ai.nantes.fr/.well-known/agent-card.json">'."\n",
+            .'<link rel="mcp" href="/.well-known/mcp.json">'."\n"
+            .'<link rel="agent-card" href="/.well-known/agent-card.json">'."\n",
             Breadcrumb::headBlock('https://ai.nantes.fr'),
         );
+    }
+
+    /**
+     * The split is driven by ContentTypes, not a hardcoded list, so a file
+     * added to the served set starts resolving locally on its own.
+     */
+    public function testLocallyServedRelationsAreRootRelative(): void
+    {
+        $block = Breadcrumb::headBlock('https://ai.nantes.fr');
+
+        foreach (['schema.json', '.well-known/mcp.json', '.well-known/agent-card.json'] as $path) {
+            self::assertTrue(ContentTypes::has($path), $path.' is expected to be served locally');
+            self::assertStringContainsString('href="/'.$path.'">', $block);
+            self::assertStringNotContainsString('href="https://ai.nantes.fr/'.$path.'"', $block);
+        }
+
+        // The one file the apex bundle does not contain stays absolute.
+        self::assertFalse(ContentTypes::has('.well-known/ai-catalog.json'));
+        self::assertStringContainsString('href="https://ai.nantes.fr/.well-known/ai-catalog.json">', $block);
     }
 
     public function testHeadBlockIsEmptyWithoutAnOrigin(): void

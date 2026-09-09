@@ -74,8 +74,10 @@ final class BreadcrumbInjectorTest extends TestCase
     {
         $content = $this->homepage($this->injector());
 
-        self::assertStringContainsString('<link rel="alternate" type="application/ld+json" href="https://ai.nantes.fr/schema.json">', $content);
-        self::assertStringContainsString('<link rel="agent-card" href="https://ai.nantes.fr/.well-known/agent-card.json">', $content);
+        self::assertStringContainsString('<link rel="alternate" type="application/ld+json" href="/schema.json">', $content);
+        self::assertStringContainsString('<link rel="agent-card" href="/.well-known/agent-card.json">', $content);
+        // Only the file the apex bundle lacks names the Globetrotters host.
+        self::assertStringContainsString('<link rel="ai-catalog" href="https://ai.nantes.fr/.well-known/ai-catalog.json">', $content);
         self::assertMatchesRegularExpression('~agent-card\.json">\n</head>~', $content);
     }
 

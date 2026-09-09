@@ -17,9 +17,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   crawler that does not already know its name.
 - Breadcrumb injection on the `subdomain_breadcrumb` profile: the agent
   discovery `<link>` relations in the homepage `<head>`, and a visible footer
-  anchor — the half a crawler actually follows. Both mirror the snippet the
-  Studio hands out, so a hand-pasted block and an installed bundle produce the
-  same markup, and neither is injected twice.
+  anchor — the half a crawler actually follows. Neither is injected twice.
+- Each discovery relation points at the canonical copy of its own file:
+  root-relative for everything this install serves (so agents are sent to the
+  apex copy that carries the index membership, not the mirror), absolute to the
+  Globetrotters host only for `.well-known/ai-catalog.json`, which the apex
+  bundle does not contain. Matches `Breadcrumbs::href()` in the WordPress
+  plugin.
 - `breadcrumb.anchor_text` (defaults to the destination name from `ai.json`) and
   `breadcrumb.inject_anchor` for placing the footer link yourself.
 - `gt_ai_presence_breadcrumb_head()` and `gt_ai_presence_breadcrumb_link()` Twig

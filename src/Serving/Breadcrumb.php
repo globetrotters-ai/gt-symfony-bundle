@@ -109,8 +109,31 @@ final class Breadcrumb
     /**
      * The head half of the breadcrumb: the JSON-LD alternate plus the
      * non-standard agent-discovery relations the published pages already emit
-     * server-side. Byte-for-byte the Studio's snippet, so the two lanes cannot
-     * drift into describing the same install differently.
+     * server-side.
+     *
+     * **Each relation points at the canonical copy of its own file, which is not
+     * the same host for all four.** The apex is canonical: where this install
+     * serves the file itself — everything in {@see ContentTypes} — the href is
+     * root-relative and resolves to the customer's own domain, the copy that
+     * carries the index membership and authority. Sending an agent to the
+     * subdomain's copy of a file *this very host answers at 200* would promote
+     * the mirror over the original.
+     *
+     * ``.well-known/ai-catalog.json`` is the exception, and the reason the block
+     * names the Globetrotters host at all: the apex bundle does not contain it
+     * (absent from the backend's ``bundle_builder._FILE_CONTENT_TYPES``, and so
+     * from {@see ContentTypes::MAP}), so the Globetrotters copy is the only one
+     * there is.
+     *
+     * The test is {@see ContentTypes::has()} rather than a hardcoded split, so a
+     * file added to the served set starts resolving locally on its own. This
+     * matches ``Breadcrumbs::href()`` in gt-wordpress-plugin exactly — the two
+     * must stay behaviourally aligned.
+     *
+     * Root-relative, not path-relative: {@see Router} matches the raw request
+     * path, so the artefacts answer at the domain root, and a root-relative href
+     * stays correct across http/https and www/non-www — and would survive the
+     * block being emitted anywhere other than the homepage.
      *
      * These are pointers, not the discovery signal. A crawler follows the
      * anchor; see {@see self::anchor()}.
@@ -120,15 +143,26 @@ final class Breadcrumb
         if ('' === $origin) {
             return '';
         }
-        $base = self::escape($origin);
 
         return implode("\n", [
             self::MARKER,
-            \sprintf('<link rel="alternate" type="application/ld+json" href="%s/schema.json">', $base),
-            \sprintf('<link rel="ai-catalog" href="%s/.well-known/ai-catalog.json">', $base),
-            \sprintf('<link rel="mcp" href="%s/.well-known/mcp.json">', $base),
-            \sprintf('<link rel="agent-card" href="%s/.well-known/agent-card.json">', $base),
+            \sprintf('<link rel="alternate" type="application/ld+json" href="%s">', self::href('schema.json', $origin)),
+            \sprintf('<link rel="ai-catalog" href="%s">', self::href('.well-known/ai-catalog.json', $origin)),
+            \sprintf('<link rel="mcp" href="%s">', self::href('.well-known/mcp.json', $origin)),
+            \sprintf('<link rel="agent-card" href="%s">', self::href('.well-known/agent-card.json', $origin)),
         ])."\n";
+    }
+
+    /**
+     * Where one relation should point: this apex when we serve the file, the
+     * Globetrotters host when only it has a copy.
+     *
+     * @param string $path   apex-relative path, no leading slash
+     * @param string $origin the derived Globetrotters origin
+     */
+    private static function href(string $path, string $origin): string
+    {
+        return ContentTypes::has($path) ? '/'.$path : self::escape($origin).'/'.$path;
     }
 
     /**

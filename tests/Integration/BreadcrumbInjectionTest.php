@@ -43,11 +43,17 @@ final class BreadcrumbInjectionTest extends IntegrationTestCase
         $client->request('GET', '/');
         $content = (string) $client->getResponse()->getContent();
 
+        // Locally-served files resolve to this apex; only ai-catalog.json, which
+        // the apex bundle does not contain, names the Globetrotters host.
         self::assertStringContainsString(
-            '<link rel="alternate" type="application/ld+json" href="https://demo.globetrotters.ai/schema.json">',
+            '<link rel="alternate" type="application/ld+json" href="/schema.json">',
             $content,
         );
-        self::assertStringContainsString('<link rel="mcp" href="https://demo.globetrotters.ai/.well-known/mcp.json">', $content);
+        self::assertStringContainsString('<link rel="mcp" href="/.well-known/mcp.json">', $content);
+        self::assertStringContainsString(
+            '<link rel="ai-catalog" href="https://demo.globetrotters.ai/.well-known/ai-catalog.json">',
+            $content,
+        );
         self::assertStringContainsString('<a href="https://demo.globetrotters.ai">AI presence for Demo</a>', $content);
         // Head half in the head, visible anchor at the end of the body.
         self::assertMatchesRegularExpression('~agent-card\.json">\n</head>~', $content);
