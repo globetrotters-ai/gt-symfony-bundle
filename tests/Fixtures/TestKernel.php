@@ -31,6 +31,7 @@ final class TestKernel extends Kernel
         private readonly bool $withRobotsRoute = false,
         private readonly bool $withReporting = false,
         private readonly bool $withOpportunisticFlush = false,
+        private readonly bool $withBreadcrumb = false,
     ) {
         parent::__construct($environment, $debug);
     }
@@ -78,6 +79,9 @@ final class TestKernel extends Kernel
 
         $container->extension('globetrotters_ai_presence', [
             'website_url' => self::WEBSITE_URL,
+            // Default stays full_apex, the bundle's original behaviour, so every
+            // other test exercises the profile most installs are on.
+            'profile' => $this->withBreadcrumb ? 'subdomain_breadcrumb' : 'full_apex',
             'reporting' => [
                 // Capture is gated on both credentials, so the default kernel
                 // exercises the "configured but not reporting" path that most
@@ -126,6 +130,7 @@ final class TestKernel extends Kernel
     {
         return ($this->withRobotsRoute ? '_robots' : '')
             .($this->withReporting ? '_reporting' : '')
-            .($this->withOpportunisticFlush ? '_terminate' : '');
+            .($this->withOpportunisticFlush ? '_terminate' : '')
+            .($this->withBreadcrumb ? '_breadcrumb' : '');
     }
 }

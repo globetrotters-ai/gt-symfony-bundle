@@ -5,6 +5,35 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-09-08
+
+### Added
+
+- **Install profiles.** A `profile` option selects between `full_apex` (the
+  previous and default behaviour — this site is the whole presence) and
+  `subdomain_breadcrumb`, the both-lanes deployment the product recommends:
+  keep serving the artefacts at the apex *and* link back to the presence
+  published at the Globetrotters host, which is otherwise unreachable to a
+  crawler that does not already know its name.
+- Breadcrumb injection on the `subdomain_breadcrumb` profile: the agent
+  discovery `<link>` relations in the homepage `<head>`, and a visible footer
+  anchor — the half a crawler actually follows. Both mirror the snippet the
+  Studio hands out, so a hand-pasted block and an installed bundle produce the
+  same markup, and neither is injected twice.
+- `breadcrumb.anchor_text` (defaults to the destination name from `ai.json`) and
+  `breadcrumb.inject_anchor` for placing the footer link yourself.
+- `gt_ai_presence_breadcrumb_head()` and `gt_ai_presence_breadcrumb_link()` Twig
+  functions, for explicit placement of either half.
+
+### Notes
+
+- The canonical Globetrotters origin is **derived, never configured**: it is read
+  from the cached `ai.json` on every refresh, so a custom-hostname activation or
+  detach is picked up without a configuration change or a redeploy.
+- The set of paths served locally is identical on both profiles. None of them is
+  on the backend's offload list, so the profile changes the breadcrumb, not the
+  footprint.
+
 ## [0.2.0] - 2026-08-25
 
 First public release.
