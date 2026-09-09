@@ -8,6 +8,7 @@ use Globetrotters\AiPresenceBundle\Cache\ArtefactCache;
 use Globetrotters\AiPresenceBundle\Client\FetcherInterface;
 use Globetrotters\AiPresenceBundle\Client\FetchResult;
 use Globetrotters\AiPresenceBundle\Serving\ContentTypes;
+use Globetrotters\AiPresenceBundle\Serving\IndexNowKey;
 use Globetrotters\AiPresenceBundle\Settings\Options;
 use Symfony\Component\Clock\ClockInterface;
 
@@ -91,6 +92,12 @@ final class ArtefactSync
 
         $this->options->updateState([
             'installed_version' => $marker['version'],
+            // Written on every successful pull, including when the marker
+            // carries no key: a key that has been rotated away upstream must
+            // stop being served here rather than linger from an earlier sync.
+            // A *failed* pull writes nothing, so the last known key keeps
+            // serving alongside the last known good bundle.
+            'indexnow_key' => $marker['indexnow_key'],
             // After a successful pull the installed bundle *is* the latest we
             // know of, so keep them in lockstep; they only diverge when a
             // later checkLatest() finds a newer upstream marker.
@@ -135,7 +142,14 @@ final class ArtefactSync
      * Prefer the marker Globetrotters serves (verbatim body + its version);
      * synthesize one when absent or invalid.
      *
-     * @return array{body: string, version: string}
+     * ``indexnow_key`` is this environment's IndexNow key when the marker
+     * carries one. It rides on the marker rather than being a fetched artefact
+     * of its own: a required path that 404s in every keyless environment would
+     * fail the whole sync there (see ``run()``), and a bundle *file* would have
+     * to be excluded from ``contentHash`` in three byte-matched
+     * implementations. The marker is already both synced and outside the hash.
+     *
+     * @return array{body: string, version: string, indexnow_key: string}
      */
     private function resolveVersionMarker(string $baseUrl, string $contentHash): array
     {
@@ -143,11 +157,15 @@ final class ArtefactSync
         // oversize (transport-truncated), non-JSON or version-less marker
         // yields null and we synthesize instead.
         $result = $this->client->fetch($baseUrl.'/'.ContentTypes::VERSION_MARKER);
-        $version = $this->markerVersion($result);
-        if (null !== $version) {
+        $decoded = $this->decodeMarker($result);
+        if (null !== $decoded) {
             return [
                 'body' => $result->body(),
-                'version' => $version,
+                'version' => (string) $decoded['version'],
+                // Untrusted like every other byte from this origin, and the
+                // value decides which path the router answers: anything outside
+                // IndexNow's own key grammar reads as no key at all.
+                'indexnow_key' => IndexNowKey::sanitize($decoded['indexnowKey'] ?? ''),
             ];
         }
 
@@ -162,27 +180,42 @@ final class ArtefactSync
             'source' => 'synthesized',
         ]);
 
-        return ['body' => $body, 'version' => $version];
+        return [
+            'body' => $body,
+            'version' => $version,
+            // A synthesized marker is what an origin serving no marker
+            // produces, so there is nothing to learn a key from.
+            'indexnow_key' => '',
+        ];
     }
 
     /**
-     * Extract the version from a fetched version marker, honouring the same
-     * size cap as the required files. Returns null when the marker is
-     * unreachable, oversize, not JSON, or carries no version — the single
-     * place the marker-parsing contract lives.
+     * Extract the version from a fetched version marker.
      */
     private function markerVersion(FetchResult $result): ?string
+    {
+        $decoded = $this->decodeMarker($result);
+
+        return null === $decoded ? null : (string) $decoded['version'];
+    }
+
+    /**
+     * Decode a fetched version marker, honouring the same size cap as the
+     * required files. Returns null when the marker is unreachable, oversize,
+     * not JSON, or carries no version — the single place the marker-parsing
+     * contract lives.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function decodeMarker(FetchResult $result): ?array
     {
         if (!$result->isOk() || \strlen($result->body()) > FetcherInterface::MAX_BODY_BYTES) {
             return null;
         }
 
         $decoded = json_decode($result->body(), true);
-        if (\is_array($decoded) && isset($decoded['version'])) {
-            return (string) $decoded['version'];
-        }
 
-        return null;
+        return \is_array($decoded) && isset($decoded['version']) ? $decoded : null;
     }
 
     /**

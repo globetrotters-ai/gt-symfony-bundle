@@ -18,7 +18,7 @@ use Symfony\Component\Scheduler\Schedule;
  */
 final class GlobetrottersAiPresenceBundle extends AbstractBundle
 {
-    public const VERSION = '0.3.0';
+    public const VERSION = '0.4.0';
 
     public function getPath(): string
     {

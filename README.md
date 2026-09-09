@@ -21,6 +21,12 @@ What your apex serves once installed:
 
 Every artefact response carries `X-Content-Type-Options: nosniff`, `Cache-Control: no-store, private`, `Surrogate-Control: no-store` and `Access-Control-Allow-Origin: *` (every artefact is public, unauthenticated, read-only metadata, so it's readable cross-origin by browser-context agent clients). Heavy files (`llms-full.txt`, `content.md`) are intentionally not served locally — they are linked back to Globetrotters by absolute URL.
 
+One further path is served when Globetrotters has issued your environment an **IndexNow key**: `/<key>.txt`, `text/plain; charset=utf-8`, body the key and nothing else. IndexNow verifies control of a host by reading that file, and it must sit at the apex root — a key under `/.well-known/` would scope submissions to that directory and cover none of the artefacts above. Being able to serve it is what lets new and updated presence content be announced from *your* domain rather than only from the Globetrotters-hosted mirror.
+
+Nothing to configure: the key arrives on the version marker with your normal refresh, is stored in the bundle's runtime state, and is withdrawn on the first refresh whose marker no longer carries it. When there is no key the path is not served at all — your application answers its own 404, never a 200 with an empty body. The key response carries the same `nosniff` and `no-store` headers as the artefacts but **not** `Access-Control-Allow-Origin`: it is fetched server-side by a search engine, so the cross-origin grant stays scoped to the discovery documents that need it. Requests for it are not counted in Presence Analytics, which stays a measure of AI agents fetching your discovery files.
+
+A rotated key reaches your install on its next refresh (daily by default), so submissions for your host can fail verification during that window.
+
 On top of the routes, the bundle:
 
 - **reports agent traffic** to those six paths back to Globetrotters, so an apex install still shows up in Presence Analytics (see [Reporting agent traffic](#reporting-agent-traffic));

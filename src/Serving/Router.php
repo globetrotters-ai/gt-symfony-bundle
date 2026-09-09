@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace Globetrotters\AiPresenceBundle\Serving;
 
 use Globetrotters\AiPresenceBundle\Cache\ArtefactCache;
+use Globetrotters\AiPresenceBundle\Settings\Options;
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
+use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\Event\RequestEvent;
 use Symfony\Component\HttpKernel\KernelEvents;
@@ -21,6 +23,10 @@ use Symfony\Component\HttpKernel\KernelEvents;
  *
  * A path miss or cold cache returns without touching the response, letting the
  * app handle the request normally.
+ *
+ * Alongside the artefact set it answers one dynamic path: the IndexNow key file
+ * at ``/<key>.txt``, whose name is only known at runtime and so cannot be a
+ * {@see ContentTypes} entry. See {@see IndexNowKey}.
  *
  * This is also the only point at which agent traffic to an apex install is
  * observable at all — the request terminates here and never touches a
@@ -38,6 +44,20 @@ final class Router implements EventSubscriberInterface
      */
     public const ATTRIBUTE_PATH = '_gt_artefact_path';
     public const ATTRIBUTE_BYTES = '_gt_artefact_bytes';
+
+    /**
+     * Marks a served IndexNow key response, read by
+     * {@see ArtefactHeaderSubscriber}.
+     *
+     * Separate from {@see self::ATTRIBUTE_PATH} on purpose. That attribute is
+     * what {@see ArtefactCaptureSubscriber} keys off, and serving the key is not
+     * agent traffic: Presence Analytics counts agent fetches of the artefact
+     * set, and a search engine reading the key to verify host control is
+     * neither, so folding it in would inflate the numbers a customer reads as
+     * demand for their presence. The key response still needs its no-store
+     * headers re-asserted, which is what this attribute is for.
+     */
+    public const ATTRIBUTE_KEY = '_gt_indexnow_key';
 
     /**
      * The headers that make an artefact response measurable, re-asserted on
@@ -82,8 +102,10 @@ final class Router implements EventSubscriberInterface
         'Access-Control-Allow-Origin' => '*',
     ];
 
-    public function __construct(private readonly ArtefactCache $cache)
-    {
+    public function __construct(
+        private readonly ArtefactCache $cache,
+        private readonly Options $options,
+    ) {
     }
 
     public static function getSubscribedEvents(): array
@@ -110,8 +132,15 @@ final class Router implements EventSubscriberInterface
         if ('/'.$path !== $pathInfo) {
             return;
         }
+        // The artefact set is matched first. The edge proxy declares its key
+        // route *before* the artefact catch-all and relies on the key grammar
+        // (8-128 chars) to keep ``/llms.txt`` reaching the artefact handler; the
+        // order here reaches the same outcome structurally, so a served file can
+        // never be shadowed by whatever a marker happens to carry.
         $type = ContentTypes::forPath($path);
         if (null === $type) {
+            $this->serveIndexNowKey($event, $request, $path);
+
             return;
         }
 
@@ -130,6 +159,61 @@ final class Router implements EventSubscriberInterface
         $request->attributes->set(self::ATTRIBUTE_BYTES, \strlen($body));
 
         $event->setResponse(new Response($body, 200, self::headers($type)));
+    }
+
+    /**
+     * Serve the IndexNow key when this request asks for exactly this site's key
+     * file; otherwise return and let the application answer, which is its
+     * normal 404.
+     *
+     * IndexNow verifies control of a host by reading ``https://{host}/{key}.txt``
+     * and comparing the body to the key. The apex is served by the integrator's
+     * own stack, so nothing Globetrotters hosts can supply it here — without
+     * this route a file-drop apex simply cannot be announced.
+     *
+     * Never a 200 with an empty body when no key is stored: that answers the
+     * verification fetch with a file that fails it, which is worse than the
+     * absence the 404 truthfully reports.
+     */
+    private function serveIndexNowKey(RequestEvent $event, Request $request, string $path): void
+    {
+        // Structural test first, so a normal page request never pays a state read.
+        $candidate = IndexNowKey::candidateFromPath($path);
+        if ('' === $candidate) {
+            return;
+        }
+
+        $key = $this->options->indexNowKey();
+        if ('' === $key || $candidate !== $key) {
+            return;
+        }
+
+        $request->attributes->set(self::ATTRIBUTE_KEY, true);
+
+        // The body is the key and nothing else — no trailing newline, matching
+        // the edge proxy's serve_indexnow_key, which returns ``content=key``.
+        $event->setResponse(new Response($key, 200, self::keyHeaders()));
+    }
+
+    /**
+     * Response headers for the IndexNow key file.
+     *
+     * ``no-store`` on both headers for the artefacts' measurement reason and for
+     * one of its own: the key is mutable state that reaches an install only on
+     * its next refresh, so a cached copy of a rotated-away key fails
+     * verification for as long as it lives.
+     *
+     * No {@see self::CORS_HEADERS}, deliberately. That grant exists because a
+     * browser-context agent client cannot read a discovery document without it;
+     * the key file is fetched server-side by a search engine and needs no such
+     * grant. This is the apex of a site we do not own, so the grant stays scoped
+     * to the paths that need it.
+     *
+     * @return array<string, string>
+     */
+    public static function keyHeaders(): array
+    {
+        return ['Content-Type' => 'text/plain; charset=utf-8'] + self::NO_STORE_HEADERS;
     }
 
     /**

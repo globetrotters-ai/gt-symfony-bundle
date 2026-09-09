@@ -21,6 +21,13 @@ use Symfony\Component\HttpKernel\KernelEvents;
  *
  * Scoped to responses this bundle produced, via the attributes Router sets;
  * everything else in the application is left exactly as it was.
+ *
+ * The served IndexNow key gets the same no-store treatment for a reason of its
+ * own — it is mutable state that reaches an install only on its next refresh, so
+ * a cached copy of a rotated-away key fails verification for as long as it lives
+ * — but **not** the CORS grant. That grant exists so a browser-context agent
+ * client can read a discovery document; the key file is fetched server-side by a
+ * search engine, and this is the apex of a site we do not own.
  */
 final class ArtefactHeaderSubscriber implements EventSubscriberInterface
 {
@@ -41,12 +48,17 @@ final class ArtefactHeaderSubscriber implements EventSubscriberInterface
         if (!$event->isMainRequest()) {
             return;
         }
-        if (!$event->getRequest()->attributes->has(Router::ATTRIBUTE_PATH)) {
+        $attributes = $event->getRequest()->attributes;
+        if ($attributes->has(Router::ATTRIBUTE_PATH)) {
+            $restore = Router::NO_STORE_HEADERS + Router::CORS_HEADERS;
+        } elseif (true === $attributes->get(Router::ATTRIBUTE_KEY)) {
+            $restore = Router::NO_STORE_HEADERS;
+        } else {
             return;
         }
 
         $headers = $event->getResponse()->headers;
-        foreach (Router::NO_STORE_HEADERS + Router::CORS_HEADERS as $name => $value) {
+        foreach ($restore as $name => $value) {
             $headers->set($name, $value);
         }
     }

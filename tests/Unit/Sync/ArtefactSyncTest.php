@@ -34,6 +34,11 @@ final class ArtefactSyncTest extends TestCase
      */
     private const EXPECTED_HASH = '757cb0a99fe4f51d6dde4584377408d7c7e383461fd58aef676733636d845fde';
 
+    /**
+     * A key shaped like the ones the presence stack issues (32 hex chars).
+     */
+    private const INDEXNOW_KEY = 'e715a2e7bf3c4a1d8e0b6f9c2d5a7e14';
+
     private ArrayAdapter $pool;
     private Options $options;
     private ArtefactCache $cache;
@@ -307,6 +312,122 @@ final class ArtefactSyncTest extends TestCase
         self::assertFalse($result->isSuccess());
         self::assertSame(['No destination is connected yet.'], $result->errors());
         self::assertSame([], $this->fetcher->requested);
+    }
+
+    public function testUpstreamMarkerKeyIsStoredInState(): void
+    {
+        $this->serveRequiredFiles();
+        $this->fetcher->on('/'.ContentTypes::VERSION_MARKER, $this->markerWithKey(self::INDEXNOW_KEY));
+
+        $this->sync()->run();
+
+        self::assertSame(self::INDEXNOW_KEY, $this->options->state()['indexnow_key']);
+    }
+
+    public function testAMarkerWithoutTheKeyClearsAPreviouslyStoredOne(): void
+    {
+        $this->serveRequiredFiles();
+        $this->fetcher->on('/'.ContentTypes::VERSION_MARKER, $this->markerWithKey(self::INDEXNOW_KEY));
+        $this->sync()->run();
+
+        // A key removed upstream (rotation to nothing, or a destination moved to
+        // a keyless environment) must stop being served here, not linger.
+        $this->fetcher->on('/'.ContentTypes::VERSION_MARKER, FetchResult::http(200, '{"version":"2026-06-02-120000"}'));
+        $this->sync()->run();
+
+        self::assertSame('', $this->options->state()['indexnow_key']);
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('unusableMarkerKeys')]
+    public function testAnUnusableMarkerKeyIsNotStored(mixed $value): void
+    {
+        $this->serveRequiredFiles();
+        $this->fetcher->on(
+            '/'.ContentTypes::VERSION_MARKER,
+            FetchResult::http(200, (string) json_encode(['version' => 'v9', 'indexnowKey' => $value])),
+        );
+
+        $this->sync()->run();
+
+        self::assertSame('', $this->options->state()['indexnow_key']);
+    }
+
+    /**
+     * @return iterable<string, array{0: mixed}>
+     */
+    public static function unusableMarkerKeys(): iterable
+    {
+        yield 'empty' => [''];
+        yield 'short' => ['abc'];
+        yield 'newline' => ["abcdefgh\n"];
+        yield 'not text' => [42];
+        yield 'array' => [['abcdefgh']];
+    }
+
+    public function testSynthesizedMarkerLeavesNoKey(): void
+    {
+        // Nothing upstream serves a marker, so there is no key to learn. The
+        // environment is keyless and the route must stay unserved.
+        $this->serveRequiredFiles();
+
+        $this->sync()->run();
+
+        self::assertSame('', $this->options->state()['indexnow_key']);
+    }
+
+    public function testAKeylessSyncStillSucceeds(): void
+    {
+        // The key is never a required fetched path: adding it to requiredPaths()
+        // would fail every sync in an environment where no key is configured.
+        $this->serveRequiredFiles();
+
+        $result = $this->sync()->run();
+
+        self::assertTrue($result->isSuccess());
+        self::assertSame('', $this->options->state()['last_error']);
+        self::assertSame('hello', $this->cache->get('llms.txt'));
+    }
+
+    public function testTheKeyStaysOutOfTheContentHash(): void
+    {
+        $this->serveRequiredFiles();
+        $this->sync()->run();
+        $keylessHash = $this->options->state()['content_hash'];
+
+        $this->fetcher->on('/'.ContentTypes::VERSION_MARKER, $this->markerWithKey(self::INDEXNOW_KEY));
+        $this->sync()->run();
+
+        // The key rides on the marker, which is added after hashing — so drift
+        // detection cannot fire on a key appearing, disappearing or rotating.
+        self::assertSame(self::EXPECTED_HASH, $keylessHash);
+        self::assertSame($keylessHash, $this->options->state()['content_hash']);
+    }
+
+    public function testAFailedSyncKeepsTheLastKnownKey(): void
+    {
+        $this->serveRequiredFiles();
+        $this->fetcher->on('/'.ContentTypes::VERSION_MARKER, $this->markerWithKey(self::INDEXNOW_KEY));
+        $this->sync()->run();
+
+        // Same rule as the bundle itself: a failed pull learns nothing, so the
+        // site keeps serving the last key it was told about.
+        $this->fetcher->on('/llms.txt', FetchResult::http(500, ''));
+        $this->sync()->run();
+
+        self::assertSame(self::INDEXNOW_KEY, $this->options->state()['indexnow_key']);
+    }
+
+    /**
+     * An upstream marker carrying an IndexNow key, shaped as the backend
+     * renders it (``render_version_marker``).
+     */
+    private function markerWithKey(string $key): FetchResult
+    {
+        return FetchResult::http(200, (string) json_encode([
+            'version' => '2026-06-01-120000',
+            'contentHash' => 'abc',
+            'indexnowKey' => $key,
+        ]));
     }
 
     public function testCheckLatestReadsUpstreamMarkerWithoutPulling(): void

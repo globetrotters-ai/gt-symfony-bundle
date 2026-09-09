@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Globetrotters\AiPresenceBundle\Settings;
 
+use Globetrotters\AiPresenceBundle\Serving\IndexNowKey;
 use Psr\Cache\CacheItemPoolInterface;
 use Symfony\Contracts\Service\ResetInterface;
 
@@ -20,6 +21,12 @@ final class Options implements ResetInterface
         'installed_version' => '',
         'latest_version' => '',
         'content_hash' => '',
+        // This environment's IndexNow key, learned from the synced version
+        // marker so the apex can serve it at ``/<key>.txt``. State rather than
+        // a configuration value: it is issued per environment by the presence
+        // stack, rotates without the integrator's involvement, and a pasted
+        // copy in config would rot silently.
+        'indexnow_key' => '',
         'last_refresh' => 0,
         'last_error' => '',
     ];
@@ -113,6 +120,18 @@ final class Options implements ResetInterface
         $item->set($state);
         $this->pool->save($item);
         $this->state = $state;
+    }
+
+    /**
+     * This environment's IndexNow key, or '' when there is none to serve.
+     *
+     * Sanitized on read as well as on write: the state item is a cache entry an
+     * operator can edit, and the value it holds decides both which path the
+     * router answers and what that response's body is.
+     */
+    public function indexNowKey(): string
+    {
+        return IndexNowKey::sanitize($this->state()['indexnow_key']);
     }
 
     public function reset(): void
