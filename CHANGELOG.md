@@ -5,7 +5,7 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.3.0] - 2026-09-08
+## [0.3.0] - 2026-09-09
 
 ### Added
 
@@ -15,16 +15,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   keep serving the artefacts at the apex *and* link back to the presence
   published at the Globetrotters host, which is otherwise unreachable to a
   crawler that does not already know its name.
-- Breadcrumb injection on the `subdomain_breadcrumb` profile: the agent
-  discovery `<link>` relations in `<head>`, and nothing else. The three
-  agent-discovery relations are emitted on every HTML page, since they name
-  site-level surfaces and an agent may arrive on any page; `rel="alternate"`
-  stays on `homepage_path` alone, because it points at a document describing
-  the destination rather than that page. Matches the WordPress plugin.
-  Installing the bundle is transparent to visitors — it never injects visible
-  markup into a design it does not own. The visible anchor, which is the half
-  that actually passes crawl authority, is available as
+- **Breadcrumb injection, head markup only.** On `subdomain_breadcrumb` the
+  bundle adds agent-discovery `<link>` relations to `<head>` and nothing else.
+  Installing it stays transparent to your visitors: it never injects visible
+  markup into a design it does not own. The visible anchor — the half that
+  actually passes crawl authority — is available as
   `gt_ai_presence_breadcrumb_link()` for you to place inside your own layout.
+- The three agent-discovery relations are emitted on **every HTML page**, since
+  they name site-level surfaces and an agent may arrive anywhere.
+  `rel="alternate"` stays on `homepage_path` alone, because it points at a
+  document describing the destination rather than that page. Matches the
+  WordPress plugin.
 - Each discovery relation points at the canonical copy of its own file:
   root-relative for everything this install serves (so agents are sent to the
   apex copy that carries the index membership, not the mirror), absolute to the
@@ -39,13 +40,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Rewriting a response body now **recomputes** its `ETag` from the injected bytes
-  and revalidates it against the request, instead of dropping it. An application
-  that publishes an entity-tag keeps its conditional GETs through the JSON-LD,
-  breadcrumb and `robots.txt` injections; a client holding what was actually
-  served still gets a `304`. The weak/strong flavour is preserved, and a response
-  that published no `ETag` is still left without one. `Last-Modified` and the
-  digest headers are still dropped — a changed body says nothing about when the
-  resource changed, and a subtly wrong digest is worse than none.
+  instead of dropping it, so an application that publishes an entity-tag keeps
+  its conditional GETs through the JSON-LD, breadcrumb and `robots.txt`
+  injections. The revalidation happens once, after every injection has run, so a
+  client holding what was actually served gets a `304` while one holding a
+  half-injected body correctly gets a fresh `200`. The weak/strong flavour is
+  preserved, and a response that published no `ETag` is still left without one.
+  `Last-Modified` and the digest headers are still dropped — a changed body says
+  nothing about when the resource changed, and a subtly wrong digest is worse
+  than none.
 
 ### Notes
 
@@ -55,6 +58,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The set of paths served locally is identical on both profiles. None of them is
   on the backend's offload list, so the profile changes the breadcrumb, not the
   footprint.
+- Upgrading from 0.2.x is opt-in: on 0.x semver a minor bump is treated as
+  breaking, so a `^0.2` constraint stays on 0.2.x until you move it to `^0.3`.
+  Existing installs default to `full_apex` and behave exactly as before.
 
 ## [0.2.0] - 2026-08-25
 
