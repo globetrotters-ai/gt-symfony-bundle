@@ -51,12 +51,8 @@ final class GlobetrottersAiPresenceBundle extends AbstractBundle
                     ->addDefaultsIfNotSet()
                     ->children()
                         ->scalarNode('anchor_text')
-                            ->info('Text of the visible footer link. It lands on your own pages, so set it in your site\'s language. Empty uses the destination name from ai.json ("AI presence for <name>").')
+                            ->info('Text for the optional visible link you place yourself with {{ gt_ai_presence_breadcrumb_link() }}. Nothing visible is ever injected automatically. It lands on your own pages, so set it in your site\'s language. Empty uses the destination name from ai.json ("AI presence for <name>").')
                             ->defaultValue('')
-                        ->end()
-                        ->booleanNode('inject_anchor')
-                            ->info('Append the visible footer link to the homepage automatically. Turn off to place it yourself with {{ gt_ai_presence_breadcrumb_link() }} — the Twig function keeps working either way. The <link> tags in the head are unaffected.')
-                            ->defaultTrue()
                         ->end()
                     ->end()
                 ->end()
@@ -105,7 +101,6 @@ final class GlobetrottersAiPresenceBundle extends AbstractBundle
      *     profile: string,
      *     breadcrumb: array{
      *         anchor_text: string,
-     *         inject_anchor: bool,
      *     },
      *     homepage_path: string,
      *     reporting: array{
@@ -126,7 +121,6 @@ final class GlobetrottersAiPresenceBundle extends AbstractBundle
             ->set('globetrotters_ai_presence.homepage_path', $config['homepage_path'])
             ->set('globetrotters_ai_presence.profile', $config['profile'])
             ->set('globetrotters_ai_presence.breadcrumb.anchor_text', $config['breadcrumb']['anchor_text'])
-            ->set('globetrotters_ai_presence.breadcrumb.inject_anchor', $config['breadcrumb']['inject_anchor'])
             ->set('globetrotters_ai_presence.reporting.buffer_dir', $config['reporting']['buffer_dir']);
 
         $container->services()->alias('globetrotters_ai_presence.cache_pool', $config['cache_pool']);

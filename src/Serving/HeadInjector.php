@@ -72,8 +72,9 @@ final class HeadInjector implements EventSubscriberInterface
 
         $response->setContent(substr_replace($content, $markup, $position, 0));
         // The injected JSON-LD changed the body, so anything describing the
-        // original representation must go with it.
-        BodyMetadata::invalidate($response);
+        // original representation must go with it — and the entity-tag is
+        // recomputed and revalidated against this request rather than dropped.
+        BodyMetadata::invalidate($response, $event->getRequest());
     }
 
     /**

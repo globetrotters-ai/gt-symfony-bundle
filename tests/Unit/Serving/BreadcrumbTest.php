@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Globetrotters\AiPresenceBundle\Tests\Unit\Serving;
 
 use Globetrotters\AiPresenceBundle\Serving\Breadcrumb;
+use Globetrotters\AiPresenceBundle\Serving\ContentTypes;
 use PHPUnit\Framework\TestCase;
 
 final class BreadcrumbTest extends TestCase
@@ -116,21 +117,62 @@ final class BreadcrumbTest extends TestCase
         self::assertSame('', Breadcrumb::originFrom($json));
     }
 
-    public function testHeadBlockMirrorsTheStudioSnippet(): void
+    /**
+     * Each relation points at the canonical copy of its own file: the apex for
+     * everything this install serves, the Globetrotters host only for
+     * ai-catalog.json, which the apex bundle does not contain. Matches
+     * Breadcrumbs::href() in gt-wordpress-plugin.
+     */
+    public function testHeadBlockPointsEachRelationAtItsCanonicalCopy(): void
     {
         self::assertSame(
             '<!-- Globetrotters — AI presence -->'."\n"
-            .'<link rel="alternate" type="application/ld+json" href="https://ai.nantes.fr/schema.json">'."\n"
+            .'<link rel="alternate" type="application/ld+json" href="/schema.json">'."\n"
             .'<link rel="ai-catalog" href="https://ai.nantes.fr/.well-known/ai-catalog.json">'."\n"
-            .'<link rel="mcp" href="https://ai.nantes.fr/.well-known/mcp.json">'."\n"
-            .'<link rel="agent-card" href="https://ai.nantes.fr/.well-known/agent-card.json">'."\n",
-            Breadcrumb::headBlock('https://ai.nantes.fr'),
+            .'<link rel="mcp" href="/.well-known/mcp.json">'."\n"
+            .'<link rel="agent-card" href="/.well-known/agent-card.json">'."\n",
+            Breadcrumb::headBlock('https://ai.nantes.fr', true),
         );
+    }
+
+    /**
+     * The split is driven by ContentTypes, not a hardcoded list, so a file
+     * added to the served set starts resolving locally on its own.
+     */
+    public function testLocallyServedRelationsAreRootRelative(): void
+    {
+        $block = Breadcrumb::headBlock('https://ai.nantes.fr', true);
+
+        foreach (['schema.json', '.well-known/mcp.json', '.well-known/agent-card.json'] as $path) {
+            self::assertTrue(ContentTypes::has($path), $path.' is expected to be served locally');
+            self::assertStringContainsString('href="/'.$path.'">', $block);
+            self::assertStringNotContainsString('href="https://ai.nantes.fr/'.$path.'"', $block);
+        }
+
+        // The one file the apex bundle does not contain stays absolute.
+        self::assertFalse(ContentTypes::has('.well-known/ai-catalog.json'));
+        self::assertStringContainsString('href="https://ai.nantes.fr/.well-known/ai-catalog.json">', $block);
+    }
+
+    /**
+     * rel="alternate" points at a document describing the destination, so
+     * claiming it as an interior page's alternate would be untrue. The
+     * site-scoped relations are correct from any page and stay.
+     */
+    public function testAlternateIsOmittedOffTheHomepage(): void
+    {
+        $block = Breadcrumb::headBlock('https://ai.nantes.fr', false);
+
+        self::assertStringNotContainsString('rel="alternate"', $block);
+        self::assertStringContainsString('rel="ai-catalog"', $block);
+        self::assertStringContainsString('rel="mcp"', $block);
+        self::assertStringContainsString('rel="agent-card"', $block);
+        self::assertStringStartsWith(Breadcrumb::MARKER, $block);
     }
 
     public function testHeadBlockIsEmptyWithoutAnOrigin(): void
     {
-        self::assertSame('', Breadcrumb::headBlock(''));
+        self::assertSame('', Breadcrumb::headBlock('', true));
     }
 
     public function testAnchorRendersAVisibleLink(): void
@@ -161,50 +203,6 @@ final class BreadcrumbTest extends TestCase
     {
         self::assertSame('', Breadcrumb::anchor('', 'Text'));
         self::assertSame('', Breadcrumb::anchor('https://ai.nantes.fr', '   '));
-    }
-
-    public function testAnchorGuardsMatchAnyAnchorToTheOrigin(): void
-    {
-        $guards = Breadcrumb::anchorGuards('https://ai.nantes.fr');
-        // Not array_any(): that is PHP 8.4+, and this project supports 8.2.
-        $matches = static function (string $markup) use ($guards): bool {
-            foreach ($guards as $guard) {
-                if (str_contains($markup, $guard)) {
-                    return true;
-                }
-            }
-
-            return false;
-        };
-
-        self::assertTrue($matches(Breadcrumb::anchor('https://ai.nantes.fr', 'One text')));
-        self::assertTrue($matches(Breadcrumb::anchor('https://ai.nantes.fr', 'Another text')));
-        self::assertFalse($matches(Breadcrumb::anchor('https://other.example', 'One text')));
-    }
-
-    /** A hand-written link to a host root very often carries the slash. */
-    public function testAnchorGuardsCoverTheTrailingSlashForm(): void
-    {
-        $guards = Breadcrumb::anchorGuards('https://ai.nantes.fr');
-
-        self::assertContains('<a href="https://ai.nantes.fr"', $guards);
-        self::assertContains('<a href="https://ai.nantes.fr/"', $guards);
-    }
-
-    /**
-     * Without the closing quote each guard would also match a lookalike host
-     * and silently suppress a legitimate anchor.
-     */
-    public function testAnchorGuardsDoNotMatchALookalikeHost(): void
-    {
-        foreach (Breadcrumb::anchorGuards('https://ai.nantes.fr') as $guard) {
-            self::assertStringNotContainsString($guard, '<a href="https://ai.nantes.fr.example.test">x</a>');
-        }
-    }
-
-    public function testAnchorGuardsAreEmptyWithoutAnOrigin(): void
-    {
-        self::assertSame([], Breadcrumb::anchorGuards(''));
     }
 
     public function testDefaultAnchorTextUsesTheDestinationName(): void

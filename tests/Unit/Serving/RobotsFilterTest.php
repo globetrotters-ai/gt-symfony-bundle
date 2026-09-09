@@ -109,7 +109,8 @@ final class RobotsFilterTest extends TestCase
         ]);
         $this->responseEvent($this->filter(), '/robots.txt', $response);
 
-        foreach (['Content-Length', 'ETag', 'Last-Modified', 'Content-MD5', 'Digest', 'Content-Digest', 'Repr-Digest'] as $header) {
+        self::assertSame('"'.hash('sha256', (string) $response->getContent()).'"', $response->getEtag());
+        foreach (['Content-Length', 'Last-Modified', 'Content-MD5', 'Digest', 'Content-Digest', 'Repr-Digest'] as $header) {
             self::assertFalse($response->headers->has($header), $header.' must not describe the undecorated body');
         }
     }

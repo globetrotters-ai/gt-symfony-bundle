@@ -17,14 +17,10 @@ namespace Globetrotters\AiPresenceBundle\Serving;
  */
 final class RenderedBreadcrumb
 {
-    /**
-     * @param list<string> $anchorGuards substrings meaning "already links back"
-     */
     public function __construct(
         public readonly string $origin,
         public readonly string $headBlock,
         public readonly string $anchor,
-        public readonly array $anchorGuards,
     ) {
     }
 }

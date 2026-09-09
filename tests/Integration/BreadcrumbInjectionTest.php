@@ -43,15 +43,21 @@ final class BreadcrumbInjectionTest extends IntegrationTestCase
         $client->request('GET', '/');
         $content = (string) $client->getResponse()->getContent();
 
+        // Locally-served files resolve to this apex; only ai-catalog.json, which
+        // the apex bundle does not contain, names the Globetrotters host.
         self::assertStringContainsString(
-            '<link rel="alternate" type="application/ld+json" href="https://demo.globetrotters.ai/schema.json">',
+            '<link rel="alternate" type="application/ld+json" href="/schema.json">',
             $content,
         );
-        self::assertStringContainsString('<link rel="mcp" href="https://demo.globetrotters.ai/.well-known/mcp.json">', $content);
-        self::assertStringContainsString('<a href="https://demo.globetrotters.ai">AI presence for Demo</a>', $content);
-        // Head half in the head, visible anchor at the end of the body.
+        self::assertStringContainsString('<link rel="mcp" href="/.well-known/mcp.json">', $content);
+        self::assertStringContainsString(
+            '<link rel="ai-catalog" href="https://demo.globetrotters.ai/.well-known/ai-catalog.json">',
+            $content,
+        );
+        // Head half only. Installing the bundle changes nothing a visitor sees,
+        // so no anchor is injected into a layout this bundle does not own.
         self::assertMatchesRegularExpression('~agent-card\.json">\n</head>~', $content);
-        self::assertMatchesRegularExpression('~</a>\n</body>~', $content);
+        self::assertStringNotContainsString('<a href=', $content);
     }
 
     /**
@@ -99,14 +105,60 @@ final class BreadcrumbInjectionTest extends IntegrationTestCase
         $this->refreshWith(self::AI_JSON);
 
         $client->request('GET', '/');
-        self::assertStringContainsString('https://demo.globetrotters.ai', (string) $client->getResponse()->getContent());
+        self::assertStringContainsString('https://demo.globetrotters.ai/.well-known/ai-catalog.json', (string) $client->getResponse()->getContent());
 
         $this->refreshWith(self::AI_JSON_CUSTOM);
 
         $client->request('GET', '/');
         $content = (string) $client->getResponse()->getContent();
-        self::assertStringContainsString('<a href="https://ai.demo-tourisme.test">', $content);
-        self::assertStringNotContainsString('href="https://demo.globetrotters.ai"', $content);
+        self::assertStringContainsString('href="https://ai.demo-tourisme.test/.well-known/ai-catalog.json"', $content);
+        self::assertStringNotContainsString('demo.globetrotters.ai', $content);
+    }
+
+    /**
+     * The whole point of the site-wide scope: an agent that arrives on a deep
+     * page still finds the pointers. Only the destination-scoped alternate is
+     * withheld there.
+     */
+    public function testInteriorPagesCarryTheDiscoveryRelations(): void
+    {
+        $client = $this->bootClient();
+        $this->refreshWith(self::AI_JSON);
+
+        $client->request('GET', '/interior');
+        $content = (string) $client->getResponse()->getContent();
+
+        self::assertStringContainsString('<link rel="mcp" href="/.well-known/mcp.json">', $content);
+        self::assertStringContainsString('<link rel="agent-card" href="/.well-known/agent-card.json">', $content);
+        self::assertStringNotContainsString('rel="alternate"', $content);
+        // The JSON-LD document itself stays homepage-only.
+        self::assertStringNotContainsString('<script type="application/ld+json">', $content);
+    }
+
+    /**
+     * Rewriting a body used to cost the page its conditional GETs. The tag is
+     * recomputed from the injected bytes and revalidated here, so a client
+     * holding what we actually served still gets a 304 — through a real kernel,
+     * with the application publishing its own tag.
+     */
+    public function testConditionalGetSurvivesTheInjection(): void
+    {
+        $client = $this->bootClient();
+        $this->refreshWith(self::AI_JSON);
+
+        $client->request('GET', '/etagged');
+        $first = $client->getResponse();
+        $etag = (string) $first->headers->get('ETag');
+
+        self::assertSame(200, $first->getStatusCode());
+        self::assertStringContainsString('rel="mcp"', (string) $first->getContent());
+        // Not the application's own tag: that one described the pre-injection body.
+        self::assertNotSame('"app-representation-v1"', $etag);
+        self::assertSame('"'.hash('sha256', (string) $first->getContent()).'"', $etag);
+
+        $client->request('GET', '/etagged', server: ['HTTP_IF_NONE_MATCH' => $etag]);
+
+        self::assertSame(304, $client->getResponse()->getStatusCode());
     }
 
     public function testNoBreadcrumbWhenTheCacheIsCold(): void
@@ -142,6 +194,7 @@ final class BreadcrumbInjectionTest extends IntegrationTestCase
         $link = $twig->createTemplate('{{ gt_ai_presence_breadcrumb_link() }}')->render();
 
         self::assertStringContainsString('rel="agent-card"', $head);
+        // The visible anchor is available to place by hand, never injected.
         self::assertStringContainsString('<a href="https://demo.globetrotters.ai">', $link);
     }
 }

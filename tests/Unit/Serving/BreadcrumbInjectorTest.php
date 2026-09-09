@@ -13,6 +13,7 @@ use Globetrotters\AiPresenceBundle\Settings\Options;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Cache\Adapter\ArrayAdapter;
 use Symfony\Component\HttpFoundation\Request;
+use Symfony\Component\HttpFoundation\RequestStack;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\Event\ResponseEvent;
 use Symfony\Component\HttpKernel\HttpKernelInterface;
@@ -32,19 +33,19 @@ final class BreadcrumbInjectorTest extends TestCase
         $this->cache = new ArtefactCache($pool);
         $this->cache->store(['ai.json' => self::AI_JSON], 'v1', 0);
         $this->options = new Options($pool, 'https://nantes.globetrotters.ai', 'daily', '/');
+        $this->requests = new RequestStack();
     }
+
+    private RequestStack $requests;
 
     private function injector(
         string $profile = 'subdomain_breadcrumb',
         string $anchorText = '',
-        bool $injectAnchor = true,
     ): BreadcrumbInjector {
-        $options = new BreadcrumbOptions($profile, $anchorText, $injectAnchor);
+        $options = new BreadcrumbOptions($profile, $anchorText);
 
         return new BreadcrumbInjector(
-            $this->options,
-            $options,
-            new BreadcrumbRenderer($this->cache, $options),
+            new BreadcrumbRenderer($this->cache, $options, $this->options, $this->requests),
         );
     }
 
@@ -54,13 +55,16 @@ final class BreadcrumbInjectorTest extends TestCase
         string $uri = '/',
         int $type = HttpKernelInterface::MAIN_REQUEST,
     ): Response {
+        $request = Request::create($uri);
+        $this->requests->push($request);
         $event = new ResponseEvent(
             $this->createMock(HttpKernelInterface::class),
-            Request::create($uri),
+            $request,
             $type,
             $response,
         );
         $injector->onKernelResponse($event);
+        $this->requests->pop();
 
         return $event->getResponse();
     }
@@ -74,33 +78,32 @@ final class BreadcrumbInjectorTest extends TestCase
     {
         $content = $this->homepage($this->injector());
 
-        self::assertStringContainsString('<link rel="alternate" type="application/ld+json" href="https://ai.nantes.fr/schema.json">', $content);
-        self::assertStringContainsString('<link rel="agent-card" href="https://ai.nantes.fr/.well-known/agent-card.json">', $content);
+        self::assertStringContainsString('<link rel="alternate" type="application/ld+json" href="/schema.json">', $content);
+        self::assertStringContainsString('<link rel="agent-card" href="/.well-known/agent-card.json">', $content);
+        // Only the file the apex bundle lacks names the Globetrotters host.
+        self::assertStringContainsString('<link rel="ai-catalog" href="https://ai.nantes.fr/.well-known/ai-catalog.json">', $content);
         self::assertMatchesRegularExpression('~agent-card\.json">\n</head>~', $content);
     }
 
-    public function testInjectsTheAnchorBeforeTheClosingBody(): void
+    /**
+     * Installing the bundle must be transparent to the visitor: it may add
+     * <link> relations to the head, and nothing a visitor can see. The body is
+     * a design this bundle does not own.
+     */
+    public function testNeverInjectsAnythingVisible(): void
     {
         $content = $this->homepage($this->injector());
 
-        self::assertStringContainsString('<a href="https://ai.nantes.fr">AI presence for Nantes</a>', $content);
-        self::assertMatchesRegularExpression('~</a>\n</body>~', $content);
+        self::assertStringNotContainsString('<a href=', $content);
+        self::assertStringContainsString('<body><p>Bonjour</p></body>', $content);
     }
 
-    public function testConfiguredAnchorTextWins(): void
+    public function testTouchesNothingAfterTheClosingHead(): void
     {
-        $content = $this->homepage($this->injector(anchorText: 'Notre présence IA'));
+        $content = $this->homepage($this->injector());
+        $body = substr($content, stripos($content, '</head>'));
 
-        self::assertStringContainsString('>Notre présence IA</a>', $content);
-        self::assertStringNotContainsString('AI presence for Nantes', $content);
-    }
-
-    public function testAnchorCanBeSwitchedOffWithoutLosingTheHeadBlock(): void
-    {
-        $content = $this->homepage($this->injector(injectAnchor: false));
-
-        self::assertStringContainsString('rel="agent-card"', $content);
-        self::assertStringNotContainsString('<a href="https://ai.nantes.fr">', $content);
+        self::assertSame('</head><body><p>Bonjour</p></body></html>', $body);
     }
 
     public function testFullApexProfileInjectsNothing(): void
@@ -108,11 +111,27 @@ final class BreadcrumbInjectorTest extends TestCase
         self::assertSame(self::PAGE, $this->homepage($this->injector(profile: 'full_apex')));
     }
 
-    public function testNoInjectionOffTheHomepage(): void
+    /**
+     * The discovery relations name site-level surfaces, so they belong on every
+     * page — an agent that lands deep in the site is the case worth serving.
+     */
+    public function testInjectsOnInteriorPagesToo(): void
     {
-        $response = $this->respond($this->injector(), new Response(self::PAGE), '/some-page');
+        $content = (string) $this->respond($this->injector(), new Response(self::PAGE), '/some-page')->getContent();
 
-        self::assertSame(self::PAGE, (string) $response->getContent());
+        self::assertStringContainsString('rel="ai-catalog"', $content);
+        self::assertStringContainsString('rel="mcp"', $content);
+        self::assertStringContainsString('rel="agent-card"', $content);
+    }
+
+    /** But the destination-scoped alternate stays on the homepage alone. */
+    public function testAlternateOnlyOnTheHomepage(): void
+    {
+        $home = (string) $this->respond($this->injector(), new Response(self::PAGE), '/')->getContent();
+        $interior = (string) $this->respond($this->injector(), new Response(self::PAGE), '/some-page')->getContent();
+
+        self::assertStringContainsString('rel="alternate"', $home);
+        self::assertStringNotContainsString('rel="alternate"', $interior);
     }
 
     public function testNoInjectionOnASubRequest(): void
@@ -159,16 +178,6 @@ final class BreadcrumbInjectorTest extends TestCase
         $twice = $this->homepage($this->injector(), $this->homepage($this->injector()));
 
         self::assertSame(1, substr_count($twice, 'rel="agent-card"'));
-        self::assertSame(1, substr_count($twice, '<a href="https://ai.nantes.fr">'));
-    }
-
-    public function testInjectsTheAnchorEvenWhenOnlyTheHeadBlockWasPlacedByHand(): void
-    {
-        $page = '<html><head>'.Breadcrumb::headBlock('https://ai.nantes.fr').'</head><body>x</body></html>';
-        $content = $this->homepage($this->injector(), $page);
-
-        self::assertSame(1, substr_count($content, 'rel="ai-catalog"'));
-        self::assertStringContainsString('<a href="https://ai.nantes.fr">', $content);
     }
 
     /**
@@ -178,7 +187,7 @@ final class BreadcrumbInjectorTest extends TestCase
      */
     public function testDoesNotDoubleInjectWhenAMinifierStrippedTheMarkerComment(): void
     {
-        $placed = Breadcrumb::headBlock('https://ai.nantes.fr');
+        $placed = Breadcrumb::headBlock('https://ai.nantes.fr', true);
         $minified = str_replace(Breadcrumb::MARKER."\n", '', $placed);
         $page = '<html><head>'.$minified.'</head><body>x</body></html>';
 
@@ -190,28 +199,16 @@ final class BreadcrumbInjectorTest extends TestCase
 
     public function testInjectsIntoUppercaseTags(): void
     {
-        $page = '<HTML><HEAD></HEAD><BODY>x</BODY></HTML>';
-        $content = $this->homepage($this->injector(), $page);
+        $content = $this->homepage($this->injector(), '<HTML><HEAD></HEAD><BODY>x</BODY></HTML>');
 
         self::assertStringContainsString('rel="agent-card"', $content);
-        self::assertStringContainsString('<a href="https://ai.nantes.fr">', $content);
     }
 
-    public function testUsesTheLastClosingBodyTag(): void
-    {
-        $page = '<html><head></head><body><code>&lt;/body&gt;</code></body></html>';
-        $content = $this->homepage($this->injector(), $page);
-
-        self::assertMatchesRegularExpression('~</a>\n</body></html>$~', $content);
-    }
-
-    public function testNoHeadBlockWhenThereIsNoHeadButAnchorStillLands(): void
+    public function testNothingHappensWithoutAHead(): void
     {
         $page = '<html><body>x</body></html>';
-        $content = $this->homepage($this->injector(), $page);
 
-        self::assertStringNotContainsString('rel="agent-card"', $content);
-        self::assertStringContainsString('<a href="https://ai.nantes.fr">', $content);
+        self::assertSame($page, $this->homepage($this->injector(), $page));
     }
 
     /**
@@ -230,8 +227,10 @@ final class BreadcrumbInjectorTest extends TestCase
         $result = $this->respond($this->injector(), $response);
 
         self::assertFalse($result->headers->has('Content-Length'));
-        self::assertFalse($result->headers->has('ETag'));
         self::assertFalse($result->headers->has('Last-Modified'));
+        // The entity-tag is restored, not dropped: it now names the injected
+        // body, so the page keeps its conditional GETs.
+        self::assertSame('"'.hash('sha256', (string) $result->getContent()).'"', $result->getEtag());
     }
 
     public function testLeavesBodyMetadataAloneWhenNothingWasInjected(): void

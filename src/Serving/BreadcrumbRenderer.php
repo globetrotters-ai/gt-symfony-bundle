@@ -6,6 +6,9 @@ namespace Globetrotters\AiPresenceBundle\Serving;
 
 use Globetrotters\AiPresenceBundle\Cache\ArtefactCache;
 use Globetrotters\AiPresenceBundle\Settings\BreadcrumbOptions;
+use Globetrotters\AiPresenceBundle\Settings\Options;
+use Symfony\Component\HttpFoundation\Request;
+use Symfony\Component\HttpFoundation\RequestStack;
 
 /**
  * Renders the breadcrumb halves against the current cache and configuration.
@@ -14,14 +17,18 @@ use Globetrotters\AiPresenceBundle\Settings\BreadcrumbOptions;
  * must never disagree: {@see BreadcrumbInjector}, which places the markup
  * automatically, and
  * {@see \Globetrotters\AiPresenceBundle\Twig\AiPresenceExtension}, which lets an
- * integrator place it themselves. Both go through here so "which origin" and
- * "which anchor text" are answered in exactly one place.
+ * integrator place it themselves. Both go through here so "which origin",
+ * "which anchor text" and "is this the homepage" are answered in exactly one
+ * place — a Twig call in a base template must produce the same block the
+ * subscriber would have injected into that same page.
  */
 final class BreadcrumbRenderer
 {
     public function __construct(
         private readonly ArtefactCache $cache,
         private readonly BreadcrumbOptions $options,
+        private readonly Options $settings,
+        private readonly RequestStack $requests,
     ) {
     }
 
@@ -44,7 +51,7 @@ final class BreadcrumbRenderer
      * redeploy is the entire reason the origin is derived rather than
      * configured. Within one call everything comes from the same bytes.
      */
-    public function render(): ?RenderedBreadcrumb
+    public function render(?Request $request = null): ?RenderedBreadcrumb
     {
         if (!$this->isEnabled()) {
             return null;
@@ -63,9 +70,8 @@ final class BreadcrumbRenderer
 
         return new RenderedBreadcrumb(
             $origin,
-            Breadcrumb::headBlock($origin),
+            Breadcrumb::headBlock($origin, $this->isHomepage($request)),
             Breadcrumb::anchor($origin, $text),
-            Breadcrumb::anchorGuards($origin),
         );
     }
 
@@ -80,14 +86,32 @@ final class BreadcrumbRenderer
     /**
      * The visible anchor, for explicit placement from Twig.
      *
-     * Deliberately ignores ``breadcrumb.inject_anchor``: that switch turns off
-     * *automatic* placement, and an integrator who turned it off in order to
-     * place the anchor themselves must still get markup back here.
+     * Never injected automatically — see {@see BreadcrumbInjector}. It exists
+     * only for an integrator placing it inside their own layout.
      */
     public function anchor(): string
     {
         $breadcrumb = $this->render();
 
         return null === $breadcrumb ? '' : $breadcrumb->anchor;
+    }
+
+    /**
+     * Whether the request being rendered is the configured homepage, which is
+     * the only page whose ``rel="alternate"`` claim is true.
+     *
+     * A caller holding the request passes it: a response subscriber has the
+     * authoritative one and should not have to trust that the stack agrees.
+     * Twig has no request to hand, so it falls back to the stack.
+     *
+     * No request at all (a console render, a warm-up) is treated as "not the
+     * homepage": the site-scoped relations are correct everywhere, and asserting
+     * the document-scoped one with no page to assert it about would be a guess.
+     */
+    private function isHomepage(?Request $request): bool
+    {
+        $request ??= $this->requests->getCurrentRequest();
+
+        return null !== $request && $request->getPathInfo() === $this->settings->homepagePath();
     }
 }

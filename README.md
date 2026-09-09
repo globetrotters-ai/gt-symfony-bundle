@@ -152,29 +152,37 @@ globetrotters_ai_presence:
 
 If you also publish at `ai.<your-domain>` (or `<slug>.globetrotters.ai`), that host is a **separate site** to every crawler. It inherits none of your apex's index membership, crawl budget or authority, and nothing on the public web points at it — so it is reached only by something that already knows the hostname. `subdomain_breadcrumb` fixes that from the one place that already has the authority: your own homepage.
 
-It injects two things, which do two different jobs:
+It injects discovery `<link>` relations into `<head>`, and **nothing else**:
 
 ```html
-<!-- in <head> — machine-readable pointers -->
 <!-- Globetrotters — AI presence -->
-<link rel="alternate" type="application/ld+json" href="https://ai.your-domain.example/schema.json">
+<link rel="alternate" type="application/ld+json" href="/schema.json">
 <link rel="ai-catalog" href="https://ai.your-domain.example/.well-known/ai-catalog.json">
-<link rel="mcp" href="https://ai.your-domain.example/.well-known/mcp.json">
-<link rel="agent-card" href="https://ai.your-domain.example/.well-known/agent-card.json">
-
-<!-- before </body> — the actual discovery signal -->
-<a href="https://ai.your-domain.example">AI presence for Your Destination</a>
+<link rel="mcp" href="/.well-known/mcp.json">
+<link rel="agent-card" href="/.well-known/agent-card.json">
 ```
 
-The visible anchor is the load-bearing half: a crawler follows an `<a href>`, and the `<link>` relations above it carry no discovery signal on their own.
+`rel="alternate"` appears on `homepage_path` only — it points at a document describing the destination, so claiming it as an interior page's alternate would assert something untrue about that page. The three agent-discovery relations name where your *site's* surfaces live, which is equally true from every page, so they are emitted on **every HTML page**: an agent that arrives on a deep page is exactly the case that needs a pointer.
+
+**Installing this bundle is transparent to your visitors.** It never injects anything visible: it does not know your layout, and has no safe position to put an element into a design it does not own. Head markup only.
+
+That has a real cost, worth stating plainly: a `<link>` is a discovery *pointer*, not a followed link, so on its own it does not pass the crawl authority that would let the subdomain inherit your apex's standing. A visible anchor is what does that — so the bundle hands you one to place yourself, inside your own layout:
+
+```twig
+{{ gt_ai_presence_breadcrumb_link() }}   {# renders <a href="https://ai.your-domain.example">…</a> #}
+```
+
+Set `breadcrumb.anchor_text` to control its wording. It is your markup, in your template, where you can see and style it.
+
+**Each relation points at the canonical copy of its own file.** Anything this install serves itself (the six paths above) is linked root-relative, so agents are sent to *your* domain — the copy carrying your index membership, not the mirror. Only `.well-known/ai-catalog.json` names the Globetrotters host, because the apex bundle does not contain it. The split follows the served set, so a file added there starts resolving locally on its own.
 
 ```yaml
 globetrotters_ai_presence:
     profile: 'subdomain_breadcrumb'
     breadcrumb:
-        anchor_text: ''        # optional: defaults to "AI presence for <destination>" from ai.json.
-                               # Set it in your site's language.
-        inject_anchor: true    # optional: false to place the anchor yourself (see below)
+        anchor_text: ''   # optional: wording for the anchor you place yourself.
+                          # Defaults to "AI presence for <destination>" from ai.json.
+                          # It lands on your own pages, so set it in your site's language.
 ```
 
 **You never configure the host.** It is derived from the cached `ai.json` on every refresh, so when a custom hostname activates (or is detached) the links follow it on the next ordinary refresh — no config change, no redeploy. A configured host would keep resolving after such a flip while pointing at the wrong place, which is the one failure you would never notice.
@@ -195,7 +203,7 @@ Each injection is automatic on `homepage_path`. If you'd rather place markup exp
 {{ gt_ai_presence_breadcrumb_link() }}  {# in your footer #}
 ```
 
-`inject_anchor: false` turns off only the *automatic* footer anchor; `gt_ai_presence_breadcrumb_link()` keeps working, which is the point of the pair.
+`gt_ai_presence_breadcrumb_link()` is the only way the visible anchor ever reaches a page — there is no setting that makes the bundle place it for you.
 
 ## Caveats
 
@@ -204,7 +212,8 @@ Each injection is automatic on `homepage_path`. If you'd rather place markup exp
 - **Don't use a per-process pool.** `cache_pool` must be shared between CLI and web (filesystem, Redis, shared APCu) — with an in-memory pool, CLI refreshes would be invisible to web requests.
 - The configured `website_url` is fetched with an SSRF guard (private/reserved IPs are rejected), a 5-second timeout, and a 1 MiB per-file size cap.
 - **Reporting needs a writable `buffer_dir`**, shared by the web user and whoever runs the flush — the rest of the bundle needs no filesystem write access, and an install that doesn't report never creates the directory. It holds at most 5000 events or 512KB; past that the oldest are dropped and counted, and the count is reported so the gap is visible rather than silent. `gt:status` shows both.
-- **The breadcrumb needs a `</head>` and a `</body>` in the response.** Each half is inserted before its closing tag, so a homepage that streams, is served from a static cache, or omits either tag gets that half skipped — place it with the Twig functions instead.
+- **The breadcrumb needs a `</head>` in the response.** The block is inserted before the closing tag, so a page that streams, is served from a static cache, or omits `</head>` gets nothing — place it with `gt_ai_presence_breadcrumb_head()` instead.
+- **Conditional GETs survive injection; `Last-Modified` does not.** Rewriting a body makes metadata describing the original representation untrue. The `ETag` is therefore **recomputed** from the injected bytes — preserving your weak/strong flavour — and revalidated once, after every injection has run, so a client holding what was actually served still gets a `304` while one holding a half-injected body correctly gets a fresh `200`. A response that published no `ETag` is left without one; the bundle will not invent a caching contract you did not opt into. `Last-Modified` is dropped rather than restamped: a changed body says nothing about when the underlying resource changed.
 - **An accepted flush is not proof the token is right.** The ingest endpoint answers `202` to a bad token, an unknown install and a malformed body alike, deliberately revealing nothing about which tokens exist. `gt:status` distinguishes "configured but never accepted" from "reporting normally", but confirm the numbers in Studio.
 
 ## Development
