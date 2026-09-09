@@ -65,7 +65,6 @@ final class BreadcrumbRenderer
             $origin,
             Breadcrumb::headBlock($origin),
             Breadcrumb::anchor($origin, $text),
-            Breadcrumb::anchorGuards($origin),
         );
     }
 
@@ -80,9 +79,8 @@ final class BreadcrumbRenderer
     /**
      * The visible anchor, for explicit placement from Twig.
      *
-     * Deliberately ignores ``breadcrumb.inject_anchor``: that switch turns off
-     * *automatic* placement, and an integrator who turned it off in order to
-     * place the anchor themselves must still get markup back here.
+     * Never injected automatically — see {@see BreadcrumbInjector}. It exists
+     * only for an integrator placing it inside their own layout.
      */
     public function anchor(): string
     {

@@ -189,50 +189,6 @@ final class BreadcrumbTest extends TestCase
         self::assertSame('', Breadcrumb::anchor('https://ai.nantes.fr', '   '));
     }
 
-    public function testAnchorGuardsMatchAnyAnchorToTheOrigin(): void
-    {
-        $guards = Breadcrumb::anchorGuards('https://ai.nantes.fr');
-        // Not array_any(): that is PHP 8.4+, and this project supports 8.2.
-        $matches = static function (string $markup) use ($guards): bool {
-            foreach ($guards as $guard) {
-                if (str_contains($markup, $guard)) {
-                    return true;
-                }
-            }
-
-            return false;
-        };
-
-        self::assertTrue($matches(Breadcrumb::anchor('https://ai.nantes.fr', 'One text')));
-        self::assertTrue($matches(Breadcrumb::anchor('https://ai.nantes.fr', 'Another text')));
-        self::assertFalse($matches(Breadcrumb::anchor('https://other.example', 'One text')));
-    }
-
-    /** A hand-written link to a host root very often carries the slash. */
-    public function testAnchorGuardsCoverTheTrailingSlashForm(): void
-    {
-        $guards = Breadcrumb::anchorGuards('https://ai.nantes.fr');
-
-        self::assertContains('<a href="https://ai.nantes.fr"', $guards);
-        self::assertContains('<a href="https://ai.nantes.fr/"', $guards);
-    }
-
-    /**
-     * Without the closing quote each guard would also match a lookalike host
-     * and silently suppress a legitimate anchor.
-     */
-    public function testAnchorGuardsDoNotMatchALookalikeHost(): void
-    {
-        foreach (Breadcrumb::anchorGuards('https://ai.nantes.fr') as $guard) {
-            self::assertStringNotContainsString($guard, '<a href="https://ai.nantes.fr.example.test">x</a>');
-        }
-    }
-
-    public function testAnchorGuardsAreEmptyWithoutAnOrigin(): void
-    {
-        self::assertSame([], Breadcrumb::anchorGuards(''));
-    }
-
     public function testDefaultAnchorTextUsesTheDestinationName(): void
     {
         self::assertSame('AI presence for Nantes', Breadcrumb::defaultAnchorText(self::AI_JSON));

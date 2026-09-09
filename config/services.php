@@ -73,18 +73,13 @@ return static function (ContainerConfigurator $container): void {
         ->args([
             param('globetrotters_ai_presence.profile'),
             param('globetrotters_ai_presence.breadcrumb.anchor_text'),
-            param('globetrotters_ai_presence.breadcrumb.inject_anchor'),
         ]);
 
     $services->set(BreadcrumbRenderer::class)
         ->args([service(ArtefactCache::class), service(BreadcrumbOptions::class)]);
 
     $services->set(BreadcrumbInjector::class)
-        ->args([
-            service(Options::class),
-            service(BreadcrumbOptions::class),
-            service(BreadcrumbRenderer::class),
-        ])
+        ->args([service(Options::class), service(BreadcrumbRenderer::class)])
         ->tag('kernel.event_subscriber');
 
     $services->set(RobotsFilter::class)

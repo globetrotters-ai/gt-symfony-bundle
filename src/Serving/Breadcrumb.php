@@ -166,11 +166,14 @@ final class Breadcrumb
     }
 
     /**
-     * The visible footer anchor — the load-bearing half. A real ``<a href>`` is
-     * what a crawler follows and what carries a discovery signal; the ``<link>``
-     * relations above do not. A subdomain inherits none of the apex's index
-     * membership or authority, so without this the published host is reachable
-     * only by something that already knows its name.
+     * The visible footer anchor, for an integrator to place inside their own
+     * layout via ``{{ gt_ai_presence_breadcrumb_link() }}``. **Never injected
+     * automatically** — see {@see BreadcrumbInjector} for why.
+     *
+     * It is the load-bearing half where discovery is concerned: a real
+     * ``<a href>`` is what a crawler follows, and the ``<link>`` relations above
+     * do not pass authority on their own. But it is visible markup in a design
+     * this bundle does not own, so placing it is the integrator's call.
      *
      * Both arguments are escaped: the text is integrator-supplied config and the
      * origin comes from a fetched artefact, and both land in someone's live
@@ -206,35 +209,6 @@ final class Breadcrumb
     public static function headGuards(): array
     {
         return ['rel="ai-catalog"'];
-    }
-
-    /**
-     * What "this page already links back" looks like, for the injector's
-     * idempotency check: any anchor to the canonical origin, whatever its text.
-     * Deliberately not the full anchor — the text can legitimately differ (a
-     * hand-placed Twig call made before ``anchor_text`` was configured, or
-     * before the destination was named), and a second anchor to the same host
-     * is the one outcome worth preventing.
-     *
-     * Both the bare origin and its trailing-slash form count, because a
-     * hand-written link to a host root very often carries the slash. The
-     * closing quote stays in each variant: without it, ``https://ai.nantes.fr``
-     * would also match ``https://ai.nantes.fr.example.test`` and silently
-     * suppress a legitimate anchor.
-     *
-     * @return list<string>
-     */
-    public static function anchorGuards(string $origin): array
-    {
-        if ('' === $origin) {
-            return [];
-        }
-        $escaped = self::escape($origin);
-
-        return [
-            \sprintf('<a href="%s"', $escaped),
-            \sprintf('<a href="%s/"', $escaped),
-        ];
     }
 
     /**

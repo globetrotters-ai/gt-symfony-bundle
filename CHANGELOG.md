@@ -16,16 +16,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   published at the Globetrotters host, which is otherwise unreachable to a
   crawler that does not already know its name.
 - Breadcrumb injection on the `subdomain_breadcrumb` profile: the agent
-  discovery `<link>` relations in the homepage `<head>`, and a visible footer
-  anchor — the half a crawler actually follows. Neither is injected twice.
+  discovery `<link>` relations in the homepage `<head>`, and nothing else.
+  Installing the bundle is transparent to visitors — it never injects visible
+  markup into a design it does not own. The visible anchor, which is the half
+  that actually passes crawl authority, is available as
+  `gt_ai_presence_breadcrumb_link()` for you to place inside your own layout.
 - Each discovery relation points at the canonical copy of its own file:
   root-relative for everything this install serves (so agents are sent to the
   apex copy that carries the index membership, not the mirror), absolute to the
   Globetrotters host only for `.well-known/ai-catalog.json`, which the apex
   bundle does not contain. Matches `Breadcrumbs::href()` in the WordPress
   plugin.
-- `breadcrumb.anchor_text` (defaults to the destination name from `ai.json`) and
-  `breadcrumb.inject_anchor` for placing the footer link yourself.
+- `breadcrumb.anchor_text` (defaults to the destination name from `ai.json`) to
+  set the wording of the anchor you place yourself.
 - `gt_ai_presence_breadcrumb_head()` and `gt_ai_presence_breadcrumb_link()` Twig
   functions, for explicit placement of either half.
 

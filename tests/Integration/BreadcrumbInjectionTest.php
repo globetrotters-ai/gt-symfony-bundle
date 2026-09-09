@@ -54,10 +54,10 @@ final class BreadcrumbInjectionTest extends IntegrationTestCase
             '<link rel="ai-catalog" href="https://demo.globetrotters.ai/.well-known/ai-catalog.json">',
             $content,
         );
-        self::assertStringContainsString('<a href="https://demo.globetrotters.ai">AI presence for Demo</a>', $content);
-        // Head half in the head, visible anchor at the end of the body.
+        // Head half only. Installing the bundle changes nothing a visitor sees,
+        // so no anchor is injected into a layout this bundle does not own.
         self::assertMatchesRegularExpression('~agent-card\.json">\n</head>~', $content);
-        self::assertMatchesRegularExpression('~</a>\n</body>~', $content);
+        self::assertStringNotContainsString('<a href=', $content);
     }
 
     /**
@@ -105,14 +105,14 @@ final class BreadcrumbInjectionTest extends IntegrationTestCase
         $this->refreshWith(self::AI_JSON);
 
         $client->request('GET', '/');
-        self::assertStringContainsString('https://demo.globetrotters.ai', (string) $client->getResponse()->getContent());
+        self::assertStringContainsString('https://demo.globetrotters.ai/.well-known/ai-catalog.json', (string) $client->getResponse()->getContent());
 
         $this->refreshWith(self::AI_JSON_CUSTOM);
 
         $client->request('GET', '/');
         $content = (string) $client->getResponse()->getContent();
-        self::assertStringContainsString('<a href="https://ai.demo-tourisme.test">', $content);
-        self::assertStringNotContainsString('href="https://demo.globetrotters.ai"', $content);
+        self::assertStringContainsString('href="https://ai.demo-tourisme.test/.well-known/ai-catalog.json"', $content);
+        self::assertStringNotContainsString('demo.globetrotters.ai', $content);
     }
 
     public function testNoBreadcrumbWhenTheCacheIsCold(): void
@@ -148,6 +148,7 @@ final class BreadcrumbInjectionTest extends IntegrationTestCase
         $link = $twig->createTemplate('{{ gt_ai_presence_breadcrumb_link() }}')->render();
 
         self::assertStringContainsString('rel="agent-card"', $head);
+        // The visible anchor is available to place by hand, never injected.
         self::assertStringContainsString('<a href="https://demo.globetrotters.ai">', $link);
     }
 }

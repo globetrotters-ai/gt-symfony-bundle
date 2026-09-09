@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Globetrotters\AiPresenceBundle\Serving;
 
-use Globetrotters\AiPresenceBundle\Settings\BreadcrumbOptions;
 use Globetrotters\AiPresenceBundle\Settings\Options;
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
 use Symfony\Component\HttpKernel\Event\ResponseEvent;
@@ -14,11 +13,21 @@ use Symfony\Component\HttpKernel\KernelEvents;
  * Links the apex back to the presence published at the Globetrotters host, for
  * the ``subdomain_breadcrumb`` install profile only.
  *
- * Two insertions, in two different places, because they do two different jobs:
- * the head block ({@see Breadcrumb::headBlock()}) carries machine-readable
- * pointers, and the footer anchor ({@see Breadcrumb::anchor()}) is the actual
- * discovery signal — a crawler follows an ``<a href>``, not a ``<link>``. Under
- * {@see \Globetrotters\AiPresenceBundle\Settings\Profile::FullApex} this
+ * **Head markup only, never anything visible.** Installing this bundle has to be
+ * transparent to the end user: it must not put an element into a page whose
+ * design it does not own, at a position it cannot know is safe. So the automatic
+ * injection is limited to ``<link>`` relations inside ``<head>``, which change
+ * nothing a visitor sees. Matches ``Serving\Breadcrumbs`` in
+ * gt-wordpress-plugin, which hooks ``wp_head`` and nothing else.
+ *
+ * The cost is real and worth stating: a ``<link>`` is a discovery pointer, not a
+ * followed link, so on its own it does not pass the crawl authority that would
+ * let the subdomain inherit the apex's standing. The visible anchor that *would*
+ * is available as ``{{ gt_ai_presence_breadcrumb_link() }}`` for an integrator
+ * to place inside their own layout, where they can see it and style it. It is
+ * their markup and their call, which is exactly why this class does not make it.
+ *
+ * Under {@see \Globetrotters\AiPresenceBundle\Settings\Profile::FullApex} this
  * subscriber does nothing at all.
  *
  * Runs beside {@see HeadInjector} at the same priority and applies the same
@@ -26,16 +35,13 @@ use Symfony\Component\HttpKernel\KernelEvents;
  * mutate the homepage body independently, and each invalidates the metadata
  * that describes it.
  *
- * Every injection is idempotent against the Twig functions
- * ``gt_ai_presence_breadcrumb_head()`` / ``gt_ai_presence_breadcrumb_link()``,
- * which exist for integrators who would rather place the markup themselves —
- * checked separately per half, so placing one by hand still gets the other.
+ * The injection is idempotent against ``gt_ai_presence_breadcrumb_head()``, so
+ * an integrator who places the head block themselves does not get it twice.
  */
 final class BreadcrumbInjector implements EventSubscriberInterface
 {
     public function __construct(
         private readonly Options $options,
-        private readonly BreadcrumbOptions $breadcrumb,
         private readonly BreadcrumbRenderer $renderer,
     ) {
     }
@@ -73,30 +79,12 @@ final class BreadcrumbInjector implements EventSubscriberInterface
             return;
         }
 
-        // One snapshot for the whole response: both halves and the guard that
-        // decides whether to place them come from the same read, so they can
-        // never describe two different hosts.
         $breadcrumb = $this->renderer->render();
         if (null === $breadcrumb) {
             return;
         }
 
-        $updated = $this->insertBefore(
-            $content,
-            '</head>',
-            $breadcrumb->headBlock,
-            Breadcrumb::headGuards(),
-            false,
-        );
-        if ($this->breadcrumb->injectsAnchor()) {
-            $updated = $this->insertBefore(
-                $updated,
-                '</body>',
-                $breadcrumb->anchor,
-                $breadcrumb->anchorGuards,
-                true,
-            );
-        }
+        $updated = $this->insertBefore($content, $breadcrumb->headBlock, Breadcrumb::headGuards());
 
         if ($updated === $content) {
             return;
@@ -110,23 +98,18 @@ final class BreadcrumbInjector implements EventSubscriberInterface
     }
 
     /**
-     * Insert markup immediately before a closing tag, skipping the work when
-     * `$guard` says the page already carries this half.
+     * Insert the block immediately before ``</head>``, skipping the work when a
+     * guard says the page already carries it.
      *
-     * The guard is a short stable substring rather than the rendered markup:
-     * a hand-placed Twig call renders against the same cache, but an HTML
-     * minifier, a Twig whitespace trim, or simply a hostname that flipped since
-     * the customer pasted the Studio snippet all defeat a byte-exact
-     * comparison — and defeating it means injecting a *second* copy, which is
-     * the failure this check exists to prevent.
+     * The guard is a short stable substring rather than the rendered markup: an
+     * HTML minifier, a Twig whitespace trim, or a hostname that flipped since
+     * the customer pasted the Studio snippet all defeat a byte-exact comparison
+     * — and defeating it means injecting a *second* copy, which is the failure
+     * this check exists to prevent.
      *
      * @param list<string> $guards any match means "already present"
-     * @param bool         $last   match the final occurrence — right for
-     *                             ``</body>``, which can legitimately appear
-     *                             escaped in page content, whereas the first
-     *                             ``</head>`` is the document's own
      */
-    private function insertBefore(string $content, string $tag, string $markup, array $guards, bool $last): string
+    private function insertBefore(string $content, string $markup, array $guards): string
     {
         if ('' === $markup) {
             return $content;
@@ -136,7 +119,7 @@ final class BreadcrumbInjector implements EventSubscriberInterface
                 return $content;
             }
         }
-        $position = $last ? strripos($content, $tag) : stripos($content, $tag);
+        $position = stripos($content, '</head>');
         if (false === $position) {
             return $content;
         }

@@ -37,13 +37,11 @@ final class BreadcrumbInjectorTest extends TestCase
     private function injector(
         string $profile = 'subdomain_breadcrumb',
         string $anchorText = '',
-        bool $injectAnchor = true,
     ): BreadcrumbInjector {
-        $options = new BreadcrumbOptions($profile, $anchorText, $injectAnchor);
+        $options = new BreadcrumbOptions($profile, $anchorText);
 
         return new BreadcrumbInjector(
             $this->options,
-            $options,
             new BreadcrumbRenderer($this->cache, $options),
         );
     }
@@ -81,28 +79,25 @@ final class BreadcrumbInjectorTest extends TestCase
         self::assertMatchesRegularExpression('~agent-card\.json">\n</head>~', $content);
     }
 
-    public function testInjectsTheAnchorBeforeTheClosingBody(): void
+    /**
+     * Installing the bundle must be transparent to the visitor: it may add
+     * <link> relations to the head, and nothing a visitor can see. The body is
+     * a design this bundle does not own.
+     */
+    public function testNeverInjectsAnythingVisible(): void
     {
         $content = $this->homepage($this->injector());
 
-        self::assertStringContainsString('<a href="https://ai.nantes.fr">AI presence for Nantes</a>', $content);
-        self::assertMatchesRegularExpression('~</a>\n</body>~', $content);
+        self::assertStringNotContainsString('<a href=', $content);
+        self::assertStringContainsString('<body><p>Bonjour</p></body>', $content);
     }
 
-    public function testConfiguredAnchorTextWins(): void
+    public function testTouchesNothingAfterTheClosingHead(): void
     {
-        $content = $this->homepage($this->injector(anchorText: 'Notre présence IA'));
+        $content = $this->homepage($this->injector());
+        $body = substr($content, stripos($content, '</head>'));
 
-        self::assertStringContainsString('>Notre présence IA</a>', $content);
-        self::assertStringNotContainsString('AI presence for Nantes', $content);
-    }
-
-    public function testAnchorCanBeSwitchedOffWithoutLosingTheHeadBlock(): void
-    {
-        $content = $this->homepage($this->injector(injectAnchor: false));
-
-        self::assertStringContainsString('rel="agent-card"', $content);
-        self::assertStringNotContainsString('<a href="https://ai.nantes.fr">', $content);
+        self::assertSame('</head><body><p>Bonjour</p></body></html>', $body);
     }
 
     public function testFullApexProfileInjectsNothing(): void
@@ -161,16 +156,6 @@ final class BreadcrumbInjectorTest extends TestCase
         $twice = $this->homepage($this->injector(), $this->homepage($this->injector()));
 
         self::assertSame(1, substr_count($twice, 'rel="agent-card"'));
-        self::assertSame(1, substr_count($twice, '<a href="https://ai.nantes.fr">'));
-    }
-
-    public function testInjectsTheAnchorEvenWhenOnlyTheHeadBlockWasPlacedByHand(): void
-    {
-        $page = '<html><head>'.Breadcrumb::headBlock('https://ai.nantes.fr').'</head><body>x</body></html>';
-        $content = $this->homepage($this->injector(), $page);
-
-        self::assertSame(1, substr_count($content, 'rel="ai-catalog"'));
-        self::assertStringContainsString('<a href="https://ai.nantes.fr">', $content);
     }
 
     /**
@@ -192,28 +177,16 @@ final class BreadcrumbInjectorTest extends TestCase
 
     public function testInjectsIntoUppercaseTags(): void
     {
-        $page = '<HTML><HEAD></HEAD><BODY>x</BODY></HTML>';
-        $content = $this->homepage($this->injector(), $page);
+        $content = $this->homepage($this->injector(), '<HTML><HEAD></HEAD><BODY>x</BODY></HTML>');
 
         self::assertStringContainsString('rel="agent-card"', $content);
-        self::assertStringContainsString('<a href="https://ai.nantes.fr">', $content);
     }
 
-    public function testUsesTheLastClosingBodyTag(): void
-    {
-        $page = '<html><head></head><body><code>&lt;/body&gt;</code></body></html>';
-        $content = $this->homepage($this->injector(), $page);
-
-        self::assertMatchesRegularExpression('~</a>\n</body></html>$~', $content);
-    }
-
-    public function testNoHeadBlockWhenThereIsNoHeadButAnchorStillLands(): void
+    public function testNothingHappensWithoutAHead(): void
     {
         $page = '<html><body>x</body></html>';
-        $content = $this->homepage($this->injector(), $page);
 
-        self::assertStringNotContainsString('rel="agent-card"', $content);
-        self::assertStringContainsString('<a href="https://ai.nantes.fr">', $content);
+        self::assertSame($page, $this->homepage($this->injector(), $page));
     }
 
     /**

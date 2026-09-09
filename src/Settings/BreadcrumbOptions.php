@@ -16,7 +16,6 @@ final class BreadcrumbOptions
     public function __construct(
         string $profile,
         private readonly string $anchorText,
-        private readonly bool $injectAnchor,
     ) {
         $this->profile = Profile::resolve($profile);
     }
@@ -32,16 +31,12 @@ final class BreadcrumbOptions
     }
 
     /**
-     * Configured anchor text, or '' to accept the derived default. Empty is
-     * the documented way to say "use the destination name".
+     * Configured anchor text for ``{{ gt_ai_presence_breadcrumb_link() }}``, or
+     * '' to accept the derived default. Empty is the documented way to say "use
+     * the destination name".
      */
     public function anchorText(): string
     {
         return trim($this->anchorText);
-    }
-
-    public function injectsAnchor(): bool
-    {
-        return $this->injectAnchor;
     }
 }
