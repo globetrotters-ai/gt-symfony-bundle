@@ -19,6 +19,19 @@ use Symfony\Component\HttpKernel\KernelEvents;
  * generated robots.txt when the app would 404. Only advertises once a bundle
  * is actually cached.
  *
+ * Two things this block deliberately does not emit, both of which the
+ * Globetrotters backend does emit in its own lanes:
+ *
+ * - **No `User-agent: *` group.** The backend owns the whole file; this bundle
+ *   appends to one the app may already own, and a second wildcard group is a
+ *   duplicate that can override the site's real crawl rules. It costs nothing
+ *   under RFC 9309: a crawler with no matching group is unrestricted anyway, so
+ *   an unnamed bot is as welcome without the group as with it. The generated
+ *   lane omits it too, so both lanes emit one canonical block.
+ * - **No `Agentmap:` line.** `Agentmap: /.well-known/ai-catalog.json` is
+ *   root-relative and this bundle does not serve `ai-catalog.json`, so the line
+ *   would advertise a 404 at the customer's own apex.
+ *
  * Limitation (documented): a physical public/robots.txt is served by the web
  * server and never reaches the kernel, so it can't be decorated here.
  */
@@ -26,19 +39,51 @@ final class RobotsFilter implements EventSubscriberInterface
 {
     public const MARKER = '# Globetrotters AI Presence';
 
+    /**
+     * The canonical AI user-agent registry, mirrored by hand from
+     * gt-backend's
+     * `libs/globetrotters-business/globetrotters/business/presence/services/ai_user_agents.py`
+     * — names, order and vendor casing all follow it, because
+     * `tests/Fixtures/robots-ai-user-agent-groups.txt` is generated from that
+     * module and `RobotsFilterTest` fails on any drift.
+     *
+     * Naming them changes nothing a crawler may fetch: per RFC 9309 §2.2.1 a
+     * crawler obeys only its own most-specific matching group, and an unnamed
+     * one is unrestricted. The groups are signalling — they exist so a scanner
+     * (Globetrotters' own readiness probe included) reads an explicit per-bot
+     * welcome, which is why the list has to be the list scanners check.
+     */
     private const AI_BOTS = [
         'GPTBot',
-        'ChatGPT-User',
         'OAI-SearchBot',
+        'ChatGPT-User',
         'ClaudeBot',
+        'Claude-SearchBot',
         'Claude-User',
-        'Anthropic-AI',
+        'anthropic-ai',
         'PerplexityBot',
+        'Perplexity-User',
         'Google-Extended',
+        'Googlebot',
+        'Bingbot',
+        'Applebot',
         'Applebot-Extended',
         'CCBot',
         'meta-externalagent',
+        'Amazonbot',
+        'DuckAssistBot',
+        'Bytespider',
+        'cohere-ai',
     ];
+
+    /**
+     * Emitted inside *every* named group, never once at the top: a crawler
+     * obeys only its own matching group, so a copy in one group never reaches
+     * another. Values are the registry's — every entry invites search,
+     * inference input and training, because being consumed by agents is the
+     * point of the presence.
+     */
+    private const CONTENT_SIGNAL = 'Content-Signal: search=yes, ai-input=yes, ai-train=yes';
 
     public function __construct(
         private readonly Options $options,
@@ -136,16 +181,36 @@ final class RobotsFilter implements EventSubscriberInterface
 
     public static function buildBlock(string $baseUrl): string
     {
-        $lines = [self::MARKER];
+        $block = self::MARKER."\n".self::aiUserAgentGroups();
+
+        if ('' === $baseUrl) {
+            return rtrim($block, "\n")."\n";
+        }
+
+        return $block.'Sitemap: '.$baseUrl."/sitemap.xml\n";
+    }
+
+    /**
+     * One group per registry entry: `User-agent:`, `Allow: /`, its
+     * `Content-Signal`, blank-line separated.
+     *
+     * The block genuinely *ends* with a blank line so a caller can append a
+     * `Sitemap:` (or anything else) straight onto it without running the last
+     * group into it. This is byte-for-byte the named-group half of what the
+     * backend emits — see `tests/Fixtures/robots-ai-user-agent-groups.txt`.
+     */
+    public static function aiUserAgentGroups(): string
+    {
+        $lines = [];
         foreach (self::AI_BOTS as $bot) {
             $lines[] = 'User-agent: '.$bot;
             $lines[] = 'Allow: /';
-        }
-        if ('' !== $baseUrl) {
+            $lines[] = self::CONTENT_SIGNAL;
             $lines[] = '';
-            $lines[] = 'Sitemap: '.$baseUrl.'/sitemap.xml';
         }
 
+        // The final '' only becomes the string's line terminator; the extra
+        // newline is what makes the last separator a real blank line.
         return implode("\n", $lines)."\n";
     }
 

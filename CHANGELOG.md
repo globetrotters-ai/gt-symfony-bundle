@@ -5,6 +5,30 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **The AI user-agent allow-list is now the canonical registry.** `/robots.txt`
+  names 20 agents instead of 11, in the order and vendor casing of gt-backend's
+  `presence/services/ai_user_agents.py`, which every Globetrotters emitter now
+  derives from. New names: `Claude-SearchBot`, `Perplexity-User`, `Googlebot`,
+  `Bingbot`, `Applebot`, `Amazonbot`, `DuckAssistBot`, `Bytespider`,
+  `cohere-ai`. `Anthropic-AI` is now spelled `anthropic-ai`, the vendor's own
+  casing (robots matching is case-insensitive, so this changes nothing a
+  crawler does). Nothing is blocked, and nothing that could fetch your site
+  before can't now: naming an agent is signalling, not permission.
+- **Every named group carries its own `Content-Signal: search=yes, ai-input=yes,
+  ai-train=yes`.** Per RFC 9309 §2.2.1 a crawler obeys only its own
+  most-specific matching group, so a single copy at the top of the file would
+  reach none of the named agents.
+
+### Added
+
+- A fixture test (`tests/Fixtures/robots-ai-user-agent-groups.txt`) that fails
+  the build if the emitted block drifts from the backend registry's own output,
+  byte for byte. The fixture is generated from that module, not typed.
+
 ## [0.4.0] - 2026-09-09
 
 ### Added
