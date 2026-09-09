@@ -58,16 +58,6 @@ final class IndexNowKeyTest extends TestCase
         yield 'null' => [null];
     }
 
-    public function testAKeyFilePathIsTheKeyPlusTxt(): void
-    {
-        self::assertSame('abcdefgh.txt', IndexNowKey::pathFor('abcdefgh'));
-    }
-
-    public function testAnUnusableKeyHasNoPath(): void
-    {
-        self::assertSame('', IndexNowKey::pathFor('nope'));
-    }
-
     #[\PHPUnit\Framework\Attributes\DataProvider('candidates')]
     public function testCandidateFromPath(string $path, string $expected): void
     {

@@ -47,16 +47,6 @@ final class IndexNowKey
     }
 
     /**
-     * The apex-relative path a key is served at, or '' when it has none.
-     */
-    public static function pathFor(string $key): string
-    {
-        $key = self::sanitize($key);
-
-        return '' === $key ? '' : $key.self::SUFFIX;
-    }
-
-    /**
      * The key a requested path would be the file for, or '' when it cannot be
      * one — a cheap structural test that runs before any stored value is read.
      *
