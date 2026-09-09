@@ -227,8 +227,10 @@ final class BreadcrumbInjectorTest extends TestCase
         $result = $this->respond($this->injector(), $response);
 
         self::assertFalse($result->headers->has('Content-Length'));
-        self::assertFalse($result->headers->has('ETag'));
         self::assertFalse($result->headers->has('Last-Modified'));
+        // The entity-tag is restored, not dropped: it now names the injected
+        // body, so the page keeps its conditional GETs.
+        self::assertSame('"'.hash('sha256', (string) $result->getContent()).'"', $result->getEtag());
     }
 
     public function testLeavesBodyMetadataAloneWhenNothingWasInjected(): void

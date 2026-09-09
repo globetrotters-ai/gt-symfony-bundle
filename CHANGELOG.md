@@ -36,6 +36,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `gt_ai_presence_breadcrumb_head()` and `gt_ai_presence_breadcrumb_link()` Twig
   functions, for explicit placement of either half.
 
+### Changed
+
+- Rewriting a response body now **recomputes** its `ETag` from the injected bytes
+  and revalidates it against the request, instead of dropping it. An application
+  that publishes an entity-tag keeps its conditional GETs through the JSON-LD,
+  breadcrumb and `robots.txt` injections; a client holding what was actually
+  served still gets a `304`. The weak/strong flavour is preserved, and a response
+  that published no `ETag` is still left without one. `Last-Modified` and the
+  digest headers are still dropped — a changed body says nothing about when the
+  resource changed, and a subtly wrong digest is worse than none.
+
 ### Notes
 
 - The canonical Globetrotters origin is **derived, never configured**: it is read

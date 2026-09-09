@@ -135,6 +135,32 @@ final class BreadcrumbInjectionTest extends IntegrationTestCase
         self::assertStringNotContainsString('<script type="application/ld+json">', $content);
     }
 
+    /**
+     * Rewriting a body used to cost the page its conditional GETs. The tag is
+     * recomputed from the injected bytes and revalidated here, so a client
+     * holding what we actually served still gets a 304 — through a real kernel,
+     * with the application publishing its own tag.
+     */
+    public function testConditionalGetSurvivesTheInjection(): void
+    {
+        $client = $this->bootClient();
+        $this->refreshWith(self::AI_JSON);
+
+        $client->request('GET', '/etagged');
+        $first = $client->getResponse();
+        $etag = (string) $first->headers->get('ETag');
+
+        self::assertSame(200, $first->getStatusCode());
+        self::assertStringContainsString('rel="mcp"', (string) $first->getContent());
+        // Not the application's own tag: that one described the pre-injection body.
+        self::assertNotSame('"app-representation-v1"', $etag);
+        self::assertSame('"'.hash('sha256', (string) $first->getContent()).'"', $etag);
+
+        $client->request('GET', '/etagged', server: ['HTTP_IF_NONE_MATCH' => $etag]);
+
+        self::assertSame(304, $client->getResponse()->getStatusCode());
+    }
+
     public function testNoBreadcrumbWhenTheCacheIsCold(): void
     {
         $client = $this->bootClient();

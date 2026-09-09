@@ -36,11 +36,11 @@ use Symfony\Component\HttpKernel\KernelEvents;
  * decides that per request. {@see HeadInjector}, which injects the JSON-LD
  * document itself, stays homepage-only.
  *
- * The cost of running site-wide: this rewrites the body, so
- * {@see BodyMetadata::invalidate()} drops ``ETag`` and ``Last-Modified`` from
- * every HTML response it touches, not just the homepage. An application serving
- * conditional GETs loses them on those pages. It is the price of injecting into
- * a response the application already rendered.
+ * Running site-wide means rewriting far more responses, so
+ * {@see BodyMetadata} recomputes the entity-tag from the injected body and
+ * revalidates it against the request rather than dropping it — an application
+ * serving conditional GETs keeps them. ``Last-Modified`` still goes, since a
+ * body change says nothing about when the resource changed.
  *
  * Runs beside {@see HeadInjector} at the same priority and applies the same
  * remaining gates (main request, 200, HTML). Both subscribers mutate the body
@@ -96,10 +96,9 @@ final class BreadcrumbInjector implements EventSubscriberInterface
         }
 
         $response->setContent($updated);
-        // One call covers both insertions: it removes headers, so doing it once
-        // after the last mutation leaves exactly the same result as doing it
-        // after each, and it is unreachable unless something actually changed.
-        BodyMetadata::invalidate($response);
+        // Unreachable unless something actually changed, so the entity-tag is
+        // only recomputed when there are new bytes to describe.
+        BodyMetadata::invalidate($response, $event->getRequest());
     }
 
     /**

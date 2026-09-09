@@ -31,6 +31,14 @@ final class AntagonistController
         if ('interior' === $path) {
             return new Response(self::INTERIOR_HTML, 200, ['Content-Type' => 'text/html; charset=utf-8']);
         }
+        if ('etagged' === $path) {
+            // An application that publishes an entity-tag and serves conditional
+            // GETs — the case body rewriting used to break.
+            $response = new Response(self::INTERIOR_HTML, 200, ['Content-Type' => 'text/html; charset=utf-8']);
+            $response->setEtag('app-representation-v1');
+
+            return $response;
+        }
         if ('robots.txt' === $path) {
             throw new NotFoundHttpException('No robots.txt route.');
         }

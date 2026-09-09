@@ -95,9 +95,12 @@ final class HeadInjectorTest extends TestCase
         $response->headers->set('Repr-Digest', 'sha-256=:old:');
         $this->respond('/', $response);
 
-        foreach (['Content-Length', 'ETag', 'Last-Modified', 'Content-MD5', 'Digest', 'Content-Digest', 'Repr-Digest'] as $header) {
+        foreach (['Content-Length', 'Last-Modified', 'Content-MD5', 'Digest', 'Content-Digest', 'Repr-Digest'] as $header) {
             self::assertFalse($response->headers->has($header), $header.' must not describe the pre-injection body');
         }
+        // The entity-tag is recomputed from the injected body rather than
+        // dropped, so conditional GETs survive the injection.
+        self::assertSame('"'.hash('sha256', (string) $response->getContent()).'"', $response->getEtag());
     }
 
     public function testSkipsNonHomepagePath(): void
