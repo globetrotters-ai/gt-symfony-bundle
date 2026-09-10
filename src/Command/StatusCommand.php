@@ -71,7 +71,11 @@ final class StatusCommand extends Command
         $io->section('Artefacts');
         $io->table([], [
             ['Connected', $this->options->isConnected() ? 'yes ('.$this->options->baseUrl().')' : 'no'],
-            ['Bundle cached', $this->cache->hasAny() ? 'yes' : 'no'],
+            ['Bundle cached', match (true) {
+                $this->cache->hasAny() => 'yes',
+                $this->cache->holdsForeignBundle() => 'no — the cached one is from another website_url and is not served',
+                default => 'no',
+            }],
             ['Installed version', '' !== (string) $state['installed_version'] ? (string) $state['installed_version'] : '—'],
             ['Latest version', '' !== $latest ? $latest : '—'],
             ['Content hash', '' !== (string) $state['content_hash'] ? (string) $state['content_hash'] : '—'],

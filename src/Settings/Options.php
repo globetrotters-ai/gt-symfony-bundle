@@ -129,6 +129,18 @@ final class Options implements ResetInterface
     }
 
     /**
+     * Reset everything learned from the source to its defaults, for when the
+     * cached bundle belongs to a website_url this install no longer points at.
+     *
+     * Written over the stored item rather than deleting it, so a key this class
+     * does not define survives.
+     */
+    public function resetState(): void
+    {
+        $this->updateState(self::STATE_DEFAULTS);
+    }
+
+    /**
      * This environment's IndexNow key, or '' when there is none to serve.
      *
      * Sanitized on read as well as on write: the state item is a cache entry an

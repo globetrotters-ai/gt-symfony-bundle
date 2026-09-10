@@ -21,7 +21,7 @@ final class SitemapTest extends TestCase
     private function sitemap(array $files = [], string $homepagePath = '/', int $changedAt = 0, int $refreshedAt = 0): Sitemap
     {
         $pool = new ArrayAdapter();
-        $cache = new ArtefactCache($pool);
+        $cache = new ArtefactCache($pool, self::BASE_URL);
         if ([] !== $files) {
             $cache->store($files, 'v1', 0);
         }

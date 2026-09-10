@@ -30,7 +30,7 @@ final class RouterTest extends TestCase
     protected function setUp(): void
     {
         $pool = new ArrayAdapter();
-        $this->cache = new ArtefactCache($pool);
+        $this->cache = new ArtefactCache($pool, 'https://nantes.globetrotters.ai');
         $this->cache->store([
             'llms.txt' => 'llms body',
             '.well-known/mcp.json' => '{"m":1}',
@@ -162,7 +162,7 @@ final class RouterTest extends TestCase
 
     public function testColdCacheFallsThrough(): void
     {
-        $cold = new ArtefactCache(new ArrayAdapter());
+        $cold = new ArtefactCache(new ArrayAdapter(), 'https://nantes.globetrotters.ai');
         $router = new Router($cold, $this->options, new Sitemap($this->options, $cold));
         $event = $this->event('/llms.txt');
         $router->onKernelRequest($event);
@@ -236,7 +236,7 @@ final class RouterTest extends TestCase
 
     public function testTheSitemapIsNotServedOnAColdCache(): void
     {
-        $cold = new ArtefactCache(new ArrayAdapter());
+        $cold = new ArtefactCache(new ArrayAdapter(), 'https://nantes.globetrotters.ai');
         $router = new Router($cold, $this->options, new Sitemap($this->options, $cold));
         $event = $this->event('/'.Sitemap::PATH);
         $router->onKernelRequest($event);
@@ -252,13 +252,34 @@ final class RouterTest extends TestCase
     public function testTheSitemapIsNotServedWhenNoArtefactIsListable(): void
     {
         $pool = new ArrayAdapter();
-        $cache = new ArtefactCache($pool);
+        $cache = new ArtefactCache($pool, 'https://nantes.globetrotters.ai');
         $cache->store([ContentTypes::VERSION_MARKER => '{}'], 'v1', 0);
         $options = new Options($pool, 'https://nantes.globetrotters.ai', 'daily', '/');
         $event = $this->event('/'.Sitemap::PATH);
         (new Router($cache, $options, new Sitemap($options, $cache)))->onKernelRequest($event);
 
         self::assertNull($event->getResponse());
+    }
+
+    /**
+     * After a deploy repoints website_url, the pool still holds the previous
+     * source's bundle and the state still holds its IndexNow key until the
+     * refresh forgets them. Neither is this install's to answer.
+     */
+    public function testNothingFromAnotherSourceIsServedBeforeTheRefreshCatchesUp(): void
+    {
+        $pool = new ArrayAdapter();
+        (new ArtefactCache($pool, 'https://nantes.globetrotters.ai'))->store(['llms.txt' => 'llms body'], 'v1', 0);
+        $options = new Options($pool, 'https://lyon.globetrotters.ai', 'daily', '/');
+        $options->updateState(['indexnow_key' => self::INDEXNOW_KEY]);
+        $cache = new ArtefactCache($pool, 'https://lyon.globetrotters.ai');
+        $router = new Router($cache, $options, new Sitemap($options, $cache));
+
+        foreach (['/llms.txt', '/'.self::INDEXNOW_KEY.'.txt', '/ai-sitemap.xml'] as $uri) {
+            $event = $this->event($uri);
+            $router->onKernelRequest($event);
+            self::assertFalse($event->hasResponse(), $uri.' must fall through to the application');
+        }
     }
 
     public function testServesTheIndexNowKeyAtItsOwnPath(): void
@@ -331,7 +352,7 @@ final class RouterTest extends TestCase
         // well-formed key file, and it is one decision away from being served
         // here. A path added to the map is covered by this test on its own.
         $pool = new ArrayAdapter();
-        $cache = new ArtefactCache($pool);
+        $cache = new ArtefactCache($pool, 'https://nantes.globetrotters.ai');
         $cache->store([$path => 'artefact body'], 'v1', 0);
         $options = new Options($pool, 'https://nantes.globetrotters.ai', 'daily', '/');
         $options->updateState(['indexnow_key' => self::INDEXNOW_KEY]);

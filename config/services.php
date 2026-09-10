@@ -52,8 +52,13 @@ return static function (ContainerConfigurator $container): void {
         ])
         ->tag('kernel.reset', ['method' => 'reset']);
 
+    // The cache only serves a bundle pulled from this same website_url, so a
+    // cleared or repointed install stops publishing the previous source.
     $services->set(ArtefactCache::class)
-        ->args([service('globetrotters_ai_presence.cache_pool')])
+        ->args([
+            service('globetrotters_ai_presence.cache_pool'),
+            param('globetrotters_ai_presence.website_url'),
+        ])
         ->tag('kernel.reset', ['method' => 'reset']);
 
     $services->set(ArtefactSync::class)

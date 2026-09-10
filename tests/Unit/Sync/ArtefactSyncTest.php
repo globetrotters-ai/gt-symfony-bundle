@@ -49,7 +49,7 @@ final class ArtefactSyncTest extends TestCase
     {
         $this->pool = new ArrayAdapter();
         $this->options = new Options($this->pool, self::BASE_URL, 'daily', '/');
-        $this->cache = new ArtefactCache($this->pool);
+        $this->cache = new ArtefactCache($this->pool, self::BASE_URL);
         $this->fetcher = new FakeFetcher();
         $this->clock = new MockClock('2026-07-23 10:00:00', 'UTC');
     }
@@ -64,6 +64,59 @@ final class ArtefactSyncTest extends TestCase
         foreach (self::BODIES as $path => $body) {
             $this->fetcher->on('/'.$path, FetchResult::http(200, $body));
         }
+    }
+
+    /**
+     * A repointed install drops the previous source's bundle and everything
+     * learned from it before pulling, so a pull that then fails leaves nothing
+     * of the old presence behind: stale-serve is for the source this install
+     * points at.
+     */
+    public function testAForeignBundleIsForgottenBeforePulling(): void
+    {
+        $previous = new ArtefactCache($this->pool, 'https://lyon.globetrotters.ai');
+        $previous->store(['llms.txt' => 'lyon'], 'lyon-v1', 1000);
+        $this->options->updateState([
+            'installed_version' => 'lyon-v1',
+            'content_hash' => 'lyon-hash',
+            'indexnow_key' => self::INDEXNOW_KEY,
+            'last_refresh' => 1000,
+            'content_changed_at' => 1000,
+        ]);
+        $this->fetcher->fallback(FetchResult::http(503, ''));
+
+        $result = $this->sync()->run();
+
+        self::assertFalse($result->isSuccess());
+        self::assertFalse($this->cache->holdsForeignBundle());
+        $previous->reset();
+        self::assertFalse($previous->hasAny(), 'the previous source\'s bundle must be gone, not merely unserved');
+        $state = $this->options->state();
+        self::assertSame('', $state['installed_version']);
+        self::assertSame('', $state['content_hash']);
+        self::assertSame('', $this->options->indexNowKey());
+        self::assertSame(0, $state['last_refresh']);
+        self::assertSame(0, $state['content_changed_at']);
+        self::assertNotSame('', $state['last_error']);
+    }
+
+    public function testTheNewSourceIsPulledAndServedAfterForgetting(): void
+    {
+        (new ArtefactCache($this->pool, 'https://lyon.globetrotters.ai'))->store(['llms.txt' => 'lyon'], 'lyon-v1', 1000);
+        $this->serveRequiredFiles();
+
+        self::assertTrue($this->sync()->run()->isSuccess());
+        self::assertSame('hello', $this->cache->get('llms.txt'));
+    }
+
+    public function testTheCurrentSourcesBundleIsNeverForgotten(): void
+    {
+        $this->cache->store(['llms.txt' => 'hello'], 'v1', 1000);
+        $this->options->updateState(['installed_version' => 'v1']);
+
+        self::assertFalse($this->sync()->forgetForeignBundle());
+        self::assertSame('hello', $this->cache->get('llms.txt'));
+        self::assertSame('v1', $this->options->state()['installed_version']);
     }
 
     public function testFullPullStoresBundleAndState(): void
@@ -171,7 +224,7 @@ final class ArtefactSyncTest extends TestCase
         };
         $this->pool = $pool;
         $this->options = new Options($pool, self::BASE_URL, 'daily', '/');
-        $this->cache = new ArtefactCache($pool);
+        $this->cache = new ArtefactCache($pool, self::BASE_URL);
         $this->serveRequiredFiles();
         self::assertTrue($this->sync()->run()->isSuccess());
 
@@ -182,7 +235,7 @@ final class ArtefactSyncTest extends TestCase
         self::assertFalse($result->isSuccess());
         self::assertStringContainsString('persist', $result->errorMessage());
         self::assertSame('hello', $this->cache->get('llms.txt'));
-        self::assertSame('hello', (new ArtefactCache($pool))->get('llms.txt'));
+        self::assertSame('hello', (new ArtefactCache($pool, self::BASE_URL))->get('llms.txt'));
     }
 
     public function testCachePersistenceExceptionIsSurfacedInTheError(): void
@@ -201,7 +254,7 @@ final class ArtefactSyncTest extends TestCase
         };
         $this->pool = $pool;
         $this->options = new Options($pool, self::BASE_URL, 'daily', '/');
-        $this->cache = new ArtefactCache($pool);
+        $this->cache = new ArtefactCache($pool, self::BASE_URL);
         $this->serveRequiredFiles();
         self::assertTrue($this->sync()->run()->isSuccess());
 

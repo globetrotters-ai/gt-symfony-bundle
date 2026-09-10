@@ -28,7 +28,7 @@ final class RobotsFilterTest extends TestCase
     private function filter(bool $connected = true, bool $cached = true): RobotsFilter
     {
         $pool = new ArrayAdapter();
-        $cache = new ArtefactCache($pool);
+        $cache = new ArtefactCache($pool, 'https://nantes.globetrotters.ai');
         if ($cached) {
             $cache->store(['llms.txt' => 'x'], 'v1', 0);
         }

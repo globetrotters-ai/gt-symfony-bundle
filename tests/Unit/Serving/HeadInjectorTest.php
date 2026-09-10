@@ -24,7 +24,7 @@ final class HeadInjectorTest extends TestCase
     protected function setUp(): void
     {
         $pool = new ArrayAdapter();
-        $this->cache = new ArtefactCache($pool);
+        $this->cache = new ArtefactCache($pool, 'https://nantes.globetrotters.ai');
         $this->cache->store(['schema.json' => self::SCHEMA], 'v1', 0);
         $this->injector = new HeadInjector($this->cache, new Options($pool, 'https://nantes.globetrotters.ai', 'daily', '/'));
     }
@@ -181,7 +181,7 @@ final class HeadInjectorTest extends TestCase
     public function testSkipsWhenSchemaNotCached(): void
     {
         $pool = new ArrayAdapter();
-        $injector = new HeadInjector(new ArtefactCache($pool), new Options($pool, 'https://x.example', 'daily', '/'));
+        $injector = new HeadInjector(new ArtefactCache($pool, 'https://nantes.globetrotters.ai'), new Options($pool, 'https://x.example', 'daily', '/'));
         $response = new Response('<html><head></head></html>');
         $event = new ResponseEvent(
             $this->createMock(HttpKernelInterface::class),
@@ -225,7 +225,7 @@ final class HeadInjectorTest extends TestCase
     public function testCustomHomepagePath(): void
     {
         $pool = new ArrayAdapter();
-        $cache = new ArtefactCache($pool);
+        $cache = new ArtefactCache($pool, 'https://nantes.globetrotters.ai');
         $cache->store(['schema.json' => self::SCHEMA], 'v1', 0);
         $injector = new HeadInjector($cache, new Options($pool, 'https://x.example', 'daily', '/en'));
 
