@@ -244,6 +244,23 @@ final class RouterTest extends TestCase
         self::assertNull($event->getResponse());
     }
 
+    /**
+     * The gate is what the listing holds, not whether the cache holds
+     * anything: with only the version marker left (an evicted pool, say) the
+     * listing would name nothing but the homepage.
+     */
+    public function testTheSitemapIsNotServedWhenNoArtefactIsListable(): void
+    {
+        $pool = new ArrayAdapter();
+        $cache = new ArtefactCache($pool);
+        $cache->store([ContentTypes::VERSION_MARKER => '{}'], 'v1', 0);
+        $options = new Options($pool, 'https://nantes.globetrotters.ai', 'daily', '/');
+        $event = $this->event('/'.Sitemap::PATH);
+        (new Router($cache, $options, new Sitemap($options, $cache)))->onKernelRequest($event);
+
+        self::assertNull($event->getResponse());
+    }
+
     public function testServesTheIndexNowKeyAtItsOwnPath(): void
     {
         $this->storeKey(self::INDEXNOW_KEY);

@@ -79,22 +79,16 @@ final class Sitemap
      */
     public function paths(): array
     {
-        $paths = ['/'.ltrim($this->options->homepagePath(), '/')];
-        foreach (ContentTypes::paths() as $path) {
-            if (ContentTypes::VERSION_MARKER === $path) {
-                continue;
-            }
-            if (null !== $this->cache->get($path)) {
-                $paths[] = '/'.$path;
-            }
-        }
-
-        return $paths;
+        return [$this->homepagePath(), ...$this->artefactPaths()];
     }
 
     /**
-     * The document, or '' when there is nothing this install could honestly
-     * list.
+     * The document, or '' when no artefact is listable.
+     *
+     * The gate is what the listing holds, not whether the cache holds anything:
+     * with only the version marker left (a pool that evicted individual items,
+     * say) the listing would name nothing but the homepage, which says less
+     * than whatever the site already serves. Matches ``gt-wordpress-plugin``.
      *
      * ``$origin`` is the requesting client's own scheme and host, which is what
      * makes the URL space right without any configuration: the bundle serves
@@ -102,9 +96,23 @@ final class Sitemap
      */
     public function render(string $origin): string
     {
-        $urls = $this->urlEntries($origin);
-        if ('' === $urls) {
+        $artefacts = $this->artefactPaths();
+        if ([] === $artefacts) {
             return '';
+        }
+
+        $origin = rtrim($origin, '/');
+        $lastModified = $this->lastModified();
+
+        // The homepage is listed unstamped. It is the customer's own page,
+        // edited independently of the bundle, so stamping it with the date the
+        // artefacts last moved would tell crawlers a page rewritten today was
+        // last modified whenever the presence last changed — the signal search
+        // engines use to decide against a recrawl. The backend restricts its own
+        // stamp the same way (``_render_sitemap_xml``'s ``lastmod_locs``).
+        $urls = self::urlXml($origin.$this->homepagePath(), '');
+        foreach ($artefacts as $path) {
+            $urls .= self::urlXml($origin.$path, $lastModified);
         }
 
         return '<?xml version="1.0" encoding="UTF-8"?>'."\n"
@@ -113,52 +121,52 @@ final class Sitemap
             .'</urlset>'."\n";
     }
 
-    /**
-     * The `<url>` blocks for every listed path.
-     */
-    private function urlEntries(string $origin): string
+    private function homepagePath(): string
     {
-        $origin = rtrim($origin, '/');
-        $lastModified = $this->lastModified();
+        return '/'.ltrim($this->options->homepagePath(), '/');
+    }
 
-        $urls = '';
-        foreach ($this->paths() as $path) {
-            $urls .= "  <url>\n    <loc>".htmlspecialchars($origin.$path, \ENT_XML1 | \ENT_QUOTES, 'UTF-8')."</loc>\n";
-            if ('' !== $lastModified) {
-                $urls .= '    <lastmod>'.$lastModified."</lastmod>\n";
+    /**
+     * @return list<string>
+     */
+    private function artefactPaths(): array
+    {
+        $paths = [];
+        foreach (ContentTypes::paths() as $path) {
+            if (ContentTypes::VERSION_MARKER !== $path && null !== $this->cache->get($path)) {
+                $paths[] = '/'.$path;
             }
-            $urls .= "  </url>\n";
         }
 
-        return $urls;
+        return $paths;
+    }
+
+    private static function urlXml(string $loc, string $lastModified): string
+    {
+        $xml = "  <url>\n    <loc>".htmlspecialchars($loc, \ENT_XML1 | \ENT_QUOTES, 'UTF-8')."</loc>\n";
+        if ('' !== $lastModified) {
+            $xml .= '    <lastmod>'.$lastModified."</lastmod>\n";
+        }
+
+        return $xml."  </url>\n";
     }
 
     /**
      * The date the served content last actually changed, as ``YYYY-MM-DD``, or
-     * '' when this install has never completed a refresh.
+     * '' when this install has not seen a change since the value existed.
      *
-     * Data-derived, never wall clock, and deliberately *not* the last refresh:
-     * refreshes run daily whether or not anything changed, so stamping every
-     * URL with the refresh date would claim a freshness the content does not
-     * have — a lie crawlers learn to discount. ``content_changed_at`` moves
-     * only when the content hash does.
-     *
-     * Installs that predate that state key fall back to ``last_refresh``, which
-     * is the best they can say: one overstated stamp until the next content
-     * change is better than no ``<lastmod>`` at all, which the readiness
-     * sitemap probe reads as a missing freshness signal.
+     * Data-derived, never wall clock, and never ``last_refresh``: refreshes run
+     * daily whether or not anything changed, so a refresh date claims a
+     * freshness the content does not have. ``content_changed_at`` moves only
+     * when the content hash does. ``0`` omits ``<lastmod>``, which is valid,
+     * and resolves itself on the next real change. Nothing is lost by the
+     * omission: ``check_sitemap`` only credits ``<lastmod>`` on a sitemap of
+     * ten or more URLs, and this one never lists more than six.
      */
     private function lastModified(): string
     {
-        $state = $this->options->state();
-        $timestamp = (int) $state['content_changed_at'];
-        if ($timestamp <= 0) {
-            $timestamp = (int) $state['last_refresh'];
-        }
-        if ($timestamp <= 0) {
-            return '';
-        }
+        $timestamp = (int) $this->options->state()['content_changed_at'];
 
-        return gmdate('Y-m-d', $timestamp);
+        return $timestamp > 0 ? gmdate('Y-m-d', $timestamp) : '';
     }
 }

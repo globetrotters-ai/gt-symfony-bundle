@@ -89,7 +89,7 @@ final class SitemapTest extends TestCase
         self::assertSame(
             '<?xml version="1.0" encoding="UTF-8"?>'."\n"
             .'<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'."\n"
-            ."  <url>\n    <loc>https://apex.example/</loc>\n    <lastmod>2025-09-09</lastmod>\n  </url>\n"
+            ."  <url>\n    <loc>https://apex.example/</loc>\n  </url>\n"
             ."  <url>\n    <loc>https://apex.example/llms.txt</loc>\n    <lastmod>2025-09-09</lastmod>\n  </url>\n"
             .'</urlset>'."\n",
             $xml,
@@ -125,14 +125,36 @@ final class SitemapTest extends TestCase
     }
 
     /**
-     * Installs that predate the state key have no change date; one overstated
-     * stamp beats no freshness signal at all.
+     * A refresh date claims a freshness the content does not have, so it is
+     * never a fallback: until the install has seen a change, the element is
+     * simply absent.
      */
-    public function testFallsBackToTheRefreshDateWhenNoChangeDateIsStored(): void
+    public function testOmitsLastModUntilTheContentHasChanged(): void
     {
         $xml = $this->sitemap(['llms.txt' => 'body'], refreshedAt: 1757376000)->render('https://apex.example');
 
-        self::assertStringContainsString('<lastmod>2025-09-09</lastmod>', $xml);
+        self::assertStringNotContainsString('<lastmod>', $xml);
+    }
+
+    /**
+     * The homepage is the customer's own page, edited independently of the
+     * bundle; only the artefacts carry the bundle's date.
+     */
+    public function testNeverStampsTheHomepage(): void
+    {
+        $xml = $this->sitemap(['llms.txt' => 'body'], changedAt: 1757376000)->render('https://apex.example');
+
+        self::assertStringContainsString("  <url>\n    <loc>https://apex.example/</loc>\n  </url>\n", $xml);
+        self::assertStringContainsString("<loc>https://apex.example/llms.txt</loc>\n    <lastmod>2025-09-09</lastmod>", $xml);
+    }
+
+    /**
+     * The gate is what the listing holds: with only the version marker cached,
+     * a urlset would name nothing but the homepage.
+     */
+    public function testRendersNothingWhenNoArtefactIsListable(): void
+    {
+        self::assertSame('', $this->sitemap([ContentTypes::VERSION_MARKER => '{}'])->render('https://apex.example'));
     }
 
     public function testOmitsLastModWhenNothingHasEverBeenRefreshed(): void

@@ -55,23 +55,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The sitemap response carries `nosniff` and both `no-store` headers, and no
   `Access-Control-Allow-Origin` (a sitemap is fetched server-side by a crawler).
   Serving it is not recorded as agent traffic.
-- `<lastmod>` on each URL, dated from the new `content_changed_at` state value:
-  it moves only when the pulled content actually changes, so a daily refresh
-  that changed nothing does not restamp every URL as fresh. Installs upgrading
-  from an earlier version fall back to the last-refresh date until their next
-  content change.
+- `<lastmod>` on each artefact URL, dated from the new `content_changed_at`
+  state value: it moves only when the pulled content actually changes, so a
+  daily refresh that changed nothing does not restamp every URL as fresh. It is
+  omitted until the install has seen a content change, and never set on the
+  homepage — that is your page, edited independently of the bundle, so the
+  bundle cannot vouch for its date.
 
 ### Fixed
 
 - **`HEAD /robots.txt` no longer returns a body.** Symfony empties a HEAD
   response's body before this bundle's `kernel.response` subscribers run, so the
   robots block was being appended to an already-emptied body — putting bytes on
-  a HEAD response, prefixed with two blank lines. The generated `/sitemap.xml`
-  had the same shape in its response lane and is guarded the same way.
-- An application whose `robots.txt` already points at its own `/sitemap.xml` no
-  longer gets that directive twice, now that the bundle's line names the same
-  host. A directive naming a *different* file (`sitemap.xml.gz`, say) is still
-  added alongside.
+  a HEAD response, prefixed with two blank lines.
 
 ## [0.4.0] - 2026-09-09
 

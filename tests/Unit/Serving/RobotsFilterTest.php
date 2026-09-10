@@ -293,32 +293,6 @@ final class RobotsFilterTest extends TestCase
         self::assertSame('', $response->getContent());
     }
 
-    /**
-     * Now that the line is same-host, an application already pointing at its
-     * own /ai-sitemap.xml names the very URL this block would add.
-     */
-    public function testDoesNotRepeatASitemapDirectiveTheAppAlreadyCarries(): void
-    {
-        $response = new Response("User-agent: *\nSitemap: http://localhost/ai-sitemap.xml\n", 200, ['Content-Type' => 'text/plain']);
-        $this->responseEvent($this->filter(), '/robots.txt', $response);
-
-        self::assertSame(1, substr_count((string) $response->getContent(), 'Sitemap: http://localhost/ai-sitemap.xml'));
-    }
-
-    /**
-     * A prefix is not a match: a site pointing at a gzipped sitemap names a
-     * different file, and dropping our directive would lose it.
-     */
-    public function testStillAddsTheDirectiveWhenTheAppNamesADifferentSitemap(): void
-    {
-        $response = new Response("User-agent: *\nSitemap: http://localhost/ai-sitemap.xml.gz\n", 200, ['Content-Type' => 'text/plain']);
-        $this->responseEvent($this->filter(), '/robots.txt', $response);
-
-        $content = (string) $response->getContent();
-        self::assertStringContainsString("\nSitemap: http://localhost/ai-sitemap.xml\n", $content);
-        self::assertStringContainsString('Sitemap: http://localhost/ai-sitemap.xml.gz', $content);
-    }
-
     public function testDoesNotDecorateOnPost(): void
     {
         $response = new Response("User-agent: *\n", 200, ['Content-Type' => 'text/plain']);

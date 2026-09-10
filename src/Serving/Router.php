@@ -186,16 +186,14 @@ final class Router implements EventSubscriberInterface
     /**
      * Serve the generated sitemap, or return false so the caller keeps looking.
      *
-     * Nothing is answered until a bundle is cached: a urlset naming only the
+     * Nothing is answered until at least one artefact is listable —
+     * {@see Sitemap::render()} returns '' otherwise. A urlset naming only the
      * homepage says less than whatever the site already serves, and an install
-     * that has never synced should look untouched. That matches
-     * {@see RobotsFilter}, which only advertises once a bundle is installed —
-     * and the ``Sitemap:`` line it emits names this path, so the two have to
-     * appear together.
+     * that has never synced should look untouched.
      */
     private function serveSitemap(RequestEvent $event, Request $request, string $path): bool
     {
-        if (Sitemap::PATH !== $path || !$this->cache->hasAny()) {
+        if (Sitemap::PATH !== $path) {
             return false;
         }
 

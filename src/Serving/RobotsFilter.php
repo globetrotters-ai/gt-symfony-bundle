@@ -143,13 +143,7 @@ final class RobotsFilter implements EventSubscriberInterface
                 return;
             }
 
-            // An application that already points at its own /sitemap.xml names
-            // the very URL this block would add, now that the line is same-host.
-            $block = self::namesSitemap($content, $origin)
-                ? self::buildBlock('')
-                : self::buildBlock($origin);
-
-            $response->setContent(rtrim($content, "\n")."\n\n".$block);
+            $response->setContent(rtrim($content, "\n")."\n\n".self::buildBlock($origin));
             BodyMetadata::invalidate($response, $request);
 
             return;
@@ -213,9 +207,10 @@ final class RobotsFilter implements EventSubscriberInterface
      * a malformed one (`Request::getHost()`), plus any host outside
      * `trusted_hosts` when the application configures it.
      *
-     * The line is emitted whether or not this bundle serves the sitemap
-     * itself — {@see SitemapFallback} yields to an application-served one, and
-     * either way the URL is same-host and correct.
+     * The line names ``/ai-sitemap.xml``, which {@see Router} serves from the
+     * cache — never ``/sitemap.xml``, which is the site's own (see
+     * {@see Sitemap}). robots.txt takes a list of ``Sitemap:`` directives, so
+     * this one is additive to whatever the application already declares.
      */
     public static function buildBlock(string $origin): string
     {
@@ -226,26 +221,6 @@ final class RobotsFilter implements EventSubscriberInterface
         }
 
         return $block.self::sitemapDirective($origin)."\n";
-    }
-
-    /**
-     * Whether a robots.txt already carries the directive this block would add.
-     *
-     * Compared line by line rather than with a substring test: a site pointing
-     * at `…/sitemap.xml.gz` contains our line as a prefix, and treating that as
-     * a match would drop a directive that names a different file. Directive
-     * names are case-insensitive per RFC 9309.
-     */
-    private static function namesSitemap(string $content, string $origin): bool
-    {
-        $directive = self::sitemapDirective($origin);
-        foreach (preg_split('/\R/', $content) ?: [] as $line) {
-            if (0 === strcasecmp(trim($line), $directive)) {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     private static function sitemapDirective(string $origin): string
