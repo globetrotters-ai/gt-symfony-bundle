@@ -319,11 +319,20 @@ final class RobotsFilter implements EventSubscriberInterface
      */
     public static function aiUserAgentGroups(bool $aiTrain, array $agents = self::AI_BOTS): string
     {
+        return self::perAgentGroups($agents, [self::contentSignal($aiTrain)]);
+    }
+
+    /**
+     * @param list<string> $agents
+     * @param list<string> $signal the Content-Signal line(s) each group carries
+     */
+    private static function perAgentGroups(array $agents, array $signal): string
+    {
         $lines = [];
         foreach ($agents as $agent) {
             $lines[] = 'User-agent: '.$agent;
             $lines[] = 'Allow: /';
-            $lines[] = self::contentSignal($aiTrain);
+            array_push($lines, ...$signal);
             $lines[] = '';
         }
 
@@ -341,10 +350,18 @@ final class RobotsFilter implements EventSubscriberInterface
             return '';
         }
 
-        $inherited = $options->allowsAll() ? [] : $site->wildcardLines();
-        if ([] === $inherited) {
+        $inherited = $site->wildcardLines();
+        if ($options->allowsAll() || [] === $inherited) {
             // Nothing to inherit: no wildcard group, or an explicit allow_all.
-            return self::aiUserAgentGroups($options->aiTrain(), $agents);
+            // A Content-Signal the wildcard group declares still speaks for the
+            // site — allow_all opts into crawl permission, not into replacing
+            // the site's own statement of how its content may be used.
+            $siteSignal = array_values(array_filter(
+                $inherited,
+                static fn (string $line): bool => self::carries([$line], ['content-signal']),
+            ));
+
+            return self::perAgentGroups($agents, [] !== $siteSignal ? $siteSignal : [self::contentSignal($options->aiTrain())]);
         }
 
         // One group naming every agent, carrying the site's wildcard lines
@@ -409,7 +426,9 @@ final class RobotsFilter implements EventSubscriberInterface
 
         BodyMetadata::invalidate($response, $request, $representation);
 
-        if ($isHead) {
+        // Not beside Transfer-Encoding, which prepare() strips Content-Length
+        // for and which the GET would be framed by instead.
+        if ($isHead && !$response->headers->has('Transfer-Encoding')) {
             $response->headers->set('Content-Length', (string) \strlen($representation));
         }
     }

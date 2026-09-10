@@ -201,6 +201,21 @@ final class RobotsFilterTest extends TestCase
         self::assertStringContainsString('User-agent: Applebot-Extended', $block);
     }
 
+    /**
+     * allow_all grants crawl permission; it does not speak for the site on
+     * content use. A training refusal declared on the wildcard group must
+     * reach every agent's own group, or it becomes "no preference" for them.
+     */
+    public function testAllowAllKeepsTheSitesOwnContentSignal(): void
+    {
+        $existing = "User-agent: *\nContent-Signal: search=yes,ai-train=no\nDisallow: /admin\n";
+        $block = RobotsFilter::buildBlock(self::REQUEST_ORIGIN, $existing, new RobotsOptions(RobotsOptions::ALLOW_ALL, true));
+
+        self::assertStringContainsString("User-agent: GPTBot\nAllow: /\nContent-Signal: search=yes,ai-train=no\n\n", $block);
+        self::assertSame(substr_count($block, 'User-agent: '), substr_count($block, 'Content-Signal: search=yes,ai-train=no'));
+        self::assertStringNotContainsString('ai-input=yes', $block);
+    }
+
     public function testAllowAllIsTheExplicitOptInToOverrideWildcardRules(): void
     {
         $existing = "User-agent: GPTBot\nDisallow: /\n\nUser-agent: *\nDisallow: /admin\n";
@@ -406,6 +421,19 @@ final class RobotsFilterTest extends TestCase
         self::assertSame('"'.hash('sha256', (string) $get->getContent()).'"', $head->getEtag());
         self::assertSame((string) \strlen((string) $get->getContent()), $head->headers->get('Content-Length'));
         self::assertFalse($head->headers->has('Last-Modified'));
+    }
+
+    public function testHeadNeverPairsContentLengthWithTransferEncoding(): void
+    {
+        $response = $this->throughTheKernelLifecycle($this->filter(), 'HEAD', new Response("User-agent: *\n", 200, [
+            'Content-Type' => 'text/plain',
+            'Transfer-Encoding' => 'chunked',
+            'ETag' => '"robots-v1"',
+        ]));
+
+        self::assertSame('', $response->getContent());
+        self::assertFalse($response->headers->has('Content-Length'));
+        self::assertNotSame('"robots-v1"', $response->getEtag(), 'still describes the decorated GET');
     }
 
     public function testHeadOnAReturned404GeneratesTheGetsLengthAndNoBody(): void

@@ -128,7 +128,7 @@ globetrotters_ai_presence:
         ai_train: true           # adds "ai-train=yes" to the Content-Signal line
 ```
 
-With both, and no wildcard rules of your own, the block is byte-for-byte the one Globetrotters serves on its own hosts.
+With both, and no wildcard rules of your own, the block is byte-for-byte the one Globetrotters serves on its own hosts. A `Content-Signal` your wildcard group declares is kept either way: `allow_all` grants crawl permission, and does not overwrite what you have said about how your content may be used.
 
 The block never adds a `User-agent: *` group, which would be combined with yours. `HEAD /robots.txt` is answered with no body but with the decorated `GET`'s `ETag` and `Content-Length` (and, like the `GET`, no `Last-Modified`), so a `HEAD` can never invalidate a cached `GET`.
 
