@@ -43,6 +43,13 @@ final class IngestClient implements IngestTransportInterface
 
     public function post(string $url, string $token, string $json): IngestResult
     {
+        // AnalyticsOptions already reads a cleartext endpoint as unconfigured;
+        // this is the last point before the token leaves, so it holds the line
+        // on its own.
+        if (!AnalyticsOptions::isHttpsUrl($url)) {
+            return IngestResult::error('the ingest endpoint must be an https:// URL');
+        }
+
         $body = self::toWire($json);
         $headers = [
             'Authorization' => 'Bearer '.$token,

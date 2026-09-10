@@ -144,6 +144,8 @@ GLOBETROTTERS_INGEST_ENDPOINT=https://api.globetrotters.ai/presence/analytics/se
 GLOBETROTTERS_INGEST_TOKEN=…
 ```
 
+The endpoint must be `https://`: it receives the token and every client IP. A literal `http://` value fails the container build; an env-bound one reads as unset at runtime, so reporting stays off and `gt:status` says why.
+
 Both are required; until both are set nothing is captured and nothing is written to disk. What is sent, per served artefact request: a UUID, a UTC timestamp, the canonical path, the User-Agent, the client IP, the referer, the status and the byte size. No cookies, no per-visitor identifiers. The backend uses the IP transiently to verify the agent against published vendor ranges and to resolve a country, then drops it — it is never stored.
 
 ### Scheduling the flush

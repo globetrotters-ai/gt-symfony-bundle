@@ -26,7 +26,8 @@ final class IngestResult
     }
 
     /**
-     * A transport failure (DNS, timeout, TLS).
+     * A failure with no HTTP status: a transport error (DNS, timeout, TLS), or
+     * an endpoint refused before anything was sent.
      */
     public static function error(string $message): self
     {

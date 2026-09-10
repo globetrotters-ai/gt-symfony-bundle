@@ -33,9 +33,45 @@ final class AnalyticsOptions
         return $this->enabled;
     }
 
+    /**
+     * The configured ingest endpoint, or '' when it is not an https URL.
+     *
+     * The endpoint receives the bearer token and every captured client IP, so
+     * a cleartext one reads as unconfigured and reporting stays off. The config
+     * tree refuses a literal one at container build, but the documented setup
+     * binds the value to an env var that is only resolved at runtime, so this
+     * is the check that holds for it.
+     */
     public function endpoint(): string
     {
-        return trim($this->endpoint);
+        $endpoint = trim($this->endpoint);
+
+        return self::isHttpsUrl($endpoint) ? $endpoint : '';
+    }
+
+    /**
+     * Whether an endpoint is set but refused for not being https — which the
+     * status command would otherwise report as "not set".
+     */
+    public function hasRefusedEndpoint(): bool
+    {
+        $endpoint = trim($this->endpoint);
+
+        return '' !== $endpoint && !self::isHttpsUrl($endpoint);
+    }
+
+    /**
+     * Whether a URL is an absolute https URL with a host, the same rule as
+     * gt-wordpress-plugin's ``Options::is_https_url()``.
+     */
+    public static function isHttpsUrl(string $url): bool
+    {
+        $parts = parse_url($url);
+
+        return \is_array($parts)
+            && isset($parts['scheme'], $parts['host'])
+            && 'https' === strtolower($parts['scheme'])
+            && '' !== $parts['host'];
     }
 
     public function ingestToken(): string

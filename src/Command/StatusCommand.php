@@ -100,11 +100,18 @@ final class StatusCommand extends Command
         }
 
         if (!$this->analytics->isConfigured()) {
+            $refused = $this->analytics->hasRefusedEndpoint();
             $io->table([], [
-                ['Endpoint', '' !== $this->analytics->endpoint() ? $this->analytics->endpoint() : 'not set'],
+                ['Endpoint', match (true) {
+                    $refused => 'refused (not an https:// URL)',
+                    '' !== $this->analytics->endpoint() => $this->analytics->endpoint(),
+                    default => 'not set',
+                }],
                 ['Ingest token', '' !== $this->analytics->tokenHint() ? 'set ('.$this->analytics->tokenHint().')' : 'not set'],
             ]);
-            $io->warning('Not reporting: the endpoint and token are issued together on the Studio apex install screen, and both are required. Nothing is being captured, so agent traffic to this apex is invisible.');
+            $io->warning($refused
+                ? 'Not reporting: the endpoint must be an https:// URL, since it receives the ingest token and every captured client IP. Nothing is being captured, so agent traffic to this apex is invisible.'
+                : 'Not reporting: the endpoint and token are issued together on the Studio apex install screen, and both are required. Nothing is being captured, so agent traffic to this apex is invisible.');
 
             return;
         }
