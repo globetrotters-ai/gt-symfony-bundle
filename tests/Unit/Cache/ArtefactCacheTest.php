@@ -224,8 +224,8 @@ final class ArtefactCacheTest extends TestCase
         self::assertSame('', $repointed->version());
         self::assertTrue($repointed->holdsForeignBundle());
 
-        // Compared normalized, as Options reads the URL: a trailing slash is
-        // not a new source.
+        // Compared normalized, as Options reads the URL: a trailing slash or
+        // surrounding whitespace is not a new source.
         $same = new ArtefactCache($pool, self::SOURCE.'/ ');
         self::assertSame('body', $same->get('llms.txt'));
         self::assertFalse($same->holdsForeignBundle());
