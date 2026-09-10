@@ -34,7 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   sharing the rules that follow, and a section the file leaves open is closed
   with a pathless `Disallow:` — which changes nothing — before the block is
   appended. `User-agent` values are matched on their product token
-  (`GPTBot/1.1` and `GPTBot2` both name GPTBot), as crawlers match them.
+  (`GPTBot/1.1` and `GPTBot2` both name GPTBot), as Google's parser reads them.
 - **Every named group carries its own `Content-Signal: search=yes,
   ai-input=yes`**, or the site's own wildcard `Content-Signal` when it has one.
   Per RFC 9309 §2.2.1 a crawler obeys only its own most-specific matching

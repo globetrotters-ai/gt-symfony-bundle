@@ -21,10 +21,11 @@ namespace Globetrotters\AiPresenceBundle\Serving;
  * **Only an Allow or Disallow line ends a user-agent section.** Google's spec
  * ("Rules other than allow, disallow, and user-agent are ignored by the
  * robots.txt parser") and its reference parser (google/robotstxt, where only
- * HandleAllow and HandleDisallow set the group separator) both group this way,
- * as does RFC 9309's grammar, whose groups are user-agent lines followed by
- * rules. So a Content-Signal, Crawl-delay, Sitemap or unknown line between two
- * User-agent lines leaves them in one group, sharing the rules that follow.
+ * HandleAllow and HandleDisallow set the group separator) both group this way.
+ * RFC 9309's grammar has no place for other records inside a group and leaves
+ * them to the crawler, so Google's reading is the one matched here. A
+ * Content-Signal, Crawl-delay, Sitemap or unknown line between two User-agent
+ * lines therefore leaves them in one group, sharing the rules that follow.
  * Those non-rule lines are still kept as the group's members — a signal is part
  * of what an agent inheriting the ``*`` group should carry — but they never
  * decide where a group ends. Blank lines do not end one either, and
