@@ -257,6 +257,68 @@ final class RobotsFilterTest extends TestCase
         self::assertSame('Not Found', $result->getContent());
     }
 
+    /**
+     * Symfony's ResponseListener (priority 0) has already emptied the body via
+     * Response::prepare() by the time this subscriber runs at -20. Writing one
+     * back would put bytes on a HEAD response — and an emptied body no longer
+     * carries the marker, so the block would be appended to nothing.
+     */
+    public function testDoesNotWriteABodyOnHeadWhenTheAppServesRobots(): void
+    {
+        $response = new Response('', 200, ['Content-Type' => 'text/plain']);
+        $event = new ResponseEvent(
+            $this->createMock(HttpKernelInterface::class),
+            Request::create('/robots.txt', 'HEAD'),
+            HttpKernelInterface::MAIN_REQUEST,
+            $response,
+        );
+        $this->filter()->onKernelResponse($event);
+
+        self::assertSame('', $response->getContent());
+    }
+
+    public function testGeneratesAnEmptyBodiedRobotsOnHeadWhenTheAppReturns404(): void
+    {
+        $response = new Response('', 404, ['Content-Type' => 'text/html']);
+        $event = new ResponseEvent(
+            $this->createMock(HttpKernelInterface::class),
+            Request::create('/robots.txt', 'HEAD'),
+            HttpKernelInterface::MAIN_REQUEST,
+            $response,
+        );
+        $this->filter()->onKernelResponse($event);
+
+        self::assertSame(200, $response->getStatusCode());
+        self::assertSame('text/plain; charset=utf-8', $response->headers->get('Content-Type'));
+        self::assertSame('', $response->getContent());
+    }
+
+    /**
+     * Now that the line is same-host, an application already pointing at its
+     * own /sitemap.xml names the very URL this block would add.
+     */
+    public function testDoesNotRepeatASitemapDirectiveTheAppAlreadyCarries(): void
+    {
+        $response = new Response("User-agent: *\nSitemap: http://localhost/sitemap.xml\n", 200, ['Content-Type' => 'text/plain']);
+        $this->responseEvent($this->filter(), '/robots.txt', $response);
+
+        self::assertSame(1, substr_count((string) $response->getContent(), 'Sitemap: http://localhost/sitemap.xml'));
+    }
+
+    /**
+     * A prefix is not a match: a site pointing at a gzipped sitemap names a
+     * different file, and dropping our directive would lose it.
+     */
+    public function testStillAddsTheDirectiveWhenTheAppNamesADifferentSitemap(): void
+    {
+        $response = new Response("User-agent: *\nSitemap: http://localhost/sitemap.xml.gz\n", 200, ['Content-Type' => 'text/plain']);
+        $this->responseEvent($this->filter(), '/robots.txt', $response);
+
+        $content = (string) $response->getContent();
+        self::assertStringContainsString("\nSitemap: http://localhost/sitemap.xml\n", $content);
+        self::assertStringContainsString('Sitemap: http://localhost/sitemap.xml.gz', $content);
+    }
+
     public function testDoesNotDecorateOnPost(): void
     {
         $response = new Response("User-agent: *\n", 200, ['Content-Type' => 'text/plain']);

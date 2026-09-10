@@ -110,6 +110,21 @@ final class SitemapFallbackTest extends TestCase
         self::assertSame('nosniff', $response->headers->get('X-Content-Type-Options'));
     }
 
+    /**
+     * Response::prepare() has already emptied a HEAD body by the time this
+     * subscriber runs at -20, so the generated document must not be written
+     * back into it. The exception lane is prepared after it sets the response
+     * and needs no such guard.
+     */
+    public function testGeneratesAnEmptyBodiedSitemapOnHeadInTheResponseLane(): void
+    {
+        $generated = $this->responseEvent($this->fallback(), new Response('', 404), method: 'HEAD');
+
+        self::assertSame(200, $generated->getStatusCode());
+        self::assertSame(Sitemap::CONTENT_TYPE, $generated->headers->get('Content-Type'));
+        self::assertSame('', $generated->getContent());
+    }
+
     public function testStaleBodyMetadataIsDropped(): void
     {
         $response = new Response('Not Found', 404, ['Content-Type' => 'text/html', 'Content-Length' => '9']);

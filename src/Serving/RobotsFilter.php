@@ -122,8 +122,18 @@ final class RobotsFilter implements EventSubscriberInterface
 
         $response = $event->getResponse();
         $status = $response->getStatusCode();
+        // Symfony's own ResponseListener runs at priority 0, above this one, and
+        // its Response::prepare() has already emptied the body of a HEAD
+        // response. Writing one back here would put bytes on a HEAD — and in
+        // the 200 branch, an emptied body no longer carries the marker, so the
+        // block would be appended to nothing.
+        $isHead = 'HEAD' === $request->getMethod();
+        $origin = $request->getSchemeAndHttpHost();
 
         if (200 === $status) {
+            if ($isHead) {
+                return;
+            }
             $contentType = $response->headers->get('Content-Type');
             if (null !== $contentType && !str_starts_with($contentType, 'text/plain')) {
                 return;
@@ -133,7 +143,13 @@ final class RobotsFilter implements EventSubscriberInterface
                 return;
             }
 
-            $response->setContent(rtrim($content, "\n")."\n\n".self::buildBlock($request->getSchemeAndHttpHost()));
+            // An application that already points at its own /sitemap.xml names
+            // the very URL this block would add, now that the line is same-host.
+            $block = self::namesSitemap($content, $origin)
+                ? self::buildBlock('')
+                : self::buildBlock($origin);
+
+            $response->setContent(rtrim($content, "\n")."\n\n".$block);
             BodyMetadata::invalidate($response, $request);
 
             return;
@@ -143,7 +159,7 @@ final class RobotsFilter implements EventSubscriberInterface
         // never fired — generate the robots.txt in its place.
         if (404 === $status) {
             $response->setStatusCode(200);
-            $response->setContent(self::buildBlock($request->getSchemeAndHttpHost()));
+            $response->setContent($isHead ? '' : self::buildBlock($origin));
             $response->headers->set('Content-Type', 'text/plain; charset=utf-8');
             BodyMetadata::invalidate($response, $request);
         }
@@ -209,7 +225,32 @@ final class RobotsFilter implements EventSubscriberInterface
             return rtrim($block, "\n")."\n";
         }
 
-        return $block.'Sitemap: '.rtrim($origin, '/').'/'.Sitemap::PATH."\n";
+        return $block.self::sitemapDirective($origin)."\n";
+    }
+
+    /**
+     * Whether a robots.txt already carries the directive this block would add.
+     *
+     * Compared line by line rather than with a substring test: a site pointing
+     * at `…/sitemap.xml.gz` contains our line as a prefix, and treating that as
+     * a match would drop a directive that names a different file. Directive
+     * names are case-insensitive per RFC 9309.
+     */
+    private static function namesSitemap(string $content, string $origin): bool
+    {
+        $directive = self::sitemapDirective($origin);
+        foreach (preg_split('/\R/', $content) ?: [] as $line) {
+            if (0 === strcasecmp(trim($line), $directive)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static function sitemapDirective(string $origin): string
+    {
+        return 'Sitemap: '.rtrim($origin, '/').'/'.Sitemap::PATH;
     }
 
     /**

@@ -7,6 +7,7 @@ namespace Globetrotters\AiPresenceBundle\Serving;
 use Globetrotters\AiPresenceBundle\Cache\ArtefactCache;
 use Globetrotters\AiPresenceBundle\Settings\Options;
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
+use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\Event\ExceptionEvent;
 use Symfony\Component\HttpKernel\Event\ResponseEvent;
@@ -67,7 +68,8 @@ final class SitemapFallback implements EventSubscriberInterface
      */
     public function onKernelResponse(ResponseEvent $event): void
     {
-        if (!$this->applies($event->getRequest()->getPathInfo(), $event->getRequest()->getMethod()) || !$event->isMainRequest()) {
+        $request = $event->getRequest();
+        if (!$event->isMainRequest() || !$this->applies($request)) {
             return;
         }
 
@@ -76,27 +78,33 @@ final class SitemapFallback implements EventSubscriberInterface
             return;
         }
 
-        $body = $this->sitemap->render($event->getRequest()->getSchemeAndHttpHost());
+        $body = $this->sitemap->render($request->getSchemeAndHttpHost());
         if ('' === $body) {
             return;
         }
 
         $response->setStatusCode(200);
-        $response->setContent($body);
+        // Symfony's ResponseListener runs at priority 0, above this one, and its
+        // Response::prepare() has already emptied the body of a HEAD response —
+        // writing one back here would put bytes on a HEAD. The exception lane
+        // below is prepared *after* it sets the response, so it needs no such
+        // guard.
+        $response->setContent('HEAD' === $request->getMethod() ? '' : $body);
         $response->headers->add(self::headers());
-        BodyMetadata::invalidate($response, $event->getRequest());
+        BodyMetadata::invalidate($response, $request);
     }
 
     public function onKernelException(ExceptionEvent $event): void
     {
-        if (!$this->applies($event->getRequest()->getPathInfo(), $event->getRequest()->getMethod()) || !$event->isMainRequest()) {
+        $request = $event->getRequest();
+        if (!$event->isMainRequest() || !$this->applies($request)) {
             return;
         }
         if (!$event->getThrowable() instanceof NotFoundHttpException) {
             return;
         }
 
-        $body = $this->sitemap->render($event->getRequest()->getSchemeAndHttpHost());
+        $body = $this->sitemap->render($request->getSchemeAndHttpHost());
         if ('' === $body) {
             return;
         }
@@ -121,10 +129,14 @@ final class SitemapFallback implements EventSubscriberInterface
         return ['Content-Type' => Sitemap::CONTENT_TYPE] + Router::NO_STORE_HEADERS;
     }
 
-    private function applies(string $pathInfo, string $method): bool
+    /**
+     * Cheap structural tests first: the cache and state reads only happen for a
+     * request that could actually be answered here.
+     */
+    private function applies(Request $request): bool
     {
-        return self::PATH === $pathInfo
-            && \in_array($method, ['GET', 'HEAD'], true)
+        return self::PATH === $request->getPathInfo()
+            && \in_array($request->getMethod(), ['GET', 'HEAD'], true)
             && $this->options->isConnected()
             && $this->cache->hasAny();
     }

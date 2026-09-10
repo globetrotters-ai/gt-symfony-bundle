@@ -41,6 +41,24 @@ final class RobotsFallbackTest extends IntegrationTestCase
         self::assertStringNotContainsString(TestKernel::WEBSITE_URL, $content);
     }
 
+    /**
+     * The generated response passes through kernel.response afterwards, where
+     * this subscriber sees it again — on a HEAD its body has been emptied by
+     * then, so the marker check cannot save it and the guard has to.
+     */
+    public function testHeadCarriesNoBody(): void
+    {
+        $client = $this->bootClient();
+        $this->serveRequiredFiles();
+        $this->refresh();
+
+        $client->request('HEAD', '/robots.txt');
+        $response = $client->getResponse();
+
+        self::assertSame(200, $response->getStatusCode());
+        self::assertSame('', $response->getContent());
+    }
+
     public function testStays404WhenNoBundleCached(): void
     {
         $client = $this->bootClient();

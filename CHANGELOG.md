@@ -53,6 +53,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   from an earlier version fall back to the last-refresh date until their next
   content change.
 
+### Fixed
+
+- **`HEAD /robots.txt` no longer returns a body.** Symfony empties a HEAD
+  response's body before this bundle's `kernel.response` subscribers run, so the
+  robots block was being appended to an already-emptied body — putting bytes on
+  a HEAD response, prefixed with two blank lines. The generated `/sitemap.xml`
+  had the same shape in its response lane and is guarded the same way.
+- An application whose `robots.txt` already points at its own `/sitemap.xml` no
+  longer gets that directive twice, now that the bundle's line names the same
+  host. A directive naming a *different* file (`sitemap.xml.gz`, say) is still
+  added alongside.
+
 ## [0.4.0] - 2026-09-09
 
 ### Added
