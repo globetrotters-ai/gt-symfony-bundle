@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Globetrotters\AiPresenceBundle\Cache;
 
+use Globetrotters\AiPresenceBundle\Settings\Options;
 use Psr\Cache\CacheItemPoolInterface;
 use Symfony\Contracts\Service\ResetInterface;
 
@@ -17,6 +18,11 @@ use Symfony\Contracts\Service\ResetInterface;
  * artefact request and avoids exceeding a cache backend's per-item limit merely
  * because otherwise-independent bodies were combined.
  *
+ * The manifest records the website_url its bundle was pulled from, and only an
+ * install configured with that same URL reads it. The configuration changes
+ * with a deploy while the cache pool may outlive it, so this is what stops a
+ * cleared or repointed install from serving the previous source's presence.
+ *
  * Legacy v1 single-item bundles remain readable and are migrated on the next
  * successful refresh.
  */
@@ -27,14 +33,23 @@ final class ArtefactCache implements ResetInterface
     private const FORMAT = 2;
     private const FILE_ITEM_PREFIX = 'globetrotters_ai_presence.file.';
 
+    private readonly string $source;
+
     /** @var array<string, mixed>|null */
     private ?array $manifest = null;
 
     /** @var array<string, string|null> */
     private array $fileMemo = [];
 
-    public function __construct(private readonly CacheItemPoolInterface $pool)
-    {
+    /**
+     * @param string $source this install's configured website_url: the only
+     *                       source whose bundle it serves, and the one it stamps
+     */
+    public function __construct(
+        private readonly CacheItemPoolInterface $pool,
+        string $source,
+    ) {
+        $this->source = Options::normalizeUrl($source);
     }
 
     public function get(string $path): ?string
@@ -113,7 +128,22 @@ final class ArtefactCache implements ResetInterface
     }
 
     /**
-     * Persist and atomically publish a complete bundle.
+     * Whether a bundle is cached that this install must not serve: one pulled
+     * from another website_url, or any bundle once none is configured.
+     *
+     * Serving never reads it — every read goes through {@see manifest()} — so
+     * this only tells the refresh there is something to forget.
+     */
+    public function holdsForeignBundle(): bool
+    {
+        $manifest = $this->storedManifest();
+
+        return [] !== $manifest && !$this->isServable($manifest);
+    }
+
+    /**
+     * Persist and atomically publish a complete bundle, stamped with this
+     * install's source.
      *
      * Returns false without changing the published manifest or the process memo
      * when any cache write reports failure.
@@ -122,7 +152,7 @@ final class ArtefactCache implements ResetInterface
      */
     public function store(array $files, string $version, int $storedAt): bool
     {
-        $oldManifest = $this->manifest();
+        $oldManifest = $this->storedManifest();
         $oldCurrentItems = $this->fileItemKeys($oldManifest['file_items'] ?? null);
         $oldPreviousItems = $this->stringList($oldManifest['previous_file_items'] ?? null);
 
@@ -154,6 +184,7 @@ final class ArtefactCache implements ResetInterface
             'previous_file_items' => array_values(array_unique($oldCurrentItems)),
             'version' => $version,
             'stored_at' => $storedAt,
+            'source' => $this->source,
         ];
         $item = $this->pool->getItem(self::ITEM);
         $item->set($manifest);
@@ -164,7 +195,7 @@ final class ArtefactCache implements ResetInterface
         }
 
         $this->manifest = $manifest;
-        $this->fileMemo = $files;
+        $this->fileMemo = $this->isServable($manifest) ? $files : [];
 
         // Items older than the retained previous generation are no longer
         // reachable. Cleanup is best-effort and cannot undo a published bundle.
@@ -185,9 +216,12 @@ final class ArtefactCache implements ResetInterface
         return true;
     }
 
+    /**
+     * Remove the published bundle, whichever source it came from.
+     */
     public function clear(): void
     {
-        $manifest = $this->manifest();
+        $manifest = $this->storedManifest();
         $keys = array_values(array_unique(array_merge(
             $this->fileItemKeys($manifest['file_items'] ?? null),
             $this->stringList($manifest['previous_file_items'] ?? null),
@@ -215,9 +249,32 @@ final class ArtefactCache implements ResetInterface
     }
 
     /**
+     * The published manifest, or [] when it is not this install's to serve.
+     *
+     * The one gate every read passes through, so no reader can serve a bundle
+     * from a source the site no longer points at. Stale-serve keeps the last
+     * good bundle when the *same* source fails; one from another source is not
+     * a fallback — it publishes a presence the customer withdrew, or another
+     * destination's. Read-only, because serving needs no write access: dropping
+     * it is the refresh's job
+     * ({@see \Globetrotters\AiPresenceBundle\Sync\ArtefactSync::forgetForeignBundle()}).
+     *
      * @return array<string, mixed>
      */
     private function manifest(): array
+    {
+        $manifest = $this->storedManifest();
+
+        return $this->isServable($manifest) ? $manifest : [];
+    }
+
+    /**
+     * The manifest as stored, whichever source it belongs to — for the writes
+     * that must clean up after it.
+     *
+     * @return array<string, mixed>
+     */
+    private function storedManifest(): array
     {
         if (null === $this->manifest) {
             $item = $this->pool->getItem(self::ITEM);
@@ -226,6 +283,21 @@ final class ArtefactCache implements ResetInterface
         }
 
         return $this->manifest;
+    }
+
+    /**
+     * @param array<string, mixed> $manifest
+     */
+    private function isServable(array $manifest): bool
+    {
+        if ('' === $this->source) {
+            return false;
+        }
+
+        // A manifest written before the source was recorded (0.4.0 and
+        // earlier) cannot say where it came from. Serving it keeps an upgrade
+        // from taking every install dark until its next refresh stamps it.
+        return !\array_key_exists('source', $manifest) || $this->source === $manifest['source'];
     }
 
     /**

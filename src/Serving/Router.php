@@ -254,6 +254,14 @@ final class Router implements EventSubscriberInterface
             return;
         }
 
+        // The key rides the version marker, so it belongs to the source that
+        // bundle came from. With none servable here — a cleared or changed
+        // website_url the refresh has not caught up with — it is not ours to
+        // answer either.
+        if (!$this->cache->hasAny()) {
+            return;
+        }
+
         $request->attributes->set(self::ATTRIBUTE_KEY, true);
 
         // The body is the key and nothing else — no trailing newline, matching

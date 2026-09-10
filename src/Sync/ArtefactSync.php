@@ -29,6 +29,10 @@ final class ArtefactSync
 
     public function run(): SyncResult
     {
+        // First, so a pull that then fails leaves nothing from the previous
+        // source behind: stale-serve is for the source this install points at.
+        $this->forgetForeignBundle();
+
         $baseUrl = $this->options->baseUrl();
         if ('' === $baseUrl) {
             return $this->fail(['No destination is connected yet.']);
@@ -125,6 +129,28 @@ final class ArtefactSync
         $this->options->updateState($state);
 
         return new SyncResult(true, $previousHash !== $contentHash, $marker['version'], []);
+    }
+
+    /**
+     * Forget a cached bundle that belongs to another source — the website_url
+     * was cleared or changed — as gt-wordpress-plugin does on a disconnect or a
+     * new destination. Returns whether there was one.
+     *
+     * Serving already refuses such a bundle ({@see ArtefactCache::holdsForeignBundle()}).
+     * This reclaims it and resets the state that described it — installed
+     * version, content hash, change date, IndexNow key — so the status command
+     * stops reporting it and the next refresh is due at once.
+     */
+    public function forgetForeignBundle(): bool
+    {
+        if (!$this->cache->holdsForeignBundle()) {
+            return false;
+        }
+
+        $this->cache->clear();
+        $this->options->resetState();
+
+        return true;
     }
 
     /**
