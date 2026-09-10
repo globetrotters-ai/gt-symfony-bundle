@@ -23,6 +23,7 @@ use Globetrotters\AiPresenceBundle\Serving\Router;
 use Globetrotters\AiPresenceBundle\Serving\Sitemap;
 use Globetrotters\AiPresenceBundle\Settings\BreadcrumbOptions;
 use Globetrotters\AiPresenceBundle\Settings\Options;
+use Globetrotters\AiPresenceBundle\Settings\RobotsOptions;
 use Globetrotters\AiPresenceBundle\Sync\ArtefactSync;
 use Symfony\Component\Clock\NativeClock;
 use Symfony\Component\HttpClient\NoPrivateNetworkHttpClient;
@@ -95,8 +96,14 @@ return static function (ContainerConfigurator $container): void {
     $services->set(ConditionalGetSubscriber::class)
         ->tag('kernel.event_subscriber');
 
+    $services->set(RobotsOptions::class)
+        ->args([
+            param('globetrotters_ai_presence.robots.ai_agents'),
+            param('globetrotters_ai_presence.robots.ai_train'),
+        ]);
+
     $services->set(RobotsFilter::class)
-        ->args([service(Options::class), service(ArtefactCache::class)])
+        ->args([service(Options::class), service(ArtefactCache::class), service(RobotsOptions::class)])
         ->tag('kernel.event_subscriber');
 
     $services->set(RefreshCommand::class)

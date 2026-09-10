@@ -79,8 +79,15 @@ final class HeadInjector implements EventSubscriberInterface
 
     /**
      * Breakout-safe JSON-LD script builder: re-encodes through a JSON
-     * round-trip (dropping invalid JSON) and escapes every "</" so a value
-     * can't close the script tag early.
+     * round-trip (dropping invalid JSON) with every "<" and ">" written as a
+     * JSON unicode escape (JSON_HEX_TAG), which any JSON-LD consumer decodes
+     * straight back.
+     *
+     * Escaping only "</" is not enough. A value such as "<!--<script>" moves
+     * the HTML tokenizer into the double-escaped script state, where the real
+     * closing tag no longer ends the element and the rest of the homepage is
+     * swallowed into the script. Script data only changes state on a "<", so a
+     * body containing none cannot leave it, whatever the value says.
      */
     public static function render(string $json): string
     {
@@ -91,12 +98,11 @@ final class HeadInjector implements EventSubscriberInterface
         if (null === $decoded) {
             return '';
         }
-        $encoded = json_encode($decoded);
+        $encoded = json_encode($decoded, \JSON_HEX_TAG);
         if (!\is_string($encoded)) {
             return '';
         }
-        $safe = str_replace('</', '<\/', $encoded);
 
-        return '<script type="application/ld+json">'.$safe.'</script>'."\n";
+        return '<script type="application/ld+json">'.$encoded.'</script>'."\n";
     }
 }

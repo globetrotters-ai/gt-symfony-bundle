@@ -25,6 +25,10 @@ use Symfony\Component\HttpKernel\KernelEvents;
  * every one of them, against the final bytes. Priority -64 is chosen to sit
  * after RobotsFilter and well above {@see ArtefactHeaderSubscriber} at -1024,
  * which re-asserts headers on Router-served artefacts and never rewrites a body.
+ *
+ * A HEAD response is revalidated the same way: RobotsFilter gives it the
+ * entity-tag of the decorated GET it stands for, so a client holding that tag
+ * gets the same 304 from either method.
  */
 final class ConditionalGetSubscriber implements EventSubscriberInterface
 {

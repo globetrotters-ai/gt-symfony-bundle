@@ -7,6 +7,7 @@ namespace Globetrotters\AiPresenceBundle\Tests\Fixtures;
 use Globetrotters\AiPresenceBundle\Analytics\IngestTransportInterface;
 use Globetrotters\AiPresenceBundle\Client\FetcherInterface;
 use Globetrotters\AiPresenceBundle\GlobetrottersAiPresenceBundle;
+use Globetrotters\AiPresenceBundle\Serving\ResponseFinalization;
 use Globetrotters\AiPresenceBundle\Tests\Support\FakeFetcher;
 use Globetrotters\AiPresenceBundle\Tests\Support\FakeIngestTransport;
 use Symfony\Bundle\FrameworkBundle\FrameworkBundle;
@@ -100,6 +101,12 @@ final class TestKernel extends Kernel
         $services = $container->services();
         $services->set(FakeFetcher::class)->public();
 
+        if ($this->withOpportunisticFlush) {
+            // The suite runs under the CLI SAPI, which never finishes a
+            // response early, so the probe would keep the lane off here.
+            $services->set(ResponseFinalization::class)->args([true]);
+        }
+
         if ($this->withReporting) {
             $services->set(FakeIngestTransport::class)->public();
             // App-level alias wins over the bundle's IngestClient alias, so the
@@ -112,6 +119,10 @@ final class TestKernel extends Kernel
         $services->set(AntagonistController::class)
             ->public()
             ->tag('controller.service_arguments');
+
+        if ($this->withRobotsRoute) {
+            $services->set(LateValidatorListener::class)->tag('kernel.event_subscriber');
+        }
     }
 
     protected function configureRoutes(RoutingConfigurator $routes): void

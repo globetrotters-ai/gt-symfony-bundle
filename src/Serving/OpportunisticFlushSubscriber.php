@@ -22,11 +22,19 @@ use Symfony\Component\HttpKernel\KernelEvents;
  * silently never flush there, which is the same invisible-undercount failure
  * this feature exists to remove.
  *
- * kernel.terminate is the one place a bundle can do network I/O without
- * touching response latency: the response has already been sent (PHP-FPM
- * returns it at ``fastcgi_finish_request()``), so a 20-second ingest call costs
- * the visitor nothing. It costs a worker process, which is why this lane sends
- * one batch rather than five.
+ * kernel.terminate is the one place a bundle can do network I/O without adding
+ * to response latency — but only on a runtime that has already delivered the
+ * response by then. {@see ResponseFinalization} decides that: PHP-FPM,
+ * FrankenPHP and LiteSpeed qualify; mod_php and the CLI server do not, and
+ * there this lane stays off and cron or Scheduler carry the flush. Even where
+ * the visitor has their response, the worker process is still occupied for the
+ * length of the ingest call (up to its 20-second timeout) and serves no one
+ * else meanwhile, which is why this lane sends one batch rather than five.
+ *
+ * Only a request this bundle served as an artefact can trigger it, never an
+ * ordinary page: the application's own traffic must not pay for reporting.
+ * The sitemap and the IndexNow key are marked with their own attributes and
+ * are excluded the same way they are from capture.
  *
  * Rate-limited to at most one attempt every 15 minutes regardless of traffic,
  * through the same stamp file every other lane writes — so on an install that
@@ -52,6 +60,7 @@ final class OpportunisticFlushSubscriber implements EventSubscriberInterface
         private readonly EventBuffer $buffer,
         private readonly AnalyticsOptions $options,
         private readonly FlushGate $gate,
+        private readonly ResponseFinalization $runtime,
     ) {
     }
 
@@ -63,11 +72,21 @@ final class OpportunisticFlushSubscriber implements EventSubscriberInterface
     public function onKernelTerminate(TerminateEvent $event): void
     {
         try {
+            // A request attribute read first, so an ordinary page costs one
+            // array lookup and nothing else.
+            $path = $event->getRequest()->attributes->get(Router::ATTRIBUTE_PATH);
+            if (!\is_string($path) || '' === $path) {
+                return;
+            }
             if (!$this->options->opportunisticFlush() || !$this->options->isConfigured()) {
                 return;
             }
+            if (!$this->runtime->finishesBeforeTerminate()) {
+                return;
+            }
             // Two stat() calls before anything expensive: nothing buffered, or
-            // not yet due, and this request is done.
+            // not yet due, and this request is done. The flusher re-checks the
+            // interval under its lock; this is only the cheap early exit.
             if ($this->buffer->sizeBytes() <= 0 || !$this->gate->isDue()) {
                 return;
             }

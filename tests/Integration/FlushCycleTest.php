@@ -4,8 +4,12 @@ declare(strict_types=1);
 
 namespace Globetrotters\AiPresenceBundle\Tests\Integration;
 
+use Globetrotters\AiPresenceBundle\Analytics\Flusher;
+use Globetrotters\AiPresenceBundle\Analytics\FlushGate;
 use Globetrotters\AiPresenceBundle\Analytics\IngestResult;
 use Globetrotters\AiPresenceBundle\GlobetrottersAiPresenceBundle;
+use Globetrotters\AiPresenceBundle\Scheduler\FlushMessage;
+use Globetrotters\AiPresenceBundle\Scheduler\FlushMessageHandler;
 use Globetrotters\AiPresenceBundle\Tests\Fixtures\TestKernel;
 use Symfony\Component\Console\Command\Command;
 
@@ -82,6 +86,55 @@ final class FlushCycleTest extends IntegrationTestCase
 
         self::assertStringContainsString('Not due yet', $tester->getDisplay());
         self::assertCount(1, $this->transport()->sent);
+        self::assertSame(1, $this->buffer()->count());
+    }
+
+    /**
+     * The reported repro: a command flush, then a Scheduler flush a second
+     * later. The Scheduler lane used to bypass the interval entirely.
+     */
+    public function testASchedulerFlushRightAfterACommandFlushSendsNothing(): void
+    {
+        $client = $this->bootClient();
+        $client->disableReboot();
+        $this->serveRequiredFiles();
+        $this->refresh();
+
+        $client->request('GET', '/llms.txt');
+        $this->runCommand('gt:presence:flush', ['--force' => true]);
+        $client->request('GET', '/ai.json');
+
+        $flusher = static::getContainer()->get(Flusher::class);
+        \assert($flusher instanceof Flusher);
+        (new FlushMessageHandler($flusher))(new FlushMessage());
+
+        self::assertCount(1, $this->transport()->sent);
+        self::assertSame(1, $this->buffer()->count());
+    }
+
+    public function testForceNeverGetsPastAFlushAlreadyInProgress(): void
+    {
+        $client = $this->bootClient();
+        $client->disableReboot();
+        $this->serveRequiredFiles();
+        $this->refresh();
+        $client->request('GET', '/llms.txt');
+
+        $kernel = static::$kernel;
+        \assert($kernel instanceof TestKernel);
+        $handle = fopen($kernel->bufferDir().'/'.FlushGate::LOCK_FILE, 'c');
+        self::assertIsResource($handle);
+        self::assertTrue(flock($handle, \LOCK_EX));
+        try {
+            $tester = $this->runCommand('gt:presence:flush', ['--force' => true]);
+        } finally {
+            flock($handle, \LOCK_UN);
+            fclose($handle);
+        }
+
+        self::assertSame(Command::SUCCESS, $tester->getStatusCode(), 'a flush in progress is not a failure');
+        self::assertStringContainsString('already running', $tester->getDisplay());
+        self::assertCount(0, $this->transport()->sent);
         self::assertSame(1, $this->buffer()->count());
     }
 

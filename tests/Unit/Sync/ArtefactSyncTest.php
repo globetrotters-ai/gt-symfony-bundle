@@ -456,6 +456,88 @@ final class ArtefactSyncTest extends TestCase
         ]));
     }
 
+    /**
+     * A proxy or maintenance mode answering 200 with an HTML page passes every
+     * status and size check. It must not replace a good bundle, and nothing the
+     * failed pull saw may leak into state: not the change date the sitemap
+     * reports, and not the IndexNow key.
+     */
+    public function testAnHtmlPageServedAsJsonKeepsTheWholeLastGoodGeneration(): void
+    {
+        $this->serveRequiredFiles();
+        $this->fetcher->on('/'.ContentTypes::VERSION_MARKER, $this->markerWithKey(self::INDEXNOW_KEY));
+        self::assertTrue($this->sync()->run()->isSuccess());
+        $before = $this->options->state();
+
+        $this->clock->modify('+1 day');
+        $this->fetcher->on('/schema.json', FetchResult::http(200, '<!DOCTYPE html><html><body>Down for maintenance</body></html>'));
+        $this->fetcher->on('/llms.txt', FetchResult::http(200, 'republished'));
+        $this->fetcher->on('/'.ContentTypes::VERSION_MARKER, $this->markerWithKey('rotated-key-0000000000000000'));
+        $result = $this->sync()->run();
+
+        self::assertFalse($result->isSuccess());
+        self::assertStringContainsString('/schema.json', $result->errorMessage());
+        self::assertStringContainsString('not valid JSON', $result->errorMessage());
+        // Every file of the previous generation, not only the rejected one.
+        foreach (self::BODIES as $path => $body) {
+            self::assertSame($body, $this->cache->get($path));
+        }
+        $after = $this->options->state();
+        foreach (['content_hash', 'content_changed_at', 'indexnow_key', 'installed_version', 'last_refresh'] as $key) {
+            self::assertSame($before[$key], $after[$key], $key.' must not advance on a rejected pull');
+        }
+        self::assertSame($result->errorMessage(), $after['last_error']);
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('unusableJsonArtefacts')]
+    public function testAnUnusableJsonArtefactIsRejected(string $path, string $body): void
+    {
+        $this->serveRequiredFiles();
+        self::assertTrue($this->sync()->run()->isSuccess());
+
+        $this->fetcher->on('/'.$path, FetchResult::http(200, $body));
+        $result = $this->sync()->run();
+
+        self::assertFalse($result->isSuccess());
+        self::assertStringContainsString('/'.$path, $result->errorMessage());
+        self::assertSame(self::BODIES[$path], $this->cache->get($path));
+    }
+
+    /**
+     * @return iterable<string, array{0: string, 1: string}>
+     */
+    public static function unusableJsonArtefacts(): iterable
+    {
+        yield 'truncated' => ['ai.json', '{"a":'];
+        yield 'empty' => ['.well-known/mcp.json', ''];
+        yield 'json null' => ['ai.json', 'null'];
+        yield 'bare string' => ['.well-known/agent-card.json', '"maintenance"'];
+        yield 'list where an object belongs' => ['ai.json', '[{"a":1}]'];
+        yield 'schema scalar' => ['schema.json', '42'];
+        yield 'schema list of scalars' => ['schema.json', '[1,2]'];
+        yield 'schema empty list' => ['schema.json', '[]'];
+    }
+
+    /**
+     * JSON-LD allows a top-level array of node objects, so schema.json is held
+     * to that rather than to a single object.
+     */
+    public function testSchemaMayBeAListOfNodes(): void
+    {
+        $this->serveRequiredFiles();
+        $this->fetcher->on('/schema.json', FetchResult::http(200, '[{"@type":"TouristDestination"},{"@type":"Place"}]'));
+
+        self::assertTrue($this->sync()->run()->isSuccess());
+    }
+
+    public function testTextArtefactsAreNotHeldToJson(): void
+    {
+        $this->serveRequiredFiles();
+        $this->fetcher->on('/llms.txt', FetchResult::http(200, "# Nantes\n\n> {not json} <b>markdown may carry markup</b>\n"));
+
+        self::assertTrue($this->sync()->run()->isSuccess());
+    }
+
     public function testCheckLatestReadsUpstreamMarkerWithoutPulling(): void
     {
         $this->fetcher->on('/'.ContentTypes::VERSION_MARKER, FetchResult::http(200, '{"version":"2026-08-01-000000"}'));

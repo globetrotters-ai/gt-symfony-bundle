@@ -52,18 +52,30 @@ final class Flusher
     }
 
     /**
-     * Run one flush. Returns true when at least one batch was accepted.
+     * Run one flush and report what happened.
+     *
+     * The interval is checked *inside* the exclusive lock, for every lane. A
+     * check made before taking the lock is a race two lanes can both win: a
+     * cron'd command and a Scheduler worker a second apart would each see
+     * "due", then take the lock in turn and each send a batch. Under the lock
+     * the second one finds the first one's stamp.
      *
      * @param string $lane       which scheduling lane triggered this, for the status command
      * @param int    $maxBatches batches to drain before yielding
+     * @param bool   $force      skip the interval (``gt:presence:flush --force``) — never the lock,
+     *                           which is what stops two processes sending the same claimed events
      */
-    public function run(string $lane, int $maxBatches = self::MAX_BATCHES_PER_RUN): bool
+    public function run(string $lane, int $maxBatches = self::MAX_BATCHES_PER_RUN, bool $force = false): FlushOutcome
     {
         if (!$this->options->isConfigured() || !$this->buffer->isUsable()) {
-            return false;
+            return FlushOutcome::Unavailable;
         }
 
-        $accepted = $this->gate->withLock(function () use ($lane, $maxBatches): bool {
+        $outcome = $this->gate->withLock(function () use ($lane, $maxBatches, $force): FlushOutcome {
+            if (!$force && !$this->gate->isDue()) {
+                return FlushOutcome::NotDue;
+            }
+
             // Stamped up front, so a failing endpoint still holds every lane to
             // the 15-minute cadence instead of retrying on every request.
             $this->gate->stamp();
@@ -80,7 +92,7 @@ final class Flusher
                     }
                 }
 
-                return $sent;
+                return $sent ? FlushOutcome::Accepted : FlushOutcome::Rejected;
             } catch (\Throwable $error) {
                 // Same rule as capture: reporting degrades, the application
                 // does not.
@@ -90,11 +102,13 @@ final class Flusher
                     'last_flush_lane' => $lane,
                 ]);
 
-                return false;
+                return FlushOutcome::Rejected;
             }
         });
 
-        return true === $accepted;
+        // withLock() answers null when another process holds the lock (or, in
+        // the rare case isUsable() just raced, the lock file could not open).
+        return $outcome ?? FlushOutcome::Locked;
     }
 
     /**

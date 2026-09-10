@@ -9,6 +9,7 @@ use Globetrotters\AiPresenceBundle\Analytics\AnalyticsState;
 use Globetrotters\AiPresenceBundle\Analytics\EventBuffer;
 use Globetrotters\AiPresenceBundle\Analytics\Flusher;
 use Globetrotters\AiPresenceBundle\Analytics\FlushGate;
+use Globetrotters\AiPresenceBundle\Analytics\FlushOutcome;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
@@ -63,7 +64,15 @@ final class PresenceFlushCommand extends Command
             return Command::FAILURE;
         }
 
-        if (!$input->getOption('force') && !$this->gate->isDue()) {
+        // An empty buffer still flushes: an empty envelope is how the backend's
+        // "no batch received in 24h" install-health watermark gets stamped.
+        $buffered = $this->buffer->count();
+        $outcome = $this->flusher->run(AnalyticsState::LANE_COMMAND, force: (bool) $input->getOption('force'));
+
+        // The interval is decided by the flusher under its lock rather than
+        // here, so this command cannot race the Scheduler or terminate lanes
+        // into a second POST. Both skips are the gate doing its job.
+        if (FlushOutcome::NotDue === $outcome) {
             $io->writeln(\sprintf(
                 'Not due yet — last attempt %ds ago, interval %ds. Use --force to flush now.',
                 $this->sinceLastAttempt(),
@@ -72,13 +81,20 @@ final class PresenceFlushCommand extends Command
 
             return Command::SUCCESS;
         }
+        if (FlushOutcome::Locked === $outcome) {
+            // --force skips the interval, never the lock.
+            $io->writeln('Another flush is already running; skipped.');
 
-        $buffered = $this->buffer->count();
+            return Command::SUCCESS;
+        }
+        if (FlushOutcome::Unavailable === $outcome) {
+            $io->error('Reporting became unavailable before the flush could run.');
+
+            return Command::FAILURE;
+        }
+
         if (0 === $buffered) {
-            // Still runs: an empty flush is how the backend's "no batch
-            // received in 24h" install-health watermark gets stamped.
-            $accepted = $this->flusher->run(AnalyticsState::LANE_COMMAND);
-            if (!$accepted) {
+            if (FlushOutcome::Accepted !== $outcome) {
                 $error = (string) $this->state->state()['last_flush_error'];
                 $io->warning('Health heartbeat not accepted; it will be retried.'.('' !== $error ? ' '.$error : ''));
 
@@ -89,10 +105,9 @@ final class PresenceFlushCommand extends Command
             return Command::SUCCESS;
         }
 
-        $accepted = $this->flusher->run(AnalyticsState::LANE_COMMAND);
         $remaining = $this->buffer->count();
 
-        if (!$accepted) {
+        if (FlushOutcome::Accepted !== $outcome) {
             $error = (string) $this->state->state()['last_flush_error'];
             $io->warning(\sprintf(
                 'Flush not accepted; %d event(s) stay buffered and will be retried with the same UUIDs.%s',

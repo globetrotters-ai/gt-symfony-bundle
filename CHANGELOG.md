@@ -16,12 +16,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Bingbot`, `Applebot`, `Amazonbot`, `DuckAssistBot`, `Bytespider`,
   `cohere-ai`. `Anthropic-AI` is now spelled `anthropic-ai`, the vendor's own
   casing (robots matching is case-insensitive, so this changes nothing a
-  crawler does). Nothing is blocked, and nothing that could fetch your site
-  before can't now: naming an agent is signalling, not permission.
-- **Every named group carries its own `Content-Signal: search=yes, ai-input=yes,
-  ai-train=yes`.** Per RFC 9309 §2.2.1 a crawler obeys only its own
-  most-specific matching group, so a single copy at the top of the file would
-  reach none of the named agents.
+  crawler does).
+- **Decorating `robots.txt` no longer changes what any crawler may fetch.**
+  Naming an agent is not neutral: under RFC 9309 a crawler obeys only the
+  group(s) naming it, so the `Allow: /` groups this block used to append
+  released every named agent from the site's `User-agent: *` restrictions (a
+  WordPress `Disallow: /wp-admin/`, a staging site's `Disallow: /`), and one
+  appended for an agent the site already named merged with — and outranked —
+  the site's own rules for it. Now agents the site names are never added
+  (Applebot counts as named when Googlebot is, the fallback Apple documents),
+  and every other agent inherits the site's wildcard rules, carried once in a
+  single shared group. `Allow: /` over those rules is the explicit opt-in
+  `robots.ai_agents: allow_all`, and it still never touches a group the site
+  wrote.
+- **Every named group carries its own `Content-Signal: search=yes,
+  ai-input=yes`**, or the site's own wildcard `Content-Signal` when it has one.
+  Per RFC 9309 §2.2.1 a crawler obeys only its own most-specific matching
+  group, so a single copy at the top of the file would reach none of the named
+  agents. `ai-train=yes` is a statement about the whole site and is now the
+  explicit opt-in `robots.ai_train: true`; with both opt-ins the block is
+  byte-for-byte the backend registry's.
+- **The `kernel.terminate` flush fallback only runs on a served artefact
+  request, and only where the response is already delivered.** It used to fire
+  on any request once reporting was configured, and on runtimes that do not
+  finish the response before `kernel.terminate` (mod_php, the CLI server) that
+  put up to 20 seconds of ingest I/O into an ordinary visitor's response. It now
+  needs a request for one of the six artefacts — never a page, `robots.txt`, the
+  sitemap or the IndexNow key — and a runtime whose `Response::send()` finishes
+  the request early: PHP-FPM, FrankenPHP or LiteSpeed. Elsewhere, cron or
+  `symfony/scheduler` carry the flush.
+- **The Scheduler asks for a flush every 5 minutes** instead of every 15; the
+  shared 15-minute interval decides whether one is sent. Polling at exactly the
+  interval raced the gate and could skip alternate flushes.
 
 - **`robots.txt`'s `Sitemap:` line now names this site's own
   `/ai-sitemap.xml`**, not a `sitemap.xml` on the configured Globetrotters
@@ -61,13 +87,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   omitted until the install has seen a content change, and never set on the
   homepage — that is your page, edited independently of the bundle, so the
   bundle cannot vouch for its date.
+- **`robots.ai_agents`** (`inherit` | `allow_all`, default `inherit`) and
+  **`robots.ai_train`** (default `false`): the two explicit opt-ins described
+  above.
 
 ### Fixed
 
-- **`HEAD /robots.txt` no longer returns a body.** Symfony empties a HEAD
-  response's body before this bundle's `kernel.response` subscribers run, so the
-  robots block was being appended to an already-emptied body — putting bytes on
-  a HEAD response, prefixed with two blank lines.
+- **`HEAD /robots.txt` no longer returns a body, and describes the decorated
+  `GET`.** Symfony empties a HEAD response's body before this bundle's
+  `kernel.response` subscribers run, so the robots block was first appended to
+  an already-emptied body, and then — once that was stopped — the HEAD kept the
+  application's `ETag`, `Last-Modified` and `Content-Length` while the GET
+  carried the decorated body's, which could needlessly invalidate a cached GET.
+  The body is now captured before Symfony drops it, and a HEAD carries the
+  decorated GET's entity-tag and length with no body, for app-served and
+  generated robots alike. Decoration still runs after `CacheAttributeListener`,
+  so a late-stamped `Last-Modified` is dropped on both methods, and conditional
+  requests revalidate against the decorated tag on both.
+- **A schema.json value can no longer hide the homepage.** The JSON-LD script
+  escaped only `</`, so a value such as `<!--<script>` put the HTML parser into
+  its double-escaped script state and the page after the injected tag was
+  swallowed into the script. `<` and `>` are now written as JSON unicode
+  escapes, which leaves the parser nothing to act on.
+- **The Symfony 6.4 scheduler lane works.** The schedule called
+  `processOnlyLastMissedRun()`, which only exists from Symfony 7.1, so the
+  `gt` schedule failed to build on 6.4 LTS; nothing in the suite constructed it.
+  It is now enabled only where available; on 6.4 missed runs replay one by one,
+  which both handlers absorb.
+- **A `200` that is not the artefact no longer replaces the last good
+  bundle.** Required files were checked for status and size only, so a
+  maintenance page answered with `200` was published as `schema.json` and the
+  refresh reported success. Every JSON artefact must now parse to a JSON object
+  (JSON-LD: an object or a list of node objects) before anything is stored; a
+  failure keeps the whole previous generation, its `content_changed_at` and its
+  IndexNow key. `llms.txt` is not held to any grammar.
+- **Every flush lane honours the shared interval.** The flusher took the lock
+  but never checked the interval, and the Scheduler lane called it directly, so
+  a command flush followed a second later by a scheduled one sent two batches.
+  The interval is now checked inside the lock for every lane; `--force` skips
+  the interval but never the lock, and a "not due" or "already running" skip is
+  reported as a skip rather than a failed flush.
 
 ## [0.4.0] - 2026-09-09
 

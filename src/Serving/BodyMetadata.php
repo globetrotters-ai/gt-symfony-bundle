@@ -55,8 +55,10 @@ final class BodyMetadata
      * changed, not when the resource did, and inventing "now" would license a
      * client to treat an unchanged resource as freshly modified. The digest
      * headers are dropped because getting a structured-field digest subtly wrong
-     * is worse than omitting it. ``Content-Length`` is recomputed by
-     * {@see Response::prepare()} on the way out.
+     * is worse than omitting it. ``Content-Length`` goes too: HttpFoundation
+     * never recomputes it, so the server measures the new body instead — and a
+     * HEAD response, which has no body to measure, has its length set by the
+     * caller that knows the representation.
      *
      * @var list<string>
      */
@@ -76,11 +78,15 @@ final class BodyMetadata
     public const ATTRIBUTE_REWRITTEN = '_gt_body_rewritten';
 
     /**
-     * @param Request|null $request when given, flags the request so
-     *                              {@see ConditionalGetSubscriber} revalidates
-     *                              the final response against the final tag
+     * @param Request|null $request        when given, flags the request so
+     *                                     {@see ConditionalGetSubscriber} revalidates
+     *                                     the final response against the final tag
+     * @param string|null  $representation the bytes the entity-tag must describe
+     *                                     when they are not the body — a HEAD
+     *                                     response, whose body Symfony has
+     *                                     already dropped; defaults to the body
      */
-    public static function invalidate(Response $response, ?Request $request = null): void
+    public static function invalidate(Response $response, ?Request $request = null, ?string $representation = null): void
     {
         $etag = $response->getEtag();
 
@@ -92,7 +98,7 @@ final class BodyMetadata
             return;
         }
 
-        $content = $response->getContent();
+        $content = $representation ?? $response->getContent();
         if (false === $content) {
             // Nothing to digest — a streamed or file-backed body. The old tag
             // describes bytes we have already changed, so it cannot stay.

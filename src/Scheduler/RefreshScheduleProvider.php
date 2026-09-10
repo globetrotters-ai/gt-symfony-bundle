@@ -19,6 +19,18 @@ use Symfony\Contracts\Cache\CacheInterface;
  */
 final class RefreshScheduleProvider implements ScheduleProviderInterface
 {
+    /**
+     * How often the schedule *asks* for a flush — not how often one happens.
+     *
+     * {@see FlushGate} owns the 15-minute cadence, and the flusher enforces it
+     * under the flush lock for every lane, this one included. Polling at
+     * exactly that interval would race the gate: a stamp that lands a second
+     * after its trigger leaves the next trigger a second short of due, and
+     * every other flush would be skipped. Polling every five minutes, like the
+     * documented cron line, keeps the real cadence between 15 and 20 minutes.
+     */
+    private const FLUSH_POLL = '5 minutes';
+
     public function __construct(
         private readonly Options $options,
         private readonly CacheItemPoolInterface $pool,
@@ -38,9 +50,18 @@ final class RefreshScheduleProvider implements ScheduleProviderInterface
             // would let a weekly refresh sit the buffer for days, well past the
             // backend's 90-minute staleness window, where hits are re-stamped
             // to arrival time and land in the wrong buckets.
-            ->add(RecurringMessage::every(FlushGate::INTERVAL_SECONDS, new FlushMessage()))
-            // A full re-pull is idempotent — collapse missed runs.
-            ->processOnlyLastMissedRun(true);
+            ->add(RecurringMessage::every(self::FLUSH_POLL, new FlushMessage()));
+
+        // Collapse the runs a stopped worker missed into one. The option arrived
+        // in Symfony 7.1; 6.4 LTS replays each missed run instead, which both
+        // handlers absorb: a replayed flush finds the interval not yet due under
+        // the flush lock and sends nothing, and a replayed refresh is an
+        // idempotent re-pull. Detected through reflection rather than
+        // method_exists(), which static analysis — run against a single Symfony
+        // version — would fold into a constant.
+        if ((new \ReflectionClass($schedule))->hasMethod('processOnlyLastMissedRun')) {
+            $schedule->processOnlyLastMissedRun(true);
+        }
 
         // stateful() persists the last run so missed runs survive worker
         // restarts, but it requires a Symfony cache contract. The bundle only
