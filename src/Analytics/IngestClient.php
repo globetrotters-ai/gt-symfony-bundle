@@ -45,7 +45,9 @@ final class IngestClient implements IngestTransportInterface
     {
         // AnalyticsOptions already reads a cleartext endpoint as unconfigured;
         // this is the last point before the token leaves, so it holds the line
-        // on its own.
+        // on its own. Trimmed like the other two layers, and the trimmed URL
+        // is the one sent: parse_url() reads a padded one as a relative path.
+        $url = trim($url);
         if (!AnalyticsOptions::isHttpsUrl($url)) {
             return IngestResult::error('the ingest endpoint must be an https:// URL');
         }

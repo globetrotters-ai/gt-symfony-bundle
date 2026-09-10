@@ -59,6 +59,26 @@ final class IngestClientTest extends TestCase
     }
 
     /**
+     * The other two layers trim before checking; this one must not refuse
+     * what they accept, and must send the URL it checked.
+     */
+    public function testPostTrimsTheEndpointItChecksAndSends(): void
+    {
+        $seen = null;
+        $http = new MockHttpClient(static function (string $method, string $url) use (&$seen): MockResponse {
+            $seen = $url;
+
+            return new MockResponse('', ['http_code' => 202]);
+        });
+
+        $result = (new IngestClient($http))->post("  https://api.example.test/ingest\n", 'secret', '{"events":[]}');
+
+        self::assertSame(1, $http->getRequestsCount());
+        self::assertSame('https://api.example.test/ingest', $seen);
+        self::assertTrue($result->isAccepted());
+    }
+
+    /**
      * @return iterable<string, array{0: string}>
      */
     public static function refusedEndpoints(): iterable
