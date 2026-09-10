@@ -90,7 +90,7 @@ Rotation carries a lag this lane cannot avoid: a rotated key reaches an install 
 
 ## Releasing
 
-The version lives in three places that must move together: `GlobetrottersAiPresenceBundle::VERSION`, the `CHANGELOG.md` heading, and the `extra.branch-alias.dev-main` constraint in `composer.json`. Packagist publishes from the git tag, so tag only after all three agree. CHANGELOG follows Keep a Changelog and the project is on semver (currently 0.4.0, first public release 2026-08-25). The number is kept in step with `gt-wordpress-plugin` so the same behaviour ships under the same version on both.
+The version lives in three places that must move together: `GlobetrottersAiPresenceBundle::VERSION`, the `CHANGELOG.md` heading, and the `extra.branch-alias.dev-main` constraint in `composer.json`. Packagist publishes from the git tag, so tag only after all three agree. CHANGELOG follows Keep a Changelog and the project is on semver (currently 0.5.0, first public release 2026-08-25). The number is kept in step with `gt-wordpress-plugin` so the same behaviour ships under the same version on both.
 
 ## Local testing against a real app
 
