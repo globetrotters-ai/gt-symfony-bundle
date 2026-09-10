@@ -16,6 +16,8 @@ final class AntagonistController
 {
     public const HOMEPAGE_HTML = '<html><head><title>Demo</title></head><body>Homepage</body></html>';
 
+    public const APP_SITEMAP_XML = '<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>https://app.example/about</loc></url></urlset>';
+
     /**
      * A full HTML interior page. The plain-text catch-all below has no <head>,
      * so it cannot exercise a subscriber that injects into one — and the
@@ -42,6 +44,9 @@ final class AntagonistController
         if ('robots.txt' === $path) {
             throw new NotFoundHttpException('No robots.txt route.');
         }
+        if ('sitemap.xml' === $path) {
+            throw new NotFoundHttpException('No sitemap.xml route.');
+        }
 
         return new Response('ANTAGONIST', 200, ['Content-Type' => 'text/html; charset=utf-8']);
     }
@@ -49,5 +54,14 @@ final class AntagonistController
     public function robots(): Response
     {
         return new Response("User-agent: *\nDisallow: /admin\n", 200, ['Content-Type' => 'text/plain; charset=utf-8']);
+    }
+
+    /**
+     * An application that owns its own sitemap — a manifest of its own pages,
+     * which the bundle must leave alone.
+     */
+    public function sitemap(): Response
+    {
+        return new Response(self::APP_SITEMAP_XML, 200, ['Content-Type' => 'application/xml; charset=utf-8']);
     }
 }
