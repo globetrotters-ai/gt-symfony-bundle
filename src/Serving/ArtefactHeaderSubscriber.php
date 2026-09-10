@@ -59,7 +59,8 @@ final class ArtefactHeaderSubscriber implements EventSubscriberInterface
         $attributes = $event->getRequest()->attributes;
         if ($attributes->has(Router::ATTRIBUTE_PATH)) {
             $restore = Router::NO_STORE_HEADERS + Router::CORS_HEADERS;
-        } elseif (true === $attributes->get(Router::ATTRIBUTE_KEY)) {
+        } elseif (true === $attributes->get(Router::ATTRIBUTE_KEY)
+            || true === $attributes->get(Router::ATTRIBUTE_SITEMAP)) {
             $restore = Router::NO_STORE_HEADERS;
         } else {
             return;

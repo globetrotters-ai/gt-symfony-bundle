@@ -23,11 +23,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   most-specific matching group, so a single copy at the top of the file would
   reach none of the named agents.
 
+- **`robots.txt`'s `Sitemap:` line now names this site's own
+  `/ai-sitemap.xml`**, not a `sitemap.xml` on the configured Globetrotters
+  origin. A cross-host `Sitemap:` directive is ignored
+  by Google and Bing without cross-domain verification, so the old line was
+  inert rather than harmful — but in bundle mode the content is served from
+  your apex, and that is where the sitemap belongs. The host comes from the
+  request, so a site reachable on several hostnames gets the right line on
+  each, with nothing to configure.
+
 ### Added
 
 - A fixture test (`tests/Fixtures/robots-ai-user-agent-groups.txt`) that fails
   the build if the emitted block drifts from the backend registry's own output,
   byte for byte. The fixture is generated from that module, not typed.
+- **A generated sitemap at `/ai-sitemap.xml`**, served once a bundle is cached:
+  a `<urlset>` over your homepage plus every artefact this install is actually
+  serving, in the URL space of the request it arrives on. It can never
+  advertise a URL your site does not answer, and needs no configuration to know
+  your domain. `robots.txt` declares it, which is how crawlers discover a
+  sitemap anyway.
+- **`/sitemap.xml` is never claimed.** That path is the site's — served by the
+  application, a static file, or redirected onto an SEO bundle's index — and a
+  six-URL artefact listing is no substitute for it. robots.txt takes a *list* of
+  `Sitemap:` directives, so ours is additive to whatever the site declares. This
+  matches `gt-wordpress-plugin`, which serves the same document at the same
+  path for the same reason.
+- Globetrotters publishes a per-tenant `sitemap.xml`, but every URL in it is in
+  the *GT host* URL space and this bundle serves artefacts verbatim; building
+  the listing locally is what keeps it and the serving in step by construction.
+- The sitemap response carries `nosniff` and both `no-store` headers, and no
+  `Access-Control-Allow-Origin` (a sitemap is fetched server-side by a crawler).
+  Serving it is not recorded as agent traffic.
+- `<lastmod>` on each artefact URL, dated from the new `content_changed_at`
+  state value: it moves only when the pulled content actually changes, so a
+  daily refresh that changed nothing does not restamp every URL as fresh. It is
+  omitted until the install has seen a content change, and never set on the
+  homepage — that is your page, edited independently of the bundle, so the
+  bundle cannot vouch for its date.
+
+### Fixed
+
+- **`HEAD /robots.txt` no longer returns a body.** Symfony empties a HEAD
+  response's body before this bundle's `kernel.response` subscribers run, so the
+  robots block was being appended to an already-emptied body — putting bytes on
+  a HEAD response, prefixed with two blank lines.
 
 ## [0.4.0] - 2026-09-09
 

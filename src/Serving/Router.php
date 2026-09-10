@@ -24,9 +24,12 @@ use Symfony\Component\HttpKernel\KernelEvents;
  * A path miss or cold cache returns without touching the response, letting the
  * app handle the request normally.
  *
- * Alongside the artefact set it answers one dynamic path: the IndexNow key file
- * at ``/<key>.txt``, whose name is only known at runtime and so cannot be a
- * {@see ContentTypes} entry. See {@see IndexNowKey}.
+ * Alongside the artefact set it answers two paths that are deliberately not
+ * {@see ContentTypes} entries, because neither is fetched: the generated
+ * sitemap at ``/ai-sitemap.xml`` (rendered from the cache — putting it in the
+ * map would make {@see \Globetrotters\AiPresenceBundle\Sync\ArtefactSync}
+ * try to pull it), and the IndexNow key file at ``/<key>.txt``, whose name is
+ * only known at runtime. See {@see Sitemap} and {@see IndexNowKey}.
  *
  * This is also the only point at which agent traffic to an apex install is
  * observable at all — the request terminates here and never touches a
@@ -58,6 +61,17 @@ final class Router implements EventSubscriberInterface
      * headers re-asserted, which is what this attribute is for.
      */
     public const ATTRIBUTE_KEY = '_gt_indexnow_key';
+
+    /**
+     * Marks a served sitemap response, read by {@see ArtefactHeaderSubscriber}.
+     *
+     * Separate from {@see self::ATTRIBUTE_PATH} for the same reason as the key:
+     * a search engine reading a sitemap to schedule a crawl is not an agent
+     * fetching the presence, and folding it into Presence Analytics would
+     * inflate the numbers a customer reads as demand for their presence. The
+     * response still needs its no-store headers re-asserted.
+     */
+    public const ATTRIBUTE_SITEMAP = '_gt_sitemap';
 
     /**
      * The headers that make an artefact response measurable, re-asserted on
@@ -105,6 +119,7 @@ final class Router implements EventSubscriberInterface
     public function __construct(
         private readonly ArtefactCache $cache,
         private readonly Options $options,
+        private readonly Sitemap $sitemap,
     ) {
     }
 
@@ -139,7 +154,14 @@ final class Router implements EventSubscriberInterface
         // never be shadowed by whatever a marker happens to carry.
         $type = ContentTypes::forPath($path);
         if (null === $type) {
-            $this->serveIndexNowKey($event, $request, $path);
+            // The sitemap is matched before the key for the same structural
+            // reason the artefact map is matched before both: ``ai-sitemap.xml``
+            // is itself a well-formed key filename (a ten-character
+            // ``[A-Za-z0-9-]`` stem), so an install whose key happened to be
+            // ``ai-sitemap`` would otherwise shadow it.
+            if (!$this->serveSitemap($event, $request, $path)) {
+                $this->serveIndexNowKey($event, $request, $path);
+            }
 
             return;
         }
@@ -159,6 +181,50 @@ final class Router implements EventSubscriberInterface
         $request->attributes->set(self::ATTRIBUTE_BYTES, \strlen($body));
 
         $event->setResponse(new Response($body, 200, self::headers($type)));
+    }
+
+    /**
+     * Serve the generated sitemap, or return false so the caller keeps looking.
+     *
+     * Nothing is answered until at least one artefact is listable —
+     * {@see Sitemap::render()} returns '' otherwise. A urlset naming only the
+     * homepage says less than whatever the site already serves, and an install
+     * that has never synced should look untouched.
+     */
+    private function serveSitemap(RequestEvent $event, Request $request, string $path): bool
+    {
+        if (Sitemap::PATH !== $path) {
+            return false;
+        }
+
+        $body = $this->sitemap->render($request->getSchemeAndHttpHost());
+        if ('' === $body) {
+            return false;
+        }
+
+        $request->attributes->set(self::ATTRIBUTE_SITEMAP, true);
+        $event->setResponse(new Response($body, 200, self::sitemapHeaders()));
+
+        return true;
+    }
+
+    /**
+     * Response headers for the generated sitemap.
+     *
+     * ``no-store`` for *freshness* rather than measurement: the document is
+     * rendered from the cache and from this request's own host, so a shared TTL
+     * could keep advertising a URL a later refresh dropped, or hand a host alias
+     * a listing full of another host's URLs.
+     *
+     * No {@see self::CORS_HEADERS}, matching {@see self::keyHeaders()}: a
+     * sitemap is fetched server-side by a crawler, so the cross-origin grant
+     * stays scoped to the discovery documents that actually need it.
+     *
+     * @return array<string, string>
+     */
+    public static function sitemapHeaders(): array
+    {
+        return ['Content-Type' => Sitemap::CONTENT_TYPE] + self::NO_STORE_HEADERS;
     }
 
     /**

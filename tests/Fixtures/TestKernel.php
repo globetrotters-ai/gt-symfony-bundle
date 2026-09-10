@@ -32,6 +32,7 @@ final class TestKernel extends Kernel
         private readonly bool $withReporting = false,
         private readonly bool $withOpportunisticFlush = false,
         private readonly bool $withBreadcrumb = false,
+        private readonly bool $withSitemapRoute = false,
     ) {
         parent::__construct($environment, $debug);
     }
@@ -120,6 +121,11 @@ final class TestKernel extends Kernel
                 ->controller([AntagonistController::class, 'robots']);
         }
 
+        if ($this->withSitemapRoute) {
+            $routes->add('app_sitemap', '/sitemap.xml')
+                ->controller([AntagonistController::class, 'sitemap']);
+        }
+
         $routes->add('catchall', '/{path}')
             ->requirements(['path' => '.*'])
             ->defaults(['path' => ''])
@@ -131,6 +137,7 @@ final class TestKernel extends Kernel
         return ($this->withRobotsRoute ? '_robots' : '')
             .($this->withReporting ? '_reporting' : '')
             .($this->withOpportunisticFlush ? '_terminate' : '')
-            .($this->withBreadcrumb ? '_breadcrumb' : '');
+            .($this->withBreadcrumb ? '_breadcrumb' : '')
+            .($this->withSitemapRoute ? '_sitemap' : '');
     }
 }

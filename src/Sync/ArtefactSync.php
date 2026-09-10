@@ -90,7 +90,7 @@ final class ArtefactSync
             return $this->fail([\sprintf('Failed to persist refreshed artefacts%s; keeping the last good bundle.', $detail)]);
         }
 
-        $this->options->updateState([
+        $state = [
             'installed_version' => $marker['version'],
             // Written on every successful pull, including when the marker
             // carries no key: a key that has been rotated away upstream must
@@ -105,7 +105,17 @@ final class ArtefactSync
             'content_hash' => $contentHash,
             'last_refresh' => $this->clock->now()->getTimestamp(),
             'last_error' => '',
-        ]);
+        ];
+
+        // Only stamped when the content genuinely moved. The generated sitemap
+        // reports it as <lastmod>, and a daily refresh that changed nothing
+        // must not restamp every URL as fresh. A first pull counts as a change,
+        // so an install that has never seen one still gets a date.
+        if ($previousHash !== $contentHash) {
+            $state['content_changed_at'] = $this->clock->now()->getTimestamp();
+        }
+
+        $this->options->updateState($state);
 
         return new SyncResult(true, $previousHash !== $contentHash, $marker['version'], []);
     }
