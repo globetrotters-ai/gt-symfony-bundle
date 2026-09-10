@@ -89,6 +89,7 @@ final class SitemapTest extends TestCase
         self::assertSame(
             '<?xml version="1.0" encoding="UTF-8"?>'."\n"
             .'<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'."\n"
+            .Sitemap::MARKER."\n"
             ."  <url>\n    <loc>https://apex.example/</loc>\n    <lastmod>2025-09-09</lastmod>\n  </url>\n"
             ."  <url>\n    <loc>https://apex.example/llms.txt</loc>\n    <lastmod>2025-09-09</lastmod>\n  </url>\n"
             .'</urlset>'."\n",
@@ -141,6 +142,63 @@ final class SitemapTest extends TestCase
 
         self::assertStringNotContainsString('<lastmod>', $xml);
         self::assertStringContainsString("  <url>\n    <loc>https://apex.example/</loc>\n  </url>\n", $xml);
+    }
+
+    public function testDecorateInsertsEntriesBeforeTheClosingTag(): void
+    {
+        $app = "<?xml version=\"1.0\"?>\n<urlset>\n  <url><loc>https://apex.example/about</loc></url>\n</urlset>\n";
+        $decorated = $this->sitemap(['llms.txt' => 'body'])->decorate($app, 'https://apex.example');
+
+        self::assertNotNull($decorated);
+        self::assertStringContainsString('<loc>https://apex.example/about</loc>', $decorated);
+        self::assertStringContainsString('<loc>https://apex.example/llms.txt</loc>', $decorated);
+        self::assertStringEndsWith("</urlset>\n", $decorated);
+        self::assertLessThan(
+            strpos($decorated, '</urlset>'),
+            strpos($decorated, '<loc>https://apex.example/llms.txt</loc>'),
+        );
+    }
+
+    /**
+     * Never duplicate a URL the application already published.
+     */
+    public function testDecorateSkipsLocsTheDocumentAlreadyCarries(): void
+    {
+        $app = "<urlset>\n  <url><loc>https://apex.example/llms.txt</loc></url>\n</urlset>";
+        $decorated = $this->sitemap(['llms.txt' => 'body'])->decorate($app, 'https://apex.example');
+
+        self::assertNotNull($decorated);
+        self::assertSame(1, substr_count($decorated, '<loc>https://apex.example/llms.txt</loc>'));
+    }
+
+    public function testDecorateReturnsNullWhenEveryUrlIsAlreadyListed(): void
+    {
+        $app = "<urlset>\n  <url><loc>https://apex.example/</loc></url>\n  <url><loc>https://apex.example/llms.txt</loc></url>\n</urlset>";
+
+        self::assertNull($this->sitemap(['llms.txt' => 'body'])->decorate($app, 'https://apex.example'));
+    }
+
+    public function testDecorateRefusesASitemapIndex(): void
+    {
+        $app = '<sitemapindex><sitemap><loc>https://apex.example/s1.xml</loc></sitemap></sitemapindex>';
+
+        self::assertNull($this->sitemap(['llms.txt' => 'body'])->decorate($app, 'https://apex.example'));
+    }
+
+    public function testDecorateRefusesAnAlreadyDecoratedDocument(): void
+    {
+        $once = $this->sitemap(['llms.txt' => 'body'])->decorate('<urlset></urlset>', 'https://apex.example');
+
+        self::assertNotNull($once);
+        self::assertNull($this->sitemap(['llms.txt' => 'body'])->decorate($once, 'https://apex.example'));
+    }
+
+    public function testDecorateRefusesAnOversizedDocument(): void
+    {
+        $app = '<urlset>'.str_repeat('<url><loc>https://apex.example/x</loc></url>', 30000).'</urlset>';
+
+        self::assertGreaterThan(1048576, \strlen($app));
+        self::assertNull($this->sitemap(['llms.txt' => 'body'])->decorate($app, 'https://apex.example'));
     }
 
     public function testEscapesTheOrigin(): void

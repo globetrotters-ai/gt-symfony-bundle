@@ -34,6 +34,22 @@ final class Sitemap
 
     public const CONTENT_TYPE = 'application/xml; charset=utf-8';
 
+    /**
+     * Marks a document this bundle has written entries into, so decorating is
+     * idempotent. An XML comment inside `<urlset>` is valid and ignored by
+     * every sitemap consumer.
+     */
+    public const MARKER = '  <!-- Globetrotters AI Presence -->';
+
+    /**
+     * Above this, an application's sitemap is left alone. sitemaps.org allows
+     * 50 MB and 50 000 URLs; a document that large is a generated index of a
+     * big site, where rewriting the body on every request costs more than the
+     * six entries are worth — and it is the shape most likely to be streamed
+     * or served from disk anyway.
+     */
+    private const MAX_DECORATE_BYTES = 1048576;
+
     public function __construct(
         private readonly Options $options,
         private readonly ArtefactCache $cache,
@@ -86,27 +102,91 @@ final class Sitemap
      */
     public function render(string $origin): string
     {
-        $paths = $this->paths();
-        if ([] === $paths) {
+        $urls = $this->urlEntries($origin);
+        if ('' === $urls) {
             return '';
         }
 
+        return '<?xml version="1.0" encoding="UTF-8"?>'."\n"
+            .'<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'."\n"
+            .self::MARKER."\n"
+            .$urls
+            .'</urlset>'."\n";
+    }
+
+    /**
+     * Fold this bundle's `<url>` entries into an application's own sitemap,
+     * or null when this document must not be touched.
+     *
+     * **Why merge rather than stand aside.** The readiness validator's
+     * ``sitemap_includes_llms`` probe fetches a hardcoded
+     * ``{apex}/sitemap.xml`` and fails unless a ``<loc>`` names ``llms.txt`` or
+     * ``llms-full.txt`` — it never reads the ``Sitemap:`` line, so a second
+     * sitemap at a path of our own would be invisible to it. The backend tells
+     * integrators doing this by hand exactly the same thing: *"merge these
+     * ``<url>`` entries into your existing ``sitemap.xml``"*
+     * (``deploy_config_renderer``). An install that leaves the app's sitemap
+     * alone leaves the discovery surface out of the only sitemap anything
+     * looks at.
+     *
+     * Additive and conservative: entries are inserted before the closing tag,
+     * nothing is removed or rewritten, a ``<loc>`` the document already
+     * carries is skipped, and the marker makes it idempotent.
+     *
+     * Returns null — leave it exactly as it is — for anything that is not a
+     * plain, complete, reasonably sized ``<urlset>``: a ``<sitemapindex>``
+     * (whose children we cannot reach), a body already carrying the marker, or
+     * one above {@see self::MAX_DECORATE_BYTES}. A `public/sitemap.xml` never
+     * reaches the kernel at all, the same documented limitation robots has.
+     */
+    public function decorate(string $xml, string $origin): ?string
+    {
+        if (\strlen($xml) > self::MAX_DECORATE_BYTES || str_contains($xml, self::MARKER)) {
+            return null;
+        }
+
+        // A <sitemapindex> has no </urlset>, and its children are other
+        // documents this response does not contain.
+        $close = strripos($xml, '</urlset>');
+        if (false === $close || !preg_match('/<urlset[\s>]/i', $xml)) {
+            return null;
+        }
+
+        $urls = $this->urlEntries($origin, skipLocsPresentIn: $xml);
+        if ('' === $urls) {
+            return null;
+        }
+
+        return substr($xml, 0, $close).self::MARKER."\n".$urls.substr($xml, $close);
+    }
+
+    /**
+     * The `<url>` blocks for every listed path, or '' when there are none left
+     * to add.
+     *
+     * ``$skipLocsPresentIn`` drops any URL the target document already lists,
+     * so decorating never duplicates an entry the application published
+     * itself — and if it already lists all of them, there is nothing to do.
+     */
+    private function urlEntries(string $origin, string $skipLocsPresentIn = ''): string
+    {
         $origin = rtrim($origin, '/');
         $lastModified = $this->lastModified();
 
         $urls = '';
-        foreach ($paths as $path) {
-            $urls .= "  <url>\n    <loc>".htmlspecialchars($origin.$path, \ENT_XML1 | \ENT_QUOTES, 'UTF-8')."</loc>\n";
+        foreach ($this->paths() as $path) {
+            $loc = htmlspecialchars($origin.$path, \ENT_XML1 | \ENT_QUOTES, 'UTF-8');
+            if ('' !== $skipLocsPresentIn && str_contains($skipLocsPresentIn, '<loc>'.$loc.'</loc>')) {
+                continue;
+            }
+            $urls .= "  <url>\n    <loc>".$loc."</loc>\n";
             if ('' !== $lastModified) {
                 $urls .= '    <lastmod>'.$lastModified."</lastmod>\n";
             }
             $urls .= "  </url>\n";
         }
 
-        return '<?xml version="1.0" encoding="UTF-8"?>'."\n"
-            .'<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'."\n"
-            .$urls
-            .'</urlset>'."\n";
+        return $urls;
     }
 
     /**

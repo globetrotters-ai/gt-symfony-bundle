@@ -21,7 +21,7 @@ use Globetrotters\AiPresenceBundle\Serving\HeadInjector;
 use Globetrotters\AiPresenceBundle\Serving\RobotsFilter;
 use Globetrotters\AiPresenceBundle\Serving\Router;
 use Globetrotters\AiPresenceBundle\Serving\Sitemap;
-use Globetrotters\AiPresenceBundle\Serving\SitemapFallback;
+use Globetrotters\AiPresenceBundle\Serving\SitemapFilter;
 use Globetrotters\AiPresenceBundle\Settings\BreadcrumbOptions;
 use Globetrotters\AiPresenceBundle\Settings\Options;
 use Globetrotters\AiPresenceBundle\Sync\ArtefactSync;
@@ -100,7 +100,7 @@ return static function (ContainerConfigurator $container): void {
     $services->set(Sitemap::class)
         ->args([service(Options::class), service(ArtefactCache::class)]);
 
-    $services->set(SitemapFallback::class)
+    $services->set(SitemapFilter::class)
         ->args([service(Options::class), service(ArtefactCache::class), service(Sitemap::class)])
         ->tag('kernel.event_subscriber');
 

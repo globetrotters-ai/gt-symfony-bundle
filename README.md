@@ -27,7 +27,9 @@ Nothing to configure: the key arrives on the version marker with your normal ref
 
 A rotated key reaches your install on its next refresh (daily by default), so submissions for your host can fail verification during that window.
 
-One more path is served **only if your application does not already serve it**: `/sitemap.xml`, `application/xml; charset=utf-8`. The bundle generates it locally from the paths it is actually serving, in the URL space of the request it arrives on, so it can never list a URL your site does not answer and needs no configuration to know your domain. If your app has its own sitemap, that response is left byte-for-byte alone — it is a manifest of your site, and a six-URL listing of discovery documents is no substitute. The generated document is not cacheable (`no-store`), because its contents depend on the host the request arrived on.
+The bundle also makes sure `/sitemap.xml` lists the discovery surface, because that is where crawlers and Globetrotters' own readiness check look for it. If your application serves its own sitemap, the bundle **merges** its `<url>` entries into that document — additive only: nothing is removed or rewritten, a URL you already list is skipped, and re-running is a no-op. If your application has no sitemap, the bundle generates the whole document (`application/xml; charset=utf-8`, `no-store`, since its contents depend on the host the request arrived on).
+
+Either way the listing is built from the paths this install is actually serving, in the URL space of the request it arrives on, so it can never advertise a URL your site does not answer and needs no configuration to know your domain. A sitemap the bundle will not touch, leaving it exactly as it is: a `<sitemapindex>` (its children are separate documents), a compressed or streamed response, or one over 1 MB.
 
 On top of the routes, the bundle:
 
@@ -215,7 +217,7 @@ Each injection is automatic on `homepage_path`. If you'd rather place markup exp
 
 ## Caveats
 
-- **Static files shadow the kernel.** If a real file exists in `public/` for one of the artefact paths (or `public/robots.txt`), your web server serves it directly and the bundle never sees the request. Delete the static copies when migrating from the file-drop lane. For `public/sitemap.xml` this is the intended outcome — the bundle yields to an app-owned sitemap anyway.
+- **Static files shadow the kernel.** If a real file exists in `public/` for one of the artefact paths (or `public/robots.txt`), your web server serves it directly and the bundle never sees the request. Delete the static copies when migrating from the file-drop lane. That applies to `public/sitemap.xml` too: a static sitemap file cannot be merged into, so serve it through your application if you want the discovery URLs in it.
 - **`cache:clear` empties `cache.app`.** The artefacts then fall through to your app until the next `gt:refresh`, and the reporting lane forgets when it last flushed successfully — buffered events themselves live in `buffer_dir` and survive. For durability across deploys, point `cache_pool` at a pool that survives cache clears (e.g. a Redis-backed pool).
 - **Don't use a per-process pool.** `cache_pool` must be shared between CLI and web (filesystem, Redis, shared APCu) — with an in-memory pool, CLI refreshes would be invisible to web requests.
 - The configured `website_url` is fetched with an SSRF guard (private/reserved IPs are rejected), a 5-second timeout, and a 1 MiB per-file size cap.

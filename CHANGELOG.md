@@ -36,17 +36,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A fixture test (`tests/Fixtures/robots-ai-user-agent-groups.txt`) that fails
   the build if the emitted block drifts from the backend registry's own output,
   byte for byte. The fixture is generated from that module, not typed.
-- **A locally generated `/sitemap.xml`**, served only when your application does
-  not serve one itself. It lists the homepage plus every artefact currently in
-  the cache, in the URL space of the request it arrives on — so it can never
-  advertise a URL this install does not answer, and it needs no configuration
-  to know your domain. Globetrotters publishes a per-tenant `sitemap.xml`, but
-  every URL in it is in the *GT host* URL space and this bundle serves artefacts
-  verbatim; generating locally is what keeps the listing and the serving in step
-  by construction.
-- An application-served `/sitemap.xml` is left byte-for-byte alone — not even
-  decorated. It is a manifest of *your* site; the `Sitemap:` line in robots.txt
-  points at it either way.
+- **`/sitemap.xml` now lists the discovery surface.** When your application
+  serves its own sitemap the bundle **merges** its `<url>` entries into that
+  document — additive only: nothing is removed or rewritten, a URL you already
+  list is skipped, and re-running is a no-op. When your application has none,
+  the bundle generates the whole document. Most apexes already have a sitemap,
+  and the readiness check reads a hardcoded `/sitemap.xml` rather than the
+  `Sitemap:` line, so merging is the only shape that reaches the common case.
+- The listing is built from the paths this install is actually serving, in the
+  URL space of the request it arrives on — so it can never advertise a URL your
+  site does not answer, and it needs no configuration to know your domain.
+  Globetrotters publishes a per-tenant `sitemap.xml`, but every URL in it is in
+  the *GT host* URL space and this bundle serves artefacts verbatim; building
+  the listing locally is what keeps it and the serving in step by construction.
+- Sitemaps the bundle leaves exactly as they are: a `<sitemapindex>` (its
+  children are separate documents), a compressed or streamed response, one over
+  1 MB, and — as with `robots.txt` — a static `public/sitemap.xml`, which never
+  reaches the kernel.
 - `<lastmod>` on each URL, dated from the new `content_changed_at` state value:
   it moves only when the pulled content actually changes, so a daily refresh
   that changed nothing does not restamp every URL as fresh. Installs upgrading
