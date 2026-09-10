@@ -84,8 +84,16 @@ final class GlobetrottersAiPresenceBundle extends AbstractBundle
                             ->defaultTrue()
                         ->end()
                         ->scalarNode('endpoint')
-                            ->info('Ingest endpoint URL, issued with the token on the Studio apex install screen. Bind to an env var.')
+                            ->info('Ingest endpoint URL, issued with the token on the Studio apex install screen. Must be https://: it receives the token and every captured client IP. Bind to an env var.')
                             ->defaultValue('')
+                            // Catches a literal value (or an env() default) at
+                            // build. An env-bound value is only resolved at
+                            // runtime, where AnalyticsOptions::endpoint() reads a
+                            // cleartext one as unconfigured.
+                            ->validate()
+                                ->ifTrue(static fn (mixed $url): bool => \is_string($url) && '' !== trim($url) && !AnalyticsOptions::isHttpsUrl(trim($url)))
+                                ->thenInvalid('The reporting endpoint must be an https:// URL, since it receives the ingest token and every captured client IP; got %s.')
+                            ->end()
                         ->end()
                         ->scalarNode('ingest_token')
                             ->info('Per-install ingest token, shown exactly once. Bind to an env var (%env(GLOBETROTTERS_INGEST_TOKEN)%) so it can live in the Secrets vault.')

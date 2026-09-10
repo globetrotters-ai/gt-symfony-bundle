@@ -37,4 +37,55 @@ final class IngestClientTest extends TestCase
         self::assertSame(302, $result->status());
         self::assertFalse($result->isAccepted());
     }
+
+    /**
+     * AnalyticsOptions already reads such an endpoint as unconfigured, so this
+     * is a caller that went around it. Nothing may leave: not the bearer token,
+     * not a batch of client IPs. The mock would accept, so a missing guard
+     * shows up as an accepted flush.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('refusedEndpoints')]
+    public function testPostRefusesANonHttpsEndpointBeforeSending(string $url): void
+    {
+        $http = new MockHttpClient(static fn (): MockResponse => new MockResponse('', ['http_code' => 202]));
+
+        $result = (new IngestClient($http))->post($url, 'secret-token', '{"events":[]}');
+
+        self::assertSame(0, $http->getRequestsCount());
+        self::assertFalse($result->isAccepted());
+        self::assertSame(0, $result->status());
+        self::assertSame('the ingest endpoint must be an https:// URL', $result->errorMessage());
+        self::assertStringNotContainsString('secret-token', $result->errorMessage());
+    }
+
+    /**
+     * The other two layers trim before checking; this one must not refuse
+     * what they accept, and must send the URL it checked.
+     */
+    public function testPostTrimsTheEndpointItChecksAndSends(): void
+    {
+        $seen = null;
+        $http = new MockHttpClient(static function (string $method, string $url) use (&$seen): MockResponse {
+            $seen = $url;
+
+            return new MockResponse('', ['http_code' => 202]);
+        });
+
+        $result = (new IngestClient($http))->post("  https://api.example.test/ingest\n", 'secret', '{"events":[]}');
+
+        self::assertSame(1, $http->getRequestsCount());
+        self::assertSame('https://api.example.test/ingest', $seen);
+        self::assertTrue($result->isAccepted());
+    }
+
+    /**
+     * @return iterable<string, array{0: string}>
+     */
+    public static function refusedEndpoints(): iterable
+    {
+        yield 'cleartext' => ['http://api.example.test/ingest'];
+        yield 'scheme-relative' => ['//api.example.test/ingest'];
+        yield 'no host' => ['https:api.example.test/ingest'];
+        yield 'empty' => [''];
+    }
 }

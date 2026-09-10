@@ -99,6 +99,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The reporting endpoint must be `https://`.** Any URL was accepted, so an
+  `http://` endpoint sent the bearer ingest token and every captured client IP
+  in cleartext. A literal non-https `reporting.endpoint` now fails the
+  container build; one bound to an env var reads as unconfigured at runtime,
+  so nothing is captured and `gt:status` names the reason; and the ingest
+  client refuses a non-https URL before sending anything. Matches
+  `gt-wordpress-plugin`.
 - **`HEAD /robots.txt` no longer returns a body, and describes the decorated
   `GET`.** Symfony empties a HEAD response's body before this bundle's
   `kernel.response` subscribers run, so the robots block was first appended to
