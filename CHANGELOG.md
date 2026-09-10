@@ -28,7 +28,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and every other agent inherits the site's wildcard rules, carried once in a
   single shared group. `Allow: /` over those rules is the explicit opt-in
   `robots.ai_agents: allow_all`, and it still never touches a group the site
-  wrote.
+  wrote. Groups are read the way Google reads them: only an `Allow` or
+  `Disallow` line ends a user-agent section, so a `Content-Signal`,
+  `Crawl-delay` or `Sitemap` line between two `User-agent` lines leaves them
+  sharing the rules that follow, and a section the file leaves open is closed
+  with a pathless `Disallow:` — which changes nothing — before the block is
+  appended. `User-agent` values are matched on their product token
+  (`GPTBot/1.1` and `GPTBot2` both name GPTBot), as crawlers match them.
 - **Every named group carries its own `Content-Signal: search=yes,
   ai-input=yes`**, or the site's own wildcard `Content-Signal` when it has one.
   Per RFC 9309 §2.2.1 a crawler obeys only its own most-specific matching

@@ -65,6 +65,24 @@ final class RobotsDecorationTest extends IntegrationTestCase
         self::assertStringContainsString("User-agent: OAI-SearchBot\n", $content);
     }
 
+    /**
+     * A Content-Signal between two User-agent lines does not end the section,
+     * so every added agent inherits the ``Disallow: /private`` that ``*`` shares
+     * with GPTBot.
+     */
+    public function testAContentSignalBetweenUserAgentsKeepsTheSharedRule(): void
+    {
+        $client = $this->cachedClient();
+
+        $client->request('GET', '/robots.txt?fixture=signal-between');
+        $content = (string) $client->getResponse()->getContent();
+
+        self::assertStringContainsString("User-agent: Googlebot\n", $content);
+        self::assertStringContainsString("User-agent: cohere-ai\nContent-Signal: ai-train=no\nDisallow: /private\n", $content);
+        self::assertStringNotContainsString('Allow: /', $content);
+        self::assertSame(1, substr_count($content, 'User-agent: GPTBot'));
+    }
+
     public function testAppRobotsUntouchedWhenNoBundleCached(): void
     {
         $client = $this->bootClient();

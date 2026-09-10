@@ -33,6 +33,7 @@ final class AntagonistController
         'wildcard' => "User-agent: *\nDisallow: /admin\n",
         'named' => "User-agent: GPTBot\nDisallow: /\n\nUser-agent: *\nDisallow: /admin\n",
         'full' => "User-agent: *\nDisallow: /\n",
+        'signal-between' => "User-agent: *\nContent-Signal: ai-train=no\nUser-agent: GPTBot\nDisallow: /private\n",
     ];
 
     public const ROBOTS_ETAG = '"robots-v1"';
