@@ -123,9 +123,9 @@ final class RobotsFilterTest extends TestCase
 
     /**
      * The property the decorate lane must hold: appending the block changes
-     * nothing any registry agent may fetch. Checked against an RFC 9309
-     * evaluator written independently of the parser under test — keeping the
-     * site's text intact is not enough if the effective policy moves.
+     * nothing any registry agent may fetch. Checked against a port of Google's
+     * own matcher, written independently of the parser under test — keeping
+     * the site's text intact is not enough if the effective policy moves.
      */
     #[\PHPUnit\Framework\Attributes\DataProvider('siteRobots')]
     public function testDecoratingNeverChangesWhatAnAgentMayFetch(string $existing): void
@@ -133,7 +133,7 @@ final class RobotsFilterTest extends TestCase
         $decorated = rtrim($existing, "\n")."\n\n".RobotsFilter::buildBlock(self::REQUEST_ORIGIN, $existing);
 
         foreach (self::registry() as $agent) {
-            foreach (['/', '/admin', '/admin/users', '/wp-admin/', '/wp-admin/admin-ajax.php', '/private/x', '/page.html'] as $path) {
+            foreach (['/', '/admin', '/admin/users', '/wp-admin/', '/wp-admin/admin-ajax.php', '/private', '/private/x', '/public', '/page.html'] as $path) {
                 self::assertSame(
                     self::allows($existing, $agent, $path),
                     self::allows($decorated, $agent, $path),
@@ -158,6 +158,82 @@ final class RobotsFilterTest extends TestCase
         yield 'wildcard with crawl-delay' => ["User-agent: *\nCrawl-delay: 10\nDisallow: /admin\n"];
         yield 'comments and a sitemap' => ["# house rules\nSitemap: https://x.test/sitemap.xml\nUser-agent: * # everyone\nDisallow: /admin # back office\n"];
         yield 'empty file' => [''];
+        // Only Allow and Disallow end a user-agent section.
+        yield 'content-signal between user-agents (reported)' => ["User-agent: *\nContent-Signal: ai-train=no\nUser-agent: GPTBot\nDisallow: /private\n"];
+        yield 'unknown directive between user-agents' => ["User-agent: GPTBot\nNoindex: /tmp\nUser-agent: *\nDisallow: /private\n"];
+        yield 'crawl-delay between user-agents' => ["User-agent: *\nCrawl-delay: 5\nUser-agent: Googlebot\nDisallow: /private\n\nUser-agent: GPTBot\nDisallow: /\n"];
+        yield 'sitemap between user-agents' => ["User-agent: *\nSitemap: https://x.test/sitemap.xml\nUser-agent: CCBot\nDisallow: /private\n"];
+        yield 'rules separating groups' => ["User-agent: *\nAllow: /public\nUser-agent: GPTBot\nDisallow: /\n\nUser-agent: *\nDisallow: /private\n"];
+        yield 'file ending inside a signal-only section' => ["User-agent: *\nDisallow: /admin\n\nUser-agent: Googlebot\nContent-Signal: ai-train=no\n"];
+        yield 'versioned agent token' => ["User-agent: GPTBot2\nDisallow: /\n"];
+    }
+
+    /**
+     * The reported case end to end. The Content-Signal line does not end the
+     * section, so ``*`` and GPTBot share ``Disallow: /private`` — Googlebot is
+     * refused /private before decoration and must still be after it.
+     */
+    public function testAContentSignalBetweenUserAgentsKeepsGooglebotOutOfPrivate(): void
+    {
+        $existing = "User-agent: *\nContent-Signal: ai-train=no\nUser-agent: GPTBot\nDisallow: /private\n";
+        $block = RobotsFilter::buildBlock(self::REQUEST_ORIGIN, $existing);
+        $decorated = rtrim($existing, "\n")."\n\n".$block;
+
+        self::assertFalse(self::allows($existing, 'Googlebot', '/private'));
+        self::assertFalse(self::allows($decorated, 'Googlebot', '/private'));
+        self::assertTrue(self::allows($decorated, 'Googlebot', '/public'));
+        self::assertStringContainsString("User-agent: cohere-ai\nContent-Signal: ai-train=no\nDisallow: /private\n", $block);
+        self::assertStringNotContainsString('Allow: /', $block);
+        self::assertDoesNotMatchRegularExpression('~^User-agent: GPTBot$~m', $block, 'the site names GPTBot');
+    }
+
+    /**
+     * Appended groups must not fall into a user-agent section the site's file
+     * leaves open, or the site's agents would take on the appended rules. An
+     * empty Disallow closes it: Google gives a pathless rule priority 0, which
+     * never decides a match.
+     */
+    public function testASectionTheSiteLeavesOpenIsClosedWithoutChangingIt(): void
+    {
+        $existing = "User-agent: *\nDisallow: /admin\n\nUser-agent: Googlebot\nContent-Signal: ai-train=no\n";
+        $block = RobotsFilter::buildBlock(self::REQUEST_ORIGIN, $existing);
+        $decorated = rtrim($existing, "\n")."\n\n".$block;
+
+        self::assertStringStartsWith(RobotsFilter::MARKER."\nDisallow:", $block);
+        self::assertTrue(self::allows($existing, 'Googlebot', '/admin'), 'a section naming Googlebot without rules allows it everything');
+        self::assertTrue(self::allows($decorated, 'Googlebot', '/admin'));
+        // A file whose last section a rule already closed gets no closer.
+        self::assertStringStartsWith(
+            RobotsFilter::MARKER."\nUser-agent: ",
+            RobotsFilter::buildBlock(self::REQUEST_ORIGIN, "User-agent: *\nDisallow: /admin\n"),
+        );
+    }
+
+    /**
+     * The oracle is only worth trusting if it reads files the way Google does,
+     * so it is checked against cases taken from Google's robots.txt spec and
+     * google/robotstxt — not from RobotsPolicy.
+     */
+    public function testTheEvaluatorGroupsAndMatchesTheWayGoogleDoes(): void
+    {
+        // Spec, "Grouping of lines and rules": a and b are one group.
+        self::assertFalse(self::allows("user-agent: a\nsitemap: https://example.com/sitemap.xml\n\nuser-agent: b\ndisallow: /\n", 'a', '/x'));
+        self::assertFalse(self::allows("User-agent: *\nContent-Signal: ai-train=no\nUser-agent: GPTBot\nDisallow: /private\n", 'Googlebot', '/private'));
+        self::assertFalse(self::allows("User-agent: a\nCrawl-delay: 5\nUser-agent: b\nDisallow: /\n", 'a', '/x'));
+        // A rule ends the section; the next user-agent starts another.
+        self::assertTrue(self::allows("User-agent: a\nAllow: /\nUser-agent: b\nDisallow: /\n", 'a', '/x'));
+        // A section naming the agent decides alone, even with no matching rule.
+        self::assertTrue(self::allows("User-agent: *\nDisallow: /\n\nUser-agent: a\nDisallow: /other\n", 'a', '/x'));
+        self::assertTrue(self::allows("User-agent: *\nDisallow: /\n\nUser-agent: a\n", 'a', '/x'));
+        // Longest match wins, Allow wins a tie, a pathless rule is ignored.
+        self::assertFalse(self::allows("User-agent: *\nAllow: /p\nDisallow: /p/\n", 'a', '/p/x'));
+        self::assertTrue(self::allows("User-agent: *\nDisallow: /\nAllow: /\n", 'a', '/x'));
+        self::assertTrue(self::allows("User-agent: *\nDisallow:\n", 'a', '/x'));
+        self::assertFalse(self::allows("User-agent: *\nDisallow: /*.pdf$\n", 'a', '/doc.pdf'));
+        self::assertTrue(self::allows("User-agent: *\nDisallow: /*.pdf$\n", 'a', '/doc.pdf?x'));
+        // Spec: googlebot/1.2 and googlebot* are equivalent to googlebot.
+        self::assertFalse(self::allows("User-agent: googlebot/1.2\nDisallow: /\n", 'Googlebot', '/'));
+        self::assertFalse(self::allows("User-agent: googlebot*\nDisallow: /\n", 'Googlebot', '/'));
     }
 
     public function testAgentsTheSiteAlreadyNamesAreNeverAdded(): void
@@ -570,65 +646,84 @@ final class RobotsFilterTest extends TestCase
     }
 
     /**
-     * A deliberately small RFC 9309 evaluator, independent of RobotsPolicy: the
-     * groups naming the agent's product token (combined), else the ``*`` groups,
-     * else allowed; the longest matching rule wins and Allow wins a tie.
+     * Whether Google would let `$agent` fetch `$path` — a port of
+     * google/robotstxt's RobotsMatcher (HandleUserAgent, HandleAllow,
+     * HandleDisallow, disallow()), kept as the streaming state machine it is
+     * rather than derived from RobotsPolicy's group model, so the two cannot
+     * share a mistake.
+     *
+     * Only an Allow or Disallow line is a separator: Sitemap, Content-Signal,
+     * Crawl-delay and every unknown line leave a user-agent section open. The
+     * next User-agent after a separator starts a new section. Rules are
+     * recorded per section as specific (the section names the agent) or global
+     * (it names only ``*``); a specific match decides, a section naming the
+     * agent with no matching rule allows, and only otherwise does ``*`` count.
+     * Longest pattern wins, Allow wins a tie, and a rule without a path
+     * (priority 0) never decides.
      */
     private static function allows(string $robots, string $agent, string $path): bool
     {
-        $groups = [];
-        $agents = [];
-        $rules = [];
-        $inMembers = false;
+        $agent = strtolower($agent);
+        $seenGlobal = $seenSpecific = $everSeenSpecific = $seenSeparator = false;
+        $priority = [
+            'allow' => ['specific' => -1, 'global' => -1],
+            'disallow' => ['specific' => -1, 'global' => -1],
+        ];
+
         foreach (preg_split('/\r\n|\r|\n/', $robots) ?: [] as $raw) {
-            $line = trim(explode('#', $raw, 2)[0]);
-            if (!str_contains($line, ':')) {
+            $line = explode('#', $raw, 2)[0];
+            $colon = strpos($line, ':');
+            if (false === $colon) {
                 continue;
             }
-            [$field, $value] = array_map('trim', explode(':', $line, 2));
-            $field = strtolower($field);
-            if ('user-agent' === $field) {
-                if ($inMembers) {
-                    $groups[] = [$agents, $rules];
-                    [$agents, $rules, $inMembers] = [[], [], false];
-                }
-                $agents[] = strtolower($value);
-            } elseif ('sitemap' !== $field && [] !== $agents) {
-                $inMembers = true;
-                if (\in_array($field, ['allow', 'disallow'], true)) {
-                    $rules[] = [$field, $value];
-                }
-            }
-        }
-        if ([] !== $agents) {
-            $groups[] = [$agents, $rules];
-        }
+            $key = strtolower(trim(substr($line, 0, $colon)));
+            $value = trim(substr($line, $colon + 1));
 
-        $token = strtolower($agent);
-        $named = null;
-        $wildcard = null;
-        foreach ($groups as [$names, $groupRules]) {
-            if (\in_array($token, $names, true)) {
-                $named = array_merge($named ?? [], $groupRules);
-            }
-            if (\in_array('*', $names, true)) {
-                $wildcard = array_merge($wildcard ?? [], $groupRules);
-            }
-        }
-
-        $best = -1;
-        $allowed = true;
-        foreach ($named ?? $wildcard ?? [] as [$directive, $pattern]) {
-            if ('' === $pattern) {
+            if ('user-agent' === $key) {
+                if ($seenSeparator) {
+                    $seenSpecific = $seenGlobal = $seenSeparator = false;
+                }
+                if (1 === preg_match('~^\*(\s|$)~', $value)) {
+                    $seenGlobal = true;
+                } elseif (1 === preg_match('~^[A-Za-z_-]+~', $value, $token) && strtolower($token[0]) === $agent) {
+                    $seenSpecific = $everSeenSpecific = true;
+                }
                 continue;
             }
-            $regex = '~^'.str_replace(['\*', '\$'], ['.*', '$'], preg_quote($pattern, '~')).'~';
-            if (1 === preg_match($regex, $path) && (\strlen($pattern) > $best || (\strlen($pattern) === $best && 'allow' === $directive))) {
-                $best = \strlen($pattern);
-                $allowed = 'allow' === $directive;
+            if ('allow' !== $key && 'disallow' !== $key) {
+                continue;
+            }
+            if (!$seenGlobal && !$seenSpecific) {
+                continue;
+            }
+
+            $seenSeparator = true;
+            $scope = $seenSpecific ? 'specific' : 'global';
+            $priority[$key][$scope] = max($priority[$key][$scope], self::matchPriority($path, $value));
+        }
+
+        foreach (['specific', 'global'] as $scope) {
+            if ($priority['allow'][$scope] > 0 || $priority['disallow'][$scope] > 0) {
+                return $priority['disallow'][$scope] <= $priority['allow'][$scope];
+            }
+            if ('specific' === $scope && $everSeenSpecific) {
+                return true;
             }
         }
 
-        return $allowed;
+        return true;
+    }
+
+    /**
+     * Google's LongestMatchRobotsMatchStrategy: the pattern's length when it
+     * matches the path (``*`` any run, a trailing ``$`` anchors the end), else -1.
+     */
+    private static function matchPriority(string $path, string $pattern): int
+    {
+        $anchored = str_ends_with($pattern, '$');
+        $body = $anchored ? substr($pattern, 0, -1) : $pattern;
+        $regex = '~^'.str_replace('\*', '.*', preg_quote($body, '~')).($anchored ? '$' : '').'~';
+
+        return 1 === preg_match($regex, $path) ? \strlen($pattern) : -1;
     }
 }

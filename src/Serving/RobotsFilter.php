@@ -36,7 +36,12 @@ use Symfony\Component\HttpKernel\KernelEvents;
  *   so the rules it obeys are the rules it was obeying;
  * - ``Content-Signal`` says ``search=yes, ai-input=yes`` and nothing about
  *   training, unless the site's own wildcard group already carries a signal,
- *   which is inherited instead.
+ *   which is inherited instead;
+ * - a user-agent section the site's file leaves open is closed with a
+ *   pathless ``Disallow:`` first, so the appended groups cannot join it.
+ *
+ * Groups are read the way Google reads them — only Allow and Disallow end a
+ * user-agent section — see {@see RobotsPolicy}.
  *
  * ``ai_agents: allow_all`` and ``ai_train: true`` are the explicit opt-ins for
  * a broader grant; with both, and a site file with no wildcard rules, the
@@ -133,6 +138,16 @@ final class RobotsFilter implements EventSubscriberInterface
      */
     private const CONTENT_SIGNAL = 'Content-Signal: search=yes, ai-input=yes';
     private const CONTENT_SIGNAL_WITH_TRAINING = 'Content-Signal: search=yes, ai-input=yes, ai-train=yes';
+
+    /**
+     * Ends a user-agent section the site's file leaves open (see
+     * {@see RobotsPolicy::endsInsideAGroup()}), so the groups appended below
+     * start their own instead of joining it. Only an Allow or Disallow line ends
+     * a section, and a pathless one is the only rule that changes nothing:
+     * crawlers ignore a rule without a path (Google's spec), and
+     * google/robotstxt gives it priority 0, which never decides a match.
+     */
+    private const SECTION_CLOSER = 'Disallow:';
 
     public function __construct(
         private readonly Options $options,
@@ -296,7 +311,9 @@ final class RobotsFilter implements EventSubscriberInterface
             static fn (string $agent): bool => !self::isGovernedBySite($agent, $site),
         ));
 
-        $block = self::MARKER."\n".self::groups($agents, $site, $options);
+        $block = self::MARKER."\n"
+            .($site->endsInsideAGroup() ? self::SECTION_CLOSER."\n" : '')
+            .self::groups($agents, $site, $options);
 
         if ('' === $origin) {
             return rtrim($block, "\n")."\n";
