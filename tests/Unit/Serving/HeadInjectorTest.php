@@ -55,7 +55,50 @@ final class HeadInjectorTest extends TestCase
         $markup = HeadInjector::render('{"name":"</script><script>alert(1)</script>"}');
 
         self::assertSame(1, substr_count($markup, '</script>'));
-        self::assertStringContainsString('<\/script>', $markup);
+        self::assertSame('</script><script>alert(1)</script>', self::payload($markup)->name);
+    }
+
+    /**
+     * Escaping only "</" is not enough. A value opening an HTML comment and a
+     * script tag ("<!--<script>") moves the tokenizer into the double-escaped
+     * script state, where the real closing tag no longer ends the element and
+     * the rest of the homepage is swallowed into the script.
+     *
+     * Script data only leaves its state on a "<", so a payload with none in it
+     * cannot reach any escaped state at all — on every parser, on every PHP.
+     *
+     * @param non-empty-string $value
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('hostileValues')]
+    public function testRenderLeavesNoTagDelimiterInThePayload(string $value): void
+    {
+        $markup = HeadInjector::render((string) json_encode(['name' => $value]));
+
+        $inner = substr($markup, \strlen('<script type="application/ld+json">'), -\strlen('</script>'."\n"));
+        self::assertStringNotContainsString('<', $inner);
+        self::assertStringNotContainsString('>', $inner);
+        // Still the same document once a JSON-LD consumer decodes it.
+        self::assertSame($value, self::payload($markup)->name);
+    }
+
+    /**
+     * @return iterable<string, array{0: non-empty-string}>
+     */
+    public static function hostileValues(): iterable
+    {
+        yield 'script breakout' => ['</script><script>alert(1)</script>'];
+        yield 'double-escaped state' => ['<!--<script>'];
+        yield 'comment close' => ['--><!--'];
+        yield 'mixed case' => ['</SCRIPT ><SCRIPT>'];
+    }
+
+    private static function payload(string $markup): \stdClass
+    {
+        $inner = substr($markup, \strlen('<script type="application/ld+json">'), -\strlen('</script>'."\n"));
+        $decoded = json_decode($inner);
+        self::assertInstanceOf(\stdClass::class, $decoded);
+
+        return $decoded;
     }
 
     public function testRenderDropsInvalidJson(): void

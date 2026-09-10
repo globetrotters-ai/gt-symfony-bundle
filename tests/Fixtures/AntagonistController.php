@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Globetrotters\AiPresenceBundle\Tests\Fixtures;
 
+use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
@@ -25,7 +26,21 @@ final class AntagonistController
      */
     public const INTERIOR_HTML = '<html><head><title>Interior</title></head><body>Interior</body></html>';
 
-    public function handle(string $path): Response
+    /**
+     * The application's own robots.txt, by ``?fixture=`` name.
+     */
+    public const ROBOTS = [
+        'wildcard' => "User-agent: *\nDisallow: /admin\n",
+        'named' => "User-agent: GPTBot\nDisallow: /\n\nUser-agent: *\nDisallow: /admin\n",
+        'full' => "User-agent: *\nDisallow: /\n",
+    ];
+
+    public const ROBOTS_ETAG = '"robots-v1"';
+
+    /** Added late, by {@see LateValidatorListener}. */
+    public const ROBOTS_LAST_MODIFIED = 'Wed, 21 Oct 2015 07:28:00 GMT';
+
+    public function handle(Request $request, string $path): Response
     {
         if ('' === $path) {
             return new Response(self::HOMEPAGE_HTML, 200, ['Content-Type' => 'text/html; charset=utf-8']);
@@ -42,6 +57,11 @@ final class AntagonistController
             return $response;
         }
         if ('robots.txt' === $path) {
+            if ($request->query->has('return404')) {
+                // A catch-all that returns its 404 rather than throwing it.
+                return new Response('Not Found', 404, ['Content-Type' => 'text/html; charset=utf-8']);
+            }
+
             throw new NotFoundHttpException('No robots.txt route.');
         }
         if ('sitemap.xml' === $path) {
@@ -51,9 +71,20 @@ final class AntagonistController
         return new Response('ANTAGONIST', 200, ['Content-Type' => 'text/html; charset=utf-8']);
     }
 
-    public function robots(): Response
+    /**
+     * An application serving its robots.txt with validators, as a static-file
+     * controller would: an exact Content-Length and an ETag here, and a
+     * Last-Modified added late by {@see LateValidatorListener}.
+     */
+    public function robots(Request $request): Response
     {
-        return new Response("User-agent: *\nDisallow: /admin\n", 200, ['Content-Type' => 'text/plain; charset=utf-8']);
+        $body = self::ROBOTS[$request->query->getString('fixture', 'wildcard')] ?? self::ROBOTS['wildcard'];
+
+        return new Response($body, 200, [
+            'Content-Type' => 'text/plain; charset=utf-8',
+            'Content-Length' => (string) \strlen($body),
+            'ETag' => self::ROBOTS_ETAG,
+        ]);
     }
 
     /**

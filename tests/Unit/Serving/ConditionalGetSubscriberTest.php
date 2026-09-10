@@ -42,8 +42,8 @@ final class ConditionalGetSubscriberTest extends TestCase
     {
         $priority = ConditionalGetSubscriber::PRIORITY;
 
-        self::assertLessThan(-20, $priority, 'must run after RobotsFilter');
-        self::assertSame([-20, 0], array_column(RobotsFilter::getSubscribedEvents(), 1));
+        self::assertLessThan(RobotsFilter::PRIORITY, $priority, 'must run after RobotsFilter');
+        self::assertSame(-20, RobotsFilter::PRIORITY);
         self::assertSame(-10, HeadInjector::getSubscribedEvents()['kernel.response'][1]);
     }
 

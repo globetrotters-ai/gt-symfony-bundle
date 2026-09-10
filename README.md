@@ -37,8 +37,8 @@ On top of the routes, the bundle:
 
 - **reports agent traffic** to those six paths back to Globetrotters, so an apex install still shows up in Presence Analytics (see [Reporting agent traffic](#reporting-agent-traffic));
 - injects a **server-rendered, breakout-safe JSON-LD** `<script>` (built from the cached `schema.json`) into your homepage HTML, so crawlers see it in the raw markup without executing JavaScript;
-- decorates `/robots.txt` with the AI-crawler allow-list — one group per named agent, each carrying `Allow: /` and `Content-Signal: search=yes, ai-input=yes, ai-train=yes` — plus a `Sitemap:` directive naming **your own host's** `/ai-sitemap.xml` (or serves a generated `robots.txt` when your app has none). The block **never emits a `User-agent: *` group**: your site's own wildcard rules are left exactly as they are, and under RFC 9309 an unnamed crawler is unrestricted regardless, so naming agents adds a signal without changing what anyone may fetch;
-- **stale-serves**: the cached bundle is only ever replaced by a fully successful pull, so an unreachable Globetrotters leaves the last known good version serving.
+- decorates `/robots.txt` with the AI-crawler registry plus a `Sitemap:` directive naming **your own host's** `/ai-sitemap.xml` (or serves a generated `robots.txt` when your app has none) — **without changing what any crawler may fetch** unless you opt in (see [robots.txt](#robotstxt));
+- **stale-serves**: the cached bundle is only ever replaced by a fully successful pull — every file fetched, and every JSON artefact a well-formed JSON document — so an unreachable Globetrotters, or a proxy answering a maintenance page with `200`, leaves the last known good version serving.
 
 ## Requirements
 
@@ -67,6 +67,10 @@ globetrotters_ai_presence:
     cache_pool: 'cache.app'                            # optional: which PSR-6 pool to use
     homepage_path: '/'                                 # optional: where the JSON-LD head injection applies
     profile: 'full_apex'                               # full_apex | subdomain_breadcrumb — see "Install profiles"
+
+    robots:                                            # optional: see "robots.txt" — the defaults change nothing a crawler may fetch
+        ai_agents: 'inherit'                           # inherit | allow_all
+        ai_train: false
 
     reporting:                                         # optional: see "Reporting agent traffic"
         endpoint: '%env(GLOBETROTTERS_INGEST_ENDPOINT)%'
@@ -102,6 +106,32 @@ With `symfony/scheduler` and `symfony/messenger` installed, the bundle auto-regi
 bin/console messenger:consume scheduler_gt
 ```
 
+Runs missed while the worker was stopped are collapsed into one on Symfony 7.1+. Symfony 6.4 LTS has no such option and replays them one by one, which is harmless: a refresh is an idempotent re-pull, and a flush that is not yet due sends nothing.
+
+## robots.txt
+
+The bundle appends one block to your `/robots.txt` — or serves it as the whole file when your app has none — naming the AI user agents in the Globetrotters registry, with a `Content-Signal` for them and a `Sitemap:` line for `/ai-sitemap.xml` on the host the request arrived on.
+
+**Naming an agent is not neutral, so by default the block changes nothing a crawler may fetch.** Under RFC 9309 a crawler obeys only the group(s) naming it, and falls back to `User-agent: *` only when none does. A named group saying `Allow: /` would release that agent from every restriction in your wildcard group — WordPress's `Disallow: /wp-admin/`, a staging site's `Disallow: /` — and one added for an agent you already name would merge with your rules for it and outrank them. So:
+
+- **agents your file already names are never added**: your group stays the only one that applies to them. Applebot counts as named when you name Googlebot, whose group Apple documents it follows;
+- **every other agent inherits your `User-agent: *` rules**, carried once in a single shared group, so it obeys exactly what it obeyed before. With no wildcard rules (or no `robots.txt` at all) each agent gets `Allow: /`, which is what it already had;
+- the signal is `Content-Signal: search=yes, ai-input=yes`, or your wildcard group's own `Content-Signal` when it has one. Nothing is said about training on your behalf.
+
+Anything broader is a decision about your whole site, so it is an explicit opt-in:
+
+```yaml
+globetrotters_ai_presence:
+    robots:
+        ai_agents: 'allow_all'   # every named agent gets "Allow: /", overriding your wildcard
+                                 # restrictions for it — never a group you wrote yourself
+        ai_train: true           # adds "ai-train=yes" to the Content-Signal line
+```
+
+With both, and no wildcard rules of your own, the block is byte-for-byte the one Globetrotters serves on its own hosts.
+
+The block never adds a `User-agent: *` group, which would be combined with yours. `HEAD /robots.txt` is answered with no body but with the decorated `GET`'s `ETag` and `Content-Length` (and, like the `GET`, no `Last-Modified`), so a `HEAD` can never invalidate a cached `GET`.
+
 ## Reporting agent traffic
 
 An apex install is **pull-and-cache, not proxy**. A request to `https://your-domain.example/llms.txt` is served by this bundle and terminates inside your application — it never touches a Globetrotters edge, so without this it is invisible and your apex looks like it gets no agent traffic at all.
@@ -118,7 +148,7 @@ Both are required; until both are set nothing is captured and nothing is written
 
 ### Scheduling the flush
 
-Events are buffered locally and flushed at most every 15 minutes. Three lanes, all sharing one interval, so whichever you have wins and the others stay dormant.
+Events are buffered locally and flushed at most every 15 minutes. Three lanes, all sharing one interval, so whichever you have wins and the others stay dormant. The interval is checked under the flush lock, so two lanes firing a second apart never both send; `gt:presence:flush --force` skips the interval but never the lock.
 
 **1. Cron (recommended).** The command enforces the 15-minute cadence itself, so running it more often is safe:
 
@@ -126,9 +156,11 @@ Events are buffered locally and flushed at most every 15 minutes. Three lanes, a
 */5 * * * * cd /srv/app && bin/console gt:presence:flush >/dev/null 2>&1
 ```
 
-**2. symfony/scheduler.** With `symfony/scheduler` and `symfony/messenger` installed the `gt` schedule dispatches a flush every 15 minutes, alongside the artefact refresh (`bin/console messenger:consume scheduler_gt`).
+**2. symfony/scheduler.** With `symfony/scheduler` and `symfony/messenger` installed the `gt` schedule asks for a flush every 5 minutes, alongside the artefact refresh, and the shared interval decides — so, like the cron line above, flushes land every 15 to 20 minutes (`bin/console messenger:consume scheduler_gt`).
 
-**3. `kernel.terminate` fallback (on by default).** For a shared host with no cron and no worker: after a response has been sent, an artefact request triggers at most one flush per 15 minutes. Because it runs post-response it costs the visitor nothing. Set `reporting.opportunistic_flush: false` to disable it.
+**3. `kernel.terminate` fallback (on by default, where the runtime allows).** For a shared host with no cron and no worker: a request for one of the six artefacts triggers at most one flush per 15 minutes, after its response has been sent. Your own pages, `robots.txt`, `/ai-sitemap.xml` and the IndexNow key never trigger it.
+
+It only runs where PHP delivers the response before `kernel.terminate`: **PHP-FPM, FrankenPHP and LiteSpeed**. On Apache mod_php, the CLI server and other runtimes the visitor would still be waiting, so the lane stays off there and you need lane 1 or 2. Even where it runs, the visitor has their response but the PHP worker stays busy for the ingest call (up to 20 seconds) and serves no one else meanwhile — on a small worker pool, prefer cron. Set `reporting.opportunistic_flush: false` to disable it.
 
 `bin/console gt:status` reports which lane last flushed, how many events are buffered, how many were dropped, and whether client-IP resolution looks trustworthy.
 
@@ -147,7 +179,7 @@ globetrotters_ai_presence:
         endpoint: '%env(GLOBETROTTERS_INGEST_ENDPOINT)%'
         ingest_token: '%env(GLOBETROTTERS_INGEST_TOKEN)%'
         buffer_dir: '%kernel.project_dir%/var/globetrotters-ai-presence'
-        opportunistic_flush: true                            # the kernel.terminate lane
+        opportunistic_flush: true                            # the kernel.terminate lane (PHP-FPM, FrankenPHP, LiteSpeed)
         trust_cloudflare_header: false                       # read CF-Connecting-IP
 ```
 

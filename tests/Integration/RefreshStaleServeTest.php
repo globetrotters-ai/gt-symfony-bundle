@@ -29,6 +29,24 @@ final class RefreshStaleServeTest extends IntegrationTestCase
         self::assertStringContainsString('/llms.txt', (string) $options->state()['last_error']);
     }
 
+    public function testAnHtmlPageAnsweredWith200KeepsServingTheLastGoodBundle(): void
+    {
+        $client = $this->bootClient();
+        $this->serveRequiredFiles();
+        self::assertSame(0, $this->refresh()->getStatusCode());
+
+        $this->fetcher()->on('/schema.json', FetchResult::http(200, '<html><body>Maintenance</body></html>'));
+        $failed = $this->refresh();
+
+        self::assertSame(1, $failed->getStatusCode());
+        self::assertStringContainsString('/schema.json', $failed->getDisplay());
+
+        $client->request('GET', '/schema.json');
+        self::assertSame(static::BODIES['schema.json'], $client->getResponse()->getContent());
+        $client->request('GET', '/');
+        self::assertStringContainsString('TouristDestination', (string) $client->getResponse()->getContent());
+    }
+
     public function testIdenticalRepullReportsUnchanged(): void
     {
         $this->bootClient();

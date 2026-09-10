@@ -60,6 +60,21 @@ final class GlobetrottersAiPresenceBundle extends AbstractBundle
                     ->info('Path where the JSON-LD head injection applies')
                     ->defaultValue('/')
                 ->end()
+                ->arrayNode('robots')
+                    ->info('How the /robots.txt block treats the AI agents it names. The defaults change nothing any crawler may fetch; each option below is an explicit, site-wide grant.')
+                    ->addDefaultsIfNotSet()
+                    ->children()
+                        ->enumNode('ai_agents')
+                            ->info('"inherit": each named agent keeps the rules your "User-agent: *" group already gives it. "allow_all": each named agent gets "Allow: /", overriding your wildcard restrictions for it. Agents your robots.txt already names are never touched either way.')
+                            ->values(['inherit', 'allow_all'])
+                            ->defaultValue('inherit')
+                        ->end()
+                        ->booleanNode('ai_train')
+                            ->info('Add "ai-train=yes" to the Content-Signal line, declaring that your site\'s content may be used to train AI models.')
+                            ->defaultFalse()
+                        ->end()
+                    ->end()
+                ->end()
                 ->arrayNode('reporting')
                     ->info('Reports agent traffic to the six served artefact paths back to Globetrotters. An apex install is pull-and-cache, so those requests terminate in this application and are invisible without it.')
                     ->addDefaultsIfNotSet()
@@ -81,7 +96,7 @@ final class GlobetrottersAiPresenceBundle extends AbstractBundle
                             ->defaultValue('%kernel.project_dir%/var/globetrotters-ai-presence')
                         ->end()
                         ->booleanNode('opportunistic_flush')
-                            ->info('Flush on kernel.terminate (after the response is sent) at most every 15 minutes, for deployments with no cron and no Messenger worker.')
+                            ->info('Flush on kernel.terminate at most every 15 minutes, for deployments with no cron and no Messenger worker. Triggered only by served artefact requests, and only on runtimes that deliver the response before kernel.terminate (PHP-FPM, FrankenPHP, LiteSpeed); elsewhere it stays off and cron or symfony/scheduler must flush. The worker stays busy for the ingest call even so.')
                             ->defaultTrue()
                         ->end()
                         ->booleanNode('trust_cloudflare_header')
@@ -103,6 +118,10 @@ final class GlobetrottersAiPresenceBundle extends AbstractBundle
      *         anchor_text: string,
      *     },
      *     homepage_path: string,
+     *     robots: array{
+     *         ai_agents: string,
+     *         ai_train: bool,
+     *     },
      *     reporting: array{
      *         enabled: bool,
      *         endpoint: string,
@@ -121,6 +140,8 @@ final class GlobetrottersAiPresenceBundle extends AbstractBundle
             ->set('globetrotters_ai_presence.homepage_path', $config['homepage_path'])
             ->set('globetrotters_ai_presence.profile', $config['profile'])
             ->set('globetrotters_ai_presence.breadcrumb.anchor_text', $config['breadcrumb']['anchor_text'])
+            ->set('globetrotters_ai_presence.robots.ai_agents', $config['robots']['ai_agents'])
+            ->set('globetrotters_ai_presence.robots.ai_train', $config['robots']['ai_train'])
             ->set('globetrotters_ai_presence.reporting.buffer_dir', $config['reporting']['buffer_dir']);
 
         $container->services()->alias('globetrotters_ai_presence.cache_pool', $config['cache_pool']);

@@ -12,6 +12,7 @@ use Globetrotters\AiPresenceBundle\Analytics\Event;
 use Globetrotters\AiPresenceBundle\Analytics\EventBuffer;
 use Globetrotters\AiPresenceBundle\Analytics\Flusher;
 use Globetrotters\AiPresenceBundle\Analytics\FlushGate;
+use Globetrotters\AiPresenceBundle\Analytics\FlushOutcome;
 use Globetrotters\AiPresenceBundle\Analytics\IngestResult;
 use Globetrotters\AiPresenceBundle\Analytics\IngestTransportInterface;
 use Globetrotters\AiPresenceBundle\Analytics\NdjsonEventStore;
@@ -64,7 +65,7 @@ final class FlusherTest extends TestCase
     {
         $this->fill(3);
 
-        self::assertTrue($this->flusher->run(AnalyticsState::LANE_COMMAND));
+        self::assertSame(FlushOutcome::Accepted, $this->flusher->run(AnalyticsState::LANE_COMMAND));
 
         self::assertCount(1, $this->transport->sent);
         self::assertSame(self::ENDPOINT, $this->transport->sent[0]['url']);
@@ -97,11 +98,11 @@ final class FlusherTest extends TestCase
         $this->fill(3);
         $this->transport->willReturn(IngestResult::error('Connection timed out'), IngestResult::http(202));
 
-        self::assertFalse($this->flusher->run(AnalyticsState::LANE_COMMAND));
+        self::assertSame(FlushOutcome::Rejected, $this->flusher->run(AnalyticsState::LANE_COMMAND));
         self::assertSame(3, $this->buffer->count(), 'nothing is deleted before a 2xx');
 
         $this->clock->sleep(FlushGate::INTERVAL_SECONDS);
-        self::assertTrue($this->flusher->run(AnalyticsState::LANE_COMMAND));
+        self::assertSame(FlushOutcome::Accepted, $this->flusher->run(AnalyticsState::LANE_COMMAND));
 
         self::assertSame($this->transport->idsOf(0), $this->transport->idsOf(1));
         self::assertSame($this->transport->sent[0]['json'], $this->transport->sent[1]['json']);
@@ -113,7 +114,7 @@ final class FlusherTest extends TestCase
         $this->fill(2);
         $this->transport->willReturn(IngestResult::http(429));
 
-        self::assertFalse($this->flusher->run(AnalyticsState::LANE_COMMAND));
+        self::assertSame(FlushOutcome::Rejected, $this->flusher->run(AnalyticsState::LANE_COMMAND));
 
         self::assertSame(2, $this->buffer->count());
         self::assertStringContainsString('rate limiting', (string) $this->state->state()['last_flush_error']);
@@ -124,7 +125,7 @@ final class FlusherTest extends TestCase
         $this->fill(1);
         $this->transport->willReturn(IngestResult::http(500));
 
-        self::assertFalse($this->flusher->run(AnalyticsState::LANE_COMMAND));
+        self::assertSame(FlushOutcome::Rejected, $this->flusher->run(AnalyticsState::LANE_COMMAND));
 
         self::assertSame(1, $this->buffer->count());
         self::assertSame(0, (int) $this->state->state()['last_flush_ok']);
@@ -180,7 +181,7 @@ final class FlusherTest extends TestCase
         // on arrival are re-stamped and land in the wrong buckets.
         $this->fill(IngestTransportInterface::MAX_EVENTS_PER_BATCH * 2 + 5);
 
-        self::assertTrue($this->flusher->run(AnalyticsState::LANE_COMMAND));
+        self::assertSame(FlushOutcome::Accepted, $this->flusher->run(AnalyticsState::LANE_COMMAND));
 
         self::assertCount(3, $this->transport->sent);
         self::assertSame(0, $this->buffer->count());
@@ -246,7 +247,7 @@ final class FlusherTest extends TestCase
 
     public function testAnEmptyBufferSendsAHealthHeartbeat(): void
     {
-        self::assertTrue($this->flusher->run(AnalyticsState::LANE_COMMAND));
+        self::assertSame(FlushOutcome::Accepted, $this->flusher->run(AnalyticsState::LANE_COMMAND));
 
         self::assertCount(1, $this->transport->sent);
         self::assertSame([], $this->transport->envelopes()[0]['events']);
@@ -266,9 +267,130 @@ final class FlusherTest extends TestCase
         );
         $this->fill(1);
 
-        self::assertFalse($flusher->run(AnalyticsState::LANE_COMMAND));
+        self::assertSame(FlushOutcome::Unavailable, $flusher->run(AnalyticsState::LANE_COMMAND));
         self::assertCount(0, $this->transport->sent);
         self::assertSame(1, $this->buffer->count());
+    }
+
+    public function testARunBeforeTheIntervalIsASkipNotAFailure(): void
+    {
+        $this->fill(1);
+        self::assertSame(FlushOutcome::Accepted, $this->flusher->run(AnalyticsState::LANE_COMMAND));
+
+        $this->fill(1);
+        $this->clock->sleep(1);
+
+        self::assertSame(FlushOutcome::NotDue, $this->flusher->run(AnalyticsState::LANE_SCHEDULER));
+        self::assertCount(1, $this->transport->sent);
+        self::assertSame(1, $this->buffer->count());
+        // A skip is not an attempt: it neither re-stamps nor records anything.
+        self::assertSame(AnalyticsState::LANE_COMMAND, $this->state->state()['last_flush_lane']);
+        self::assertSame('', $this->state->state()['last_flush_error']);
+    }
+
+    /**
+     * The Scheduler lane used to call the flusher with no interval check at
+     * all, so a cron'd command flush followed a second later by a scheduled
+     * one sent two POSTs. Two flushers over one directory are two processes'
+     * view of it.
+     */
+    public function testALaneThatJustFlushedHoldsEveryOtherLaneUntilTheIntervalExpires(): void
+    {
+        $scheduler = $this->flusherOver($this->transport);
+        $this->fill(1);
+        self::assertSame(FlushOutcome::Accepted, $this->flusher->run(AnalyticsState::LANE_COMMAND));
+
+        $this->fill(1);
+        $this->clock->sleep(1);
+        self::assertSame(FlushOutcome::NotDue, $scheduler->run(AnalyticsState::LANE_SCHEDULER));
+        self::assertCount(1, $this->transport->sent);
+
+        $this->clock->sleep(FlushGate::INTERVAL_SECONDS);
+        self::assertSame(FlushOutcome::Accepted, $scheduler->run(AnalyticsState::LANE_SCHEDULER));
+        self::assertCount(2, $this->transport->sent);
+        self::assertSame(0, $this->buffer->count());
+    }
+
+    public function testForceSkipsTheIntervalButNeverTheLock(): void
+    {
+        $this->fill(1);
+        self::assertSame(FlushOutcome::Accepted, $this->flusher->run(AnalyticsState::LANE_COMMAND));
+        $this->fill(1);
+        self::assertSame(FlushOutcome::Accepted, $this->flusher->run(AnalyticsState::LANE_COMMAND, force: true));
+        self::assertCount(2, $this->transport->sent);
+
+        // Another process holding the lock: a separate open file description,
+        // which flock() treats exactly as it would another PID's.
+        $this->fill(1);
+        $handle = fopen((new BufferDirectory($this->dir))->path(FlushGate::LOCK_FILE), 'c');
+        self::assertIsResource($handle);
+        self::assertTrue(flock($handle, \LOCK_EX));
+        try {
+            self::assertSame(FlushOutcome::Locked, $this->flusher->run(AnalyticsState::LANE_COMMAND, force: true));
+        } finally {
+            flock($handle, \LOCK_UN);
+            fclose($handle);
+        }
+
+        self::assertCount(2, $this->transport->sent);
+        self::assertSame(1, $this->buffer->count());
+    }
+
+    /**
+     * A second caller arriving while a flush is mid-POST — even a forced one —
+     * skips rather than sending the same claimed events a second time.
+     */
+    public function testAConcurrentCallerSkipsWhileAFlushIsInFlight(): void
+    {
+        $second = $this->flusherOver($this->transport);
+        $during = null;
+        $first = $this->flusherOver(new class(static function () use ($second, &$during): void {
+            $during = $second->run(AnalyticsState::LANE_TERMINATE, force: true);
+        }) implements IngestTransportInterface {
+            public function __construct(private readonly \Closure $whilePosting)
+            {
+            }
+
+            public function post(string $url, string $token, string $json): IngestResult
+            {
+                ($this->whilePosting)();
+
+                return IngestResult::http(202);
+            }
+
+            public function wireSize(string $json): int
+            {
+                return \strlen($json);
+            }
+
+            public function wireCap(): int
+            {
+                return self::MAX_BODY_BYTES;
+            }
+        });
+        $this->fill(2);
+
+        self::assertSame(FlushOutcome::Accepted, $first->run(AnalyticsState::LANE_COMMAND));
+        self::assertSame(FlushOutcome::Locked, $during);
+        self::assertCount(0, $this->transport->sent, 'the concurrent caller sent nothing');
+        self::assertSame(0, $this->buffer->count());
+    }
+
+    /**
+     * Another process's flusher over the same buffer directory and clock.
+     */
+    private function flusherOver(IngestTransportInterface $transport): Flusher
+    {
+        $directory = new BufferDirectory($this->dir);
+
+        return new Flusher(
+            new EventBuffer(new NdjsonEventStore($directory), new DroppedCounter($directory)),
+            $transport,
+            new AnalyticsOptions(true, self::ENDPOINT, self::TOKEN, true, false),
+            new AnalyticsState(new ArrayAdapter()),
+            new FlushGate($directory, $this->clock),
+            $this->clock,
+        );
     }
 
     private function fill(int $count, string $ua = 'ClaudeBot/1.0'): void

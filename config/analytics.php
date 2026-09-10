@@ -21,6 +21,7 @@ use Globetrotters\AiPresenceBundle\Command\PresenceFlushCommand;
 use Globetrotters\AiPresenceBundle\Serving\ArtefactCaptureSubscriber;
 use Globetrotters\AiPresenceBundle\Serving\ArtefactHeaderSubscriber;
 use Globetrotters\AiPresenceBundle\Serving\OpportunisticFlushSubscriber;
+use Globetrotters\AiPresenceBundle\Serving\ResponseFinalization;
 
 /*
  * Server-log reporting lane. AnalyticsOptions is deliberately absent: it
@@ -87,12 +88,17 @@ return static function (ContainerConfigurator $container): void {
         ->args([service(EventRecorder::class)])
         ->tag('kernel.event_subscriber');
 
+    // Probes the runtime per request; an app can pin the answer by redefining
+    // this service with a boolean argument.
+    $services->set(ResponseFinalization::class);
+
     $services->set(OpportunisticFlushSubscriber::class)
         ->args([
             service(Flusher::class),
             service(EventBuffer::class),
             service(AnalyticsOptions::class),
             service(FlushGate::class),
+            service(ResponseFinalization::class),
         ])
         ->tag('kernel.event_subscriber');
 

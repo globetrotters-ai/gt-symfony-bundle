@@ -26,10 +26,14 @@ final class RobotsFallbackTest extends IntegrationTestCase
         self::assertSame('text/plain; charset=utf-8', $response->headers->get('Content-Type'));
         $content = (string) $response->getContent();
         self::assertStringStartsWith(RobotsFilter::MARKER, $content);
+        // No robots.txt of the app's own means no restriction to preserve, so
+        // each agent gets its registry group — without the training signal,
+        // which is the site's to opt into.
         self::assertStringContainsString(
-            "User-agent: GPTBot\nAllow: /\nContent-Signal: search=yes, ai-input=yes, ai-train=yes\n",
+            "User-agent: GPTBot\nAllow: /\nContent-Signal: search=yes, ai-input=yes\n",
             $content,
         );
+        self::assertStringNotContainsString('ai-train', $content);
         // CCBot is the training-corpus name customers ask about; it reached
         // the GT-hosted lane only with the registry.
         self::assertStringContainsString("User-agent: CCBot\nAllow: /", $content);
@@ -57,6 +61,41 @@ final class RobotsFallbackTest extends IntegrationTestCase
 
         self::assertSame(200, $response->getStatusCode());
         self::assertSame('', $response->getContent());
+    }
+
+    /**
+     * Both generation paths — the app throwing its 404, and the app returning
+     * one — give HEAD the generated GET's length and no body.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('generationPaths')]
+    public function testHeadDescribesTheGeneratedGet(string $uri): void
+    {
+        $client = $this->bootClient();
+        $this->serveRequiredFiles();
+        $this->refresh();
+
+        $client->request('GET', $uri);
+        $get = $client->getResponse();
+        $client->request('HEAD', $uri);
+        $head = $client->getResponse();
+
+        $body = (string) $get->getContent();
+        self::assertSame(200, $get->getStatusCode());
+        self::assertStringStartsWith(RobotsFilter::MARKER, $body);
+        self::assertSame(200, $head->getStatusCode());
+        self::assertSame('', $head->getContent());
+        self::assertSame((string) \strlen($body), $head->headers->get('Content-Length'));
+        self::assertSame('text/plain; charset=utf-8', $head->headers->get('Content-Type'));
+        self::assertSame($get->getEtag(), $head->getEtag());
+    }
+
+    /**
+     * @return iterable<string, array{0: string}>
+     */
+    public static function generationPaths(): iterable
+    {
+        yield 'thrown NotFoundHttpException' => ['/robots.txt'];
+        yield 'returned 404 response' => ['/robots.txt?return404=1'];
     }
 
     public function testStays404WhenNoBundleCached(): void

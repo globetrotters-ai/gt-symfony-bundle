@@ -14,6 +14,8 @@ use Globetrotters\AiPresenceBundle\Analytics\Flusher;
 use Globetrotters\AiPresenceBundle\Analytics\FlushGate;
 use Globetrotters\AiPresenceBundle\Analytics\NdjsonEventStore;
 use Globetrotters\AiPresenceBundle\Serving\OpportunisticFlushSubscriber;
+use Globetrotters\AiPresenceBundle\Serving\ResponseFinalization;
+use Globetrotters\AiPresenceBundle\Serving\Router;
 use Globetrotters\AiPresenceBundle\Tests\Support\FakeIngestTransport;
 use Globetrotters\AiPresenceBundle\Tests\Support\TempDirectory;
 use PHPUnit\Framework\TestCase;
@@ -137,7 +139,56 @@ final class OpportunisticFlushSubscriberTest extends TestCase
         self::assertCount(0, $this->transport->sent);
     }
 
-    private function subscriber(?AnalyticsOptions $options = null): OpportunisticFlushSubscriber
+    /**
+     * The fallback exists for artefact traffic; an application's own pages
+     * must never pay for reporting, even with events waiting.
+     */
+    public function testAnOrdinaryPageNeverTriggersAFlush(): void
+    {
+        $this->fill(1);
+
+        $this->subscriber()->onKernelTerminate($this->terminate('/about', []));
+
+        self::assertCount(0, $this->transport->sent);
+        self::assertNull($this->gate->lastAttemptAt());
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('nonArtefactResponses')]
+    public function testTheSitemapAndTheKeyNeverTriggerAFlush(string $uri, string $attribute): void
+    {
+        $this->fill(1);
+
+        $this->subscriber()->onKernelTerminate($this->terminate($uri, [$attribute => true]));
+
+        self::assertCount(0, $this->transport->sent);
+    }
+
+    /**
+     * @return iterable<string, array{0: string, 1: string}>
+     */
+    public static function nonArtefactResponses(): iterable
+    {
+        yield 'sitemap' => ['/ai-sitemap.xml', Router::ATTRIBUTE_SITEMAP];
+        yield 'indexnow key' => ['/e715a2e7bf3c4a1d8e0b6f9c2d5a7e14.txt', Router::ATTRIBUTE_KEY];
+    }
+
+    /**
+     * mod_php, the CLI server: the visitor is still waiting while terminate
+     * runs, so a network flush there is added latency. Cron or Scheduler
+     * carry the buffer instead.
+     */
+    public function testStaysOffOnARuntimeThatHasNotYetSentTheResponse(): void
+    {
+        $this->fill(1);
+
+        $this->subscriber(finishesEarly: false)->onKernelTerminate($this->terminate());
+
+        self::assertCount(0, $this->transport->sent);
+        self::assertNull($this->gate->lastAttemptAt());
+        self::assertSame(1, $this->buffer->count());
+    }
+
+    private function subscriber(?AnalyticsOptions $options = null, bool $finishesEarly = true): OpportunisticFlushSubscriber
     {
         $options ??= $this->options();
 
@@ -153,6 +204,7 @@ final class OpportunisticFlushSubscriberTest extends TestCase
             $this->buffer,
             $options,
             $this->gate,
+            new ResponseFinalization($finishesEarly),
         );
     }
 
@@ -161,11 +213,20 @@ final class OpportunisticFlushSubscriberTest extends TestCase
         return new AnalyticsOptions(true, 'https://api.test/ingest', 'token', $opportunistic, false);
     }
 
-    private function terminate(): TerminateEvent
+    /**
+     * A terminate event for a request, by default one {@see Router} served as
+     * an artefact.
+     *
+     * @param array<string, mixed> $attributes
+     */
+    private function terminate(string $uri = '/llms.txt', array $attributes = [Router::ATTRIBUTE_PATH => '/llms.txt']): TerminateEvent
     {
+        $request = Request::create($uri);
+        $request->attributes->add($attributes);
+
         return new TerminateEvent(
             $this->createStub(HttpKernelInterface::class),
-            Request::create('/llms.txt'),
+            $request,
             new Response('body'),
         );
     }

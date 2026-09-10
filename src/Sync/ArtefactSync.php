@@ -47,10 +47,17 @@ final class ArtefactSync
                 $errors[] = $this->describeFailure($path, 'response body exceeds the size limit');
                 continue;
             }
+            $problem = self::unpublishableJson($path, $result->body());
+            if (null !== $problem) {
+                $errors[] = \sprintf('Rejected /%s (%s).', $path, $problem);
+                continue;
+            }
             $files[$path] = $result->body();
         }
 
-        // All-or-nothing: any single failure aborts and leaves the stale bundle.
+        // All-or-nothing: any single failure — a fetch or a rejected document —
+        // aborts before anything is stored or stamped, and leaves the stale
+        // bundle, its change date and its IndexNow key exactly as they were.
         if ([] !== $errors) {
             return $this->fail($errors);
         }
@@ -226,6 +233,48 @@ final class ArtefactSync
         $decoded = json_decode($result->body(), true);
 
         return \is_array($decoded) && isset($decoded['version']) ? $decoded : null;
+    }
+
+    /**
+     * Why a fetched JSON artefact cannot be published, or null when it can.
+     *
+     * Status and size only prove that *something* answered. A maintenance
+     * page, a login wall or a proxy error served with a 200 passes both, and
+     * publishing it would replace a working discovery document with HTML. So
+     * every JSON artefact has to parse, and to parse as the kind of document it
+     * is: an object, or for JSON-LD also a list of node objects.
+     *
+     * Deliberately no deeper than that. The document schemas are Globetrotters'
+     * to evolve, and a field-level check here would start rejecting legitimate
+     * publications the day a field moved. Text artefacts (``llms.txt``) are
+     * Markdown with no grammar to hold them to, and pass through untouched.
+     */
+    private static function unpublishableJson(string $path, string $body): ?string
+    {
+        $type = (string) ContentTypes::forPath($path);
+        $isJsonLd = str_starts_with($type, 'application/ld+json');
+        if (!$isJsonLd && !str_starts_with($type, 'application/json')) {
+            return null;
+        }
+
+        if ('' === trim($body)) {
+            return 'empty body where a JSON document was expected';
+        }
+        try {
+            $decoded = json_decode($body, false, 512, \JSON_THROW_ON_ERROR);
+        } catch (\JsonException $error) {
+            return 'not valid JSON: '.$error->getMessage();
+        }
+
+        if ($decoded instanceof \stdClass) {
+            return null;
+        }
+        if ($isJsonLd && \is_array($decoded) && [] !== $decoded
+            && [] === array_filter($decoded, static fn (mixed $node): bool => !$node instanceof \stdClass)) {
+            return null;
+        }
+
+        return $isJsonLd ? 'not a JSON-LD object or list of node objects' : 'not a JSON object';
     }
 
     /**
