@@ -76,6 +76,9 @@ Rotation carries a lag this lane cannot avoid: a rotated key reaches an install 
 - **Serving the key is not agent traffic.** Presence Analytics counts agent fetches of the artefact set; a search engine reading the key to verify host control is neither, and folding it in would inflate the numbers a customer reads as demand for their presence.
 - **Heavy files stay remote.** `llms-full.txt` and `content.md` are linked back to Globetrotters by absolute URL, never served locally.
 
+- **The robots.txt AI user-agent list is a mirror, not a source.** `RobotsFilter::AI_BOTS` and `tests/Fixtures/robots-ai-user-agent-groups.txt` follow gt-backend's `libs/globetrotters-business/.../presence/services/ai_user_agents.py`. Regenerate the fixture from that module (the command is in `RobotsFilterTest`'s docblock) rather than editing either by hand, and keep `gt-wordpress-plugin` in step in the same cycle.
+- **The block emits no `User-agent: *` group and no `Agentmap:` line**, though the backend emits both. The wildcard would duplicate one the host app may already own in the decorate path, and `Agentmap: /.well-known/ai-catalog.json` is root-relative while this bundle does not serve `ai-catalog.json` — it would advertise a 404 at the customer's apex. Adding the line requires adding the artefact to the served set first.
+
 ## Releasing
 
 The version lives in three places that must move together: `GlobetrottersAiPresenceBundle::VERSION`, the `CHANGELOG.md` heading, and the `extra.branch-alias.dev-main` constraint in `composer.json`. Packagist publishes from the git tag, so tag only after all three agree. CHANGELOG follows Keep a Changelog and the project is on semver (currently 0.4.0, first public release 2026-08-25). The number is kept in step with `gt-wordpress-plugin` so the same behaviour ships under the same version on both.

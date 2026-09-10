@@ -58,26 +58,66 @@ final class RobotsFilterTest extends TestCase
         return $event;
     }
 
-    public function testBuildBlockContainsAllBotsAndSitemap(): void
+    /**
+     * The canonical copy is generated from the backend registry, not typed:
+     *
+     *     cd gt-backend/libs/globetrotters-business && uv run python -c \
+     *       "from globetrotters.business.presence.services.ai_user_agents \
+     *        import render_robots_groups; print(render_robots_groups(), end='')"
+     *
+     * Regenerate the fixture that way when the registry gains a name; this
+     * assertion is what turns a drifting hand-typed copy into a red build.
+     */
+    public function testAiUserAgentGroupsMatchTheCanonicalFixture(): void
+    {
+        $fixture = file_get_contents(__DIR__.'/../../Fixtures/robots-ai-user-agent-groups.txt');
+
+        self::assertIsString($fixture);
+        self::assertSame($fixture, RobotsFilter::aiUserAgentGroups());
+    }
+
+    public function testEveryNamedGroupCarriesItsOwnContentSignal(): void
     {
         $block = RobotsFilter::buildBlock(self::BASE_URL);
 
-        $expected = "# Globetrotters AI Presence\n"
-            ."User-agent: GPTBot\nAllow: /\n"
-            ."User-agent: ChatGPT-User\nAllow: /\n"
-            ."User-agent: OAI-SearchBot\nAllow: /\n"
-            ."User-agent: ClaudeBot\nAllow: /\n"
-            ."User-agent: Claude-User\nAllow: /\n"
-            ."User-agent: Anthropic-AI\nAllow: /\n"
-            ."User-agent: PerplexityBot\nAllow: /\n"
-            ."User-agent: Google-Extended\nAllow: /\n"
-            ."User-agent: Applebot-Extended\nAllow: /\n"
-            ."User-agent: CCBot\nAllow: /\n"
-            ."User-agent: meta-externalagent\nAllow: /\n"
-            ."\n"
+        // A crawler obeys only its own most-specific group (RFC 9309 §2.2.1),
+        // so one signal line per group is the only placement that reaches
+        // every named agent.
+        self::assertSame(
+            substr_count($block, 'User-agent: '),
+            substr_count($block, 'Content-Signal: search=yes, ai-input=yes, ai-train=yes'),
+        );
+    }
+
+    public function testBuildBlockIsTheMarkerTheGroupsAndTheSitemap(): void
+    {
+        $expected = RobotsFilter::MARKER."\n"
+            .RobotsFilter::aiUserAgentGroups()
             .'Sitemap: '.self::BASE_URL."/sitemap.xml\n";
 
-        self::assertSame($expected, $block);
+        self::assertSame($expected, RobotsFilter::buildBlock(self::BASE_URL));
+    }
+
+    /**
+     * The decorate path appends to a robots.txt the app may already own,
+     * wildcard group included; a second one is a duplicate that can override
+     * the site's real crawl rules. Both lanes emit the same block, so the
+     * guard belongs on the block itself.
+     */
+    public function testEmitsNoWildcardGroup(): void
+    {
+        self::assertStringNotContainsString('User-agent: *', RobotsFilter::buildBlock(self::BASE_URL));
+    }
+
+    /**
+     * The backend emits `Agentmap: /.well-known/ai-catalog.json` in both its
+     * lanes. That path is root-relative and this bundle does not serve
+     * ai-catalog.json, so the line would advertise a 404 at the customer's
+     * own apex. Adding it requires serving the artefact first.
+     */
+    public function testEmitsNoAgentmapLine(): void
+    {
+        self::assertStringNotContainsString('Agentmap:', RobotsFilter::buildBlock(self::BASE_URL));
     }
 
     public function testBuildBlockWithoutBaseUrlOmitsSitemap(): void
@@ -92,7 +132,10 @@ final class RobotsFilterTest extends TestCase
 
         $content = (string) $decorated->getContent();
         self::assertStringStartsWith("User-agent: *\nDisallow: /admin\n\n# Globetrotters AI Presence\n", $content);
+        self::assertStringContainsString("User-agent: GPTBot\nAllow: /\nContent-Signal: search=yes, ai-input=yes, ai-train=yes\n", $content);
         self::assertStringContainsString('Sitemap: '.self::BASE_URL.'/sitemap.xml', $content);
+        // The app's own wildcard group is the only one in the file.
+        self::assertSame(1, substr_count($content, 'User-agent: *'));
     }
 
     public function testDecorationRemovesStaleBodyMetadata(): void

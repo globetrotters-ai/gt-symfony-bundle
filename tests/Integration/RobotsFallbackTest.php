@@ -26,7 +26,16 @@ final class RobotsFallbackTest extends IntegrationTestCase
         self::assertSame('text/plain; charset=utf-8', $response->headers->get('Content-Type'));
         $content = (string) $response->getContent();
         self::assertStringStartsWith(RobotsFilter::MARKER, $content);
-        self::assertStringContainsString("User-agent: GPTBot\nAllow: /", $content);
+        self::assertStringContainsString(
+            "User-agent: GPTBot\nAllow: /\nContent-Signal: search=yes, ai-input=yes, ai-train=yes\n",
+            $content,
+        );
+        // CCBot is the training-corpus name customers ask about; it reached
+        // the GT-hosted lane only with the registry.
+        self::assertStringContainsString("User-agent: CCBot\nAllow: /", $content);
+        // Generated, not decorated — but still no wildcard group, so both
+        // lanes emit one canonical block.
+        self::assertStringNotContainsString('User-agent: *', $content);
         self::assertStringContainsString('Sitemap: '.TestKernel::WEBSITE_URL.'/sitemap.xml', $content);
     }
 

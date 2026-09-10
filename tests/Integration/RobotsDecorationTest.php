@@ -27,8 +27,15 @@ final class RobotsDecorationTest extends IntegrationTestCase
         self::assertSame(200, $response->getStatusCode());
         $content = (string) $response->getContent();
         self::assertStringStartsWith("User-agent: *\nDisallow: /admin\n\n".RobotsFilter::MARKER, $content);
+        self::assertStringContainsString(
+            "User-agent: GPTBot\nAllow: /\nContent-Signal: search=yes, ai-input=yes, ai-train=yes\n",
+            $content,
+        );
         self::assertStringContainsString('Sitemap: '.TestKernel::WEBSITE_URL.'/sitemap.xml', $content);
         self::assertSame(1, substr_count($content, RobotsFilter::MARKER));
+        // The app owns the wildcard group; appending a second one could
+        // override the site's real crawl rules.
+        self::assertSame(1, substr_count($content, 'User-agent: *'));
     }
 
     public function testAppRobotsUntouchedWhenNoBundleCached(): void

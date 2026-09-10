@@ -31,7 +31,7 @@ On top of the routes, the bundle:
 
 - **reports agent traffic** to those six paths back to Globetrotters, so an apex install still shows up in Presence Analytics (see [Reporting agent traffic](#reporting-agent-traffic));
 - injects a **server-rendered, breakout-safe JSON-LD** `<script>` (built from the cached `schema.json`) into your homepage HTML, so crawlers see it in the raw markup without executing JavaScript;
-- decorates `/robots.txt` with the AI-crawler allow-list and a `Sitemap:` directive pointing at your Globetrotters-hosted sitemap (or serves a generated `robots.txt` when your app has none);
+- decorates `/robots.txt` with the AI-crawler allow-list — one group per named agent, each carrying `Allow: /` and `Content-Signal: search=yes, ai-input=yes, ai-train=yes` — plus a `Sitemap:` directive pointing at your Globetrotters-hosted sitemap (or serves a generated `robots.txt` when your app has none). The block **never emits a `User-agent: *` group**: your site's own wildcard rules are left exactly as they are, and under RFC 9309 an unnamed crawler is unrestricted regardless, so naming agents adds a signal without changing what anyone may fetch;
 - **stale-serves**: the cached bundle is only ever replaced by a fully successful pull, so an unreachable Globetrotters leaves the last known good version serving.
 
 ## Requirements
