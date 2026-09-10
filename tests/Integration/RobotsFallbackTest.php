@@ -37,7 +37,7 @@ final class RobotsFallbackTest extends IntegrationTestCase
         // lanes emit one canonical block.
         self::assertStringNotContainsString('User-agent: *', $content);
         // This host's own sitemap, not the Globetrotters origin's.
-        self::assertStringContainsString('Sitemap: http://localhost/sitemap.xml', $content);
+        self::assertStringContainsString('Sitemap: http://localhost/ai-sitemap.xml', $content);
         self::assertStringNotContainsString(TestKernel::WEBSITE_URL, $content);
     }
 

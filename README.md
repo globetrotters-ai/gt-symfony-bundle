@@ -27,15 +27,17 @@ Nothing to configure: the key arrives on the version marker with your normal ref
 
 A rotated key reaches your install on its next refresh (daily by default), so submissions for your host can fail verification during that window.
 
-The bundle also makes sure `/sitemap.xml` lists the discovery surface, because that is where crawlers and Globetrotters' own readiness check look for it. If your application serves its own sitemap, the bundle **merges** its `<url>` entries into that document — additive only: nothing is removed or rewritten, a URL you already list is skipped, and re-running is a no-op. If your application has no sitemap, the bundle generates the whole document (`application/xml; charset=utf-8`, `no-store`, since its contents depend on the host the request arrived on).
+One more path is served once a bundle is cached: **`/ai-sitemap.xml`** (`application/xml; charset=utf-8`), a sitemaps.org `<urlset>` over your homepage plus every artefact this install is actually serving, in the URL space of the request it arrives on. It is generated locally rather than fetched, so it can never advertise a URL your site does not answer, and it needs no configuration to know your domain. `robots.txt` declares it, so crawlers discover it the standard way.
 
-Either way the listing is built from the paths this install is actually serving, in the URL space of the request it arrives on, so it can never advertise a URL your site does not answer and needs no configuration to know your domain. A sitemap the bundle will not touch, leaving it exactly as it is: a `<sitemapindex>` (its children are separate documents), a compressed or streamed response, or one over 1 MB.
+**Not `/sitemap.xml`, deliberately.** That path is yours — served by your app, a static file, or redirected onto an SEO bundle's index — and the bundle never claims it. A six-URL artefact listing is not a substitute for your site's sitemap, and robots.txt takes a *list* of `Sitemap:` directives, so this one is additive to whatever you already declare.
+
+The response carries `nosniff` and both `no-store` headers — the document is rendered from the cache and from this request's own host, so a shared TTL could keep advertising a URL a later refresh dropped, or hand a host alias another host's URLs — and no `Access-Control-Allow-Origin`, matching the IndexNow key: a sitemap is fetched server-side by a crawler. Requests for it are not counted in Presence Analytics; a crawler scheduling a fetch is not an agent consuming your presence.
 
 On top of the routes, the bundle:
 
 - **reports agent traffic** to those six paths back to Globetrotters, so an apex install still shows up in Presence Analytics (see [Reporting agent traffic](#reporting-agent-traffic));
 - injects a **server-rendered, breakout-safe JSON-LD** `<script>` (built from the cached `schema.json`) into your homepage HTML, so crawlers see it in the raw markup without executing JavaScript;
-- decorates `/robots.txt` with the AI-crawler allow-list — one group per named agent, each carrying `Allow: /` and `Content-Signal: search=yes, ai-input=yes, ai-train=yes` — plus a `Sitemap:` directive naming **your own host's** `/sitemap.xml` (or serves a generated `robots.txt` when your app has none). The block **never emits a `User-agent: *` group**: your site's own wildcard rules are left exactly as they are, and under RFC 9309 an unnamed crawler is unrestricted regardless, so naming agents adds a signal without changing what anyone may fetch;
+- decorates `/robots.txt` with the AI-crawler allow-list — one group per named agent, each carrying `Allow: /` and `Content-Signal: search=yes, ai-input=yes, ai-train=yes` — plus a `Sitemap:` directive naming **your own host's** `/ai-sitemap.xml` (or serves a generated `robots.txt` when your app has none). The block **never emits a `User-agent: *` group**: your site's own wildcard rules are left exactly as they are, and under RFC 9309 an unnamed crawler is unrestricted regardless, so naming agents adds a signal without changing what anyone may fetch;
 - **stale-serves**: the cached bundle is only ever replaced by a fully successful pull, so an unreachable Globetrotters leaves the last known good version serving.
 
 ## Requirements
@@ -217,7 +219,7 @@ Each injection is automatic on `homepage_path`. If you'd rather place markup exp
 
 ## Caveats
 
-- **Static files shadow the kernel.** If a real file exists in `public/` for one of the artefact paths (or `public/robots.txt`), your web server serves it directly and the bundle never sees the request. Delete the static copies when migrating from the file-drop lane. That applies to `public/sitemap.xml` too: a static sitemap file cannot be merged into, so serve it through your application if you want the discovery URLs in it.
+- **Static files shadow the kernel.** If a real file exists in `public/` for one of the artefact paths (or `public/robots.txt`), your web server serves it directly and the bundle never sees the request. Delete the static copies when migrating from the file-drop lane.
 - **`cache:clear` empties `cache.app`.** The artefacts then fall through to your app until the next `gt:refresh`, and the reporting lane forgets when it last flushed successfully — buffered events themselves live in `buffer_dir` and survive. For durability across deploys, point `cache_pool` at a pool that survives cache clears (e.g. a Redis-backed pool).
 - **Don't use a per-process pool.** `cache_pool` must be shared between CLI and web (filesystem, Redis, shared APCu) — with an in-memory pool, CLI refreshes would be invisible to web requests.
 - The configured `website_url` is fetched with an SSRF guard (private/reserved IPs are rejected), a 5-second timeout, and a 1 MiB per-file size cap.

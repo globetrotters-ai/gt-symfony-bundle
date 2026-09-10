@@ -4,22 +4,25 @@ declare(strict_types=1);
 
 namespace Globetrotters\AiPresenceBundle\Tests\Integration;
 
+use Globetrotters\AiPresenceBundle\Serving\Router;
 use Globetrotters\AiPresenceBundle\Serving\Sitemap;
 use Globetrotters\AiPresenceBundle\Tests\Fixtures\TestKernel;
 
 /**
- * Kernel variant without an app sitemap route: the catch-all throws a 404 and
- * the bundle serves a locally generated one, in the request's own URL space.
+ * The generated sitemap is answered at its own path, so the application's
+ * /sitemap.xml — served, redirected or absent — is never touched.
  */
 final class SitemapServingTest extends IntegrationTestCase
 {
-    public function testServesAGeneratedSitemapWhenTheAppHasNone(): void
+    protected static bool $withSitemapRoute = true;
+
+    public function testServesTheGeneratedSitemapAtItsOwnPath(): void
     {
         $client = $this->bootClient();
         $this->serveRequiredFiles();
         $this->refresh();
 
-        $client->request('GET', 'http://apex.example/sitemap.xml');
+        $client->request('GET', 'http://apex.example/ai-sitemap.xml');
         $response = $client->getResponse();
 
         self::assertSame(200, $response->getStatusCode());
@@ -38,6 +41,48 @@ final class SitemapServingTest extends IntegrationTestCase
     }
 
     /**
+     * The decision this path expresses: the site's own /sitemap.xml is left to
+     * the application, whatever it does with it.
+     */
+    public function testLeavesTheApplicationsOwnSitemapAlone(): void
+    {
+        $client = $this->bootClient();
+        $this->serveRequiredFiles();
+        $this->refresh();
+
+        $client->request('GET', 'http://apex.example/sitemap.xml');
+        $response = $client->getResponse();
+
+        self::assertSame(200, $response->getStatusCode());
+        self::assertSame(\Globetrotters\AiPresenceBundle\Tests\Fixtures\AntagonistController::APP_SITEMAP_XML, $response->getContent());
+    }
+
+    /**
+     * Not agent traffic: a crawler reading a sitemap to schedule a fetch is not
+     * an agent fetching the presence, so it must not inflate Presence
+     * Analytics. The no-store headers are still re-asserted.
+     */
+    public function testIsNotCountedAsAgentTrafficButKeepsItsHeaders(): void
+    {
+        $client = $this->bootClient();
+        $this->serveRequiredFiles();
+        $this->refresh();
+
+        $client->request('GET', 'http://apex.example/ai-sitemap.xml');
+        $request = $client->getRequest();
+        $response = $client->getResponse();
+
+        self::assertFalse($request->attributes->has(Router::ATTRIBUTE_PATH));
+        self::assertTrue($request->attributes->get(Router::ATTRIBUTE_SITEMAP));
+        self::assertSame('no-store, private', $response->headers->get('Cache-Control'));
+        self::assertSame('no-store', $response->headers->get('Surrogate-Control'));
+        self::assertSame('nosniff', $response->headers->get('X-Content-Type-Options'));
+        // Fetched server-side by a crawler, so the CORS grant stays scoped to
+        // the discovery documents that need it.
+        self::assertFalse($response->headers->has('Access-Control-Allow-Origin'));
+    }
+
+    /**
      * The invariant local generation buys: a sitemap can only ever list paths
      * this very install would serve.
      */
@@ -47,9 +92,10 @@ final class SitemapServingTest extends IntegrationTestCase
         $this->serveRequiredFiles();
         $this->refresh();
 
-        $client->request('GET', 'http://apex.example/sitemap.xml');
+        $client->request('GET', 'http://apex.example/ai-sitemap.xml');
         preg_match_all('#<loc>http://apex\.example(/[^<]*)</loc>#', (string) $client->getResponse()->getContent(), $matches);
 
+        self::assertNotEmpty($matches[1]);
         foreach ($matches[1] as $path) {
             if ('/' === $path) {
                 continue;
@@ -59,12 +105,18 @@ final class SitemapServingTest extends IntegrationTestCase
         }
     }
 
-    public function testStays404WhenNoBundleCached(): void
+    /**
+     * A urlset naming only the homepage says less than whatever the site
+     * already serves, and an install that has never synced should look
+     * untouched — matching RobotsFilter, whose Sitemap: line names this path.
+     */
+    public function testNotAnsweredWhenNoBundleCached(): void
     {
         $client = $this->bootClient();
 
-        $client->request('GET', '/sitemap.xml');
+        $client->request('GET', '/ai-sitemap.xml');
 
-        self::assertSame(404, $client->getResponse()->getStatusCode());
+        // The kernel's catch-all answers instead — the bundle never claimed it.
+        self::assertStringNotContainsString('<urlset', (string) $client->getResponse()->getContent());
     }
 }

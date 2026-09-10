@@ -23,8 +23,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   most-specific matching group, so a single copy at the top of the file would
   reach none of the named agents.
 
-- **`robots.txt`'s `Sitemap:` line now names your own host**, not the
-  configured Globetrotters origin. A cross-host `Sitemap:` directive is ignored
+- **`robots.txt`'s `Sitemap:` line now names this site's own
+  `/ai-sitemap.xml`**, not a `sitemap.xml` on the configured Globetrotters
+  origin. A cross-host `Sitemap:` directive is ignored
   by Google and Bing without cross-domain verification, so the old line was
   inert rather than harmful — but in bundle mode the content is served from
   your apex, and that is where the sitemap belongs. The host comes from the
@@ -36,23 +37,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A fixture test (`tests/Fixtures/robots-ai-user-agent-groups.txt`) that fails
   the build if the emitted block drifts from the backend registry's own output,
   byte for byte. The fixture is generated from that module, not typed.
-- **`/sitemap.xml` now lists the discovery surface.** When your application
-  serves its own sitemap the bundle **merges** its `<url>` entries into that
-  document — additive only: nothing is removed or rewritten, a URL you already
-  list is skipped, and re-running is a no-op. When your application has none,
-  the bundle generates the whole document. Most apexes already have a sitemap,
-  and the readiness check reads a hardcoded `/sitemap.xml` rather than the
-  `Sitemap:` line, so merging is the only shape that reaches the common case.
-- The listing is built from the paths this install is actually serving, in the
-  URL space of the request it arrives on — so it can never advertise a URL your
-  site does not answer, and it needs no configuration to know your domain.
-  Globetrotters publishes a per-tenant `sitemap.xml`, but every URL in it is in
+- **A generated sitemap at `/ai-sitemap.xml`**, served once a bundle is cached:
+  a `<urlset>` over your homepage plus every artefact this install is actually
+  serving, in the URL space of the request it arrives on. It can never
+  advertise a URL your site does not answer, and needs no configuration to know
+  your domain. `robots.txt` declares it, which is how crawlers discover a
+  sitemap anyway.
+- **`/sitemap.xml` is never claimed.** That path is the site's — served by the
+  application, a static file, or redirected onto an SEO bundle's index — and a
+  six-URL artefact listing is no substitute for it. robots.txt takes a *list* of
+  `Sitemap:` directives, so ours is additive to whatever the site declares. This
+  matches `gt-wordpress-plugin`, which serves the same document at the same
+  path for the same reason.
+- Globetrotters publishes a per-tenant `sitemap.xml`, but every URL in it is in
   the *GT host* URL space and this bundle serves artefacts verbatim; building
   the listing locally is what keeps it and the serving in step by construction.
-- Sitemaps the bundle leaves exactly as they are: a `<sitemapindex>` (its
-  children are separate documents), a compressed or streamed response, one over
-  1 MB, and — as with `robots.txt` — a static `public/sitemap.xml`, which never
-  reaches the kernel.
+- The sitemap response carries `nosniff` and both `no-store` headers, and no
+  `Access-Control-Allow-Origin` (a sitemap is fetched server-side by a crawler).
+  Serving it is not recorded as agent traffic.
 - `<lastmod>` on each URL, dated from the new `content_changed_at` state value:
   it moves only when the pulled content actually changes, so a daily refresh
   that changed nothing does not restamp every URL as fresh. Installs upgrading

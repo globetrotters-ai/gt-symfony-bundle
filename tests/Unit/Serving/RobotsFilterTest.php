@@ -96,7 +96,7 @@ final class RobotsFilterTest extends TestCase
     {
         $expected = RobotsFilter::MARKER."\n"
             .RobotsFilter::aiUserAgentGroups()
-            .'Sitemap: '.self::REQUEST_ORIGIN."/sitemap.xml\n";
+            .'Sitemap: '.self::REQUEST_ORIGIN."/ai-sitemap.xml\n";
 
         self::assertSame($expected, RobotsFilter::buildBlock(self::REQUEST_ORIGIN));
     }
@@ -104,7 +104,7 @@ final class RobotsFilterTest extends TestCase
     public function testBuildBlockTrimsATrailingSlashFromTheOrigin(): void
     {
         self::assertStringContainsString(
-            'Sitemap: https://example.test/sitemap.xml',
+            'Sitemap: https://example.test/ai-sitemap.xml',
             RobotsFilter::buildBlock('https://example.test/'),
         );
     }
@@ -144,7 +144,7 @@ final class RobotsFilterTest extends TestCase
         $content = (string) $decorated->getContent();
         self::assertStringStartsWith("User-agent: *\nDisallow: /admin\n\n# Globetrotters AI Presence\n", $content);
         self::assertStringContainsString("User-agent: GPTBot\nAllow: /\nContent-Signal: search=yes, ai-input=yes, ai-train=yes\n", $content);
-        self::assertStringContainsString('Sitemap: '.self::REQUEST_ORIGIN.'/sitemap.xml', $content);
+        self::assertStringContainsString('Sitemap: '.self::REQUEST_ORIGIN.'/ai-sitemap.xml', $content);
         // The app's own wildcard group is the only one in the file.
         self::assertSame(1, substr_count($content, 'User-agent: *'));
     }
@@ -161,7 +161,7 @@ final class RobotsFilterTest extends TestCase
         $this->filter()->onKernelResponse($event);
 
         $content = (string) $response->getContent();
-        self::assertStringContainsString('Sitemap: https://apex.example/sitemap.xml', $content);
+        self::assertStringContainsString('Sitemap: https://apex.example/ai-sitemap.xml', $content);
         self::assertStringNotContainsString(self::BASE_URL, $content);
     }
 
@@ -171,7 +171,7 @@ final class RobotsFilterTest extends TestCase
 
         $response = $event->getResponse();
         self::assertNotNull($response);
-        self::assertStringContainsString('Sitemap: https://apex.example/sitemap.xml', (string) $response->getContent());
+        self::assertStringContainsString('Sitemap: https://apex.example/ai-sitemap.xml', (string) $response->getContent());
     }
 
     public function testDecorationRemovesStaleBodyMetadata(): void
@@ -295,14 +295,14 @@ final class RobotsFilterTest extends TestCase
 
     /**
      * Now that the line is same-host, an application already pointing at its
-     * own /sitemap.xml names the very URL this block would add.
+     * own /ai-sitemap.xml names the very URL this block would add.
      */
     public function testDoesNotRepeatASitemapDirectiveTheAppAlreadyCarries(): void
     {
-        $response = new Response("User-agent: *\nSitemap: http://localhost/sitemap.xml\n", 200, ['Content-Type' => 'text/plain']);
+        $response = new Response("User-agent: *\nSitemap: http://localhost/ai-sitemap.xml\n", 200, ['Content-Type' => 'text/plain']);
         $this->responseEvent($this->filter(), '/robots.txt', $response);
 
-        self::assertSame(1, substr_count((string) $response->getContent(), 'Sitemap: http://localhost/sitemap.xml'));
+        self::assertSame(1, substr_count((string) $response->getContent(), 'Sitemap: http://localhost/ai-sitemap.xml'));
     }
 
     /**
@@ -311,12 +311,12 @@ final class RobotsFilterTest extends TestCase
      */
     public function testStillAddsTheDirectiveWhenTheAppNamesADifferentSitemap(): void
     {
-        $response = new Response("User-agent: *\nSitemap: http://localhost/sitemap.xml.gz\n", 200, ['Content-Type' => 'text/plain']);
+        $response = new Response("User-agent: *\nSitemap: http://localhost/ai-sitemap.xml.gz\n", 200, ['Content-Type' => 'text/plain']);
         $this->responseEvent($this->filter(), '/robots.txt', $response);
 
         $content = (string) $response->getContent();
-        self::assertStringContainsString("\nSitemap: http://localhost/sitemap.xml\n", $content);
-        self::assertStringContainsString('Sitemap: http://localhost/sitemap.xml.gz', $content);
+        self::assertStringContainsString("\nSitemap: http://localhost/ai-sitemap.xml\n", $content);
+        self::assertStringContainsString('Sitemap: http://localhost/ai-sitemap.xml.gz', $content);
     }
 
     public function testDoesNotDecorateOnPost(): void
