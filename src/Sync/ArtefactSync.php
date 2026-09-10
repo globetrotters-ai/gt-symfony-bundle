@@ -132,18 +132,24 @@ final class ArtefactSync
     }
 
     /**
-     * Forget a cached bundle that belongs to another source — the website_url
-     * was cleared or changed — as gt-wordpress-plugin does on a disconnect or a
-     * new destination. Returns whether there was one.
+     * Forget a cached bundle pulled from another website_url, as
+     * gt-wordpress-plugin does for a new destination. Returns whether there
+     * was one.
      *
      * Serving already refuses such a bundle ({@see ArtefactCache::holdsForeignBundle()}).
      * This reclaims it and resets the state that described it — installed
      * version, content hash, change date, IndexNow key — so the status command
      * stops reporting it and the next refresh is due at once.
+     *
+     * Only in a process that is itself connected. A CLI or worker with no
+     * website_url is as likely a missing env var as a withdrawn presence, and
+     * the web tier already refuses the bundle by its own configuration, so
+     * forgetting there saves only cache space while letting a divergent
+     * environment take a correctly configured site dark.
      */
     public function forgetForeignBundle(): bool
     {
-        if (!$this->cache->holdsForeignBundle()) {
+        if (!$this->options->isConnected() || !$this->cache->holdsForeignBundle()) {
             return false;
         }
 

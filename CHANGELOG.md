@@ -106,9 +106,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   repointed kept serving the last source's discovery files, homepage JSON-LD,
   sitemap and IndexNow key; only robots.txt stopped advertising them. The
   cached bundle now records the URL it was pulled from and is served only
-  while that URL is configured. The next refresh drops it along with the state
-  learned from it, and `gt:refresh` treats it as due at once, so the new
-  source is published on the next cron run. A bundle cached by 0.4.0 or
+  while that URL is configured. A refresh for the new URL drops it along with
+  the state learned from it, and `gt:refresh` treats it as due at once, so the
+  new source is published on the next cron run. A process with no
+  `website_url` never deletes it, so a cron job missing the env var cannot
+  take a correctly configured site dark. A bundle cached by 0.4.0 or
   earlier records no URL and keeps serving until its next refresh stamps it.
   Matches `gt-wordpress-plugin`.
 - **The reporting endpoint must be `https://`.** Any URL was accepted, so an

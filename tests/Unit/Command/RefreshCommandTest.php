@@ -53,21 +53,33 @@ final class RefreshCommandTest extends TestCase
         self::assertSame('hello', $cache->get('llms.txt'));
     }
 
-    public function testAClearedInstallDropsTheBundleItNoLongerServes(): void
+    /**
+     * A process with no website_url is as likely a cron job or worker missing
+     * the env var as a withdrawn presence. The web tier already refuses the
+     * bundle by its own configuration; deleting it here would take a correctly
+     * configured site dark on every run.
+     */
+    public function testAProcessWithNoWebsiteUrlNeverDeletesTheBundle(): void
     {
         $pool = new ArrayAdapter();
         $clock = new MockClock('2026-09-10 10:00:00', 'UTC');
-        (new ArtefactCache($pool, self::BASE_URL))->store(['llms.txt' => 'hello'], 'v1', 0);
+        $served = new ArtefactCache($pool, self::BASE_URL);
+        $served->store(['llms.txt' => 'hello'], 'v1', 0);
         $options = new Options($pool, '', 'daily', '/');
         $options->updateState(['installed_version' => 'v1']);
         $cache = new ArtefactCache($pool, '');
+        $sync = new ArtefactSync(new FakeFetcher(), $cache, $options, $clock);
 
-        $tester = $this->tester(new FakeFetcher(), $cache, $options, $clock);
-
+        $tester = new CommandTester(new RefreshCommand($sync, $options, $clock));
         self::assertSame(Command::SUCCESS, $tester->execute([]));
         self::assertStringContainsString('No website_url configured', $tester->getDisplay());
-        self::assertFalse($cache->holdsForeignBundle());
-        self::assertSame('', $options->state()['installed_version']);
+        // The scheduler lane calls run() directly.
+        self::assertFalse($sync->run()->isSuccess());
+
+        self::assertNull($cache->get('llms.txt'), 'this process still serves none of it');
+        $served->reset();
+        self::assertSame('hello', $served->get('llms.txt'));
+        self::assertSame('v1', (new Options($pool, self::BASE_URL, 'daily', '/'))->state()['installed_version']);
     }
 
     private function tester(FakeFetcher $fetcher, ArtefactCache $cache, Options $options, MockClock $clock): CommandTester

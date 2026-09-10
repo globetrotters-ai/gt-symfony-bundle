@@ -73,7 +73,7 @@ final class StatusCommand extends Command
             ['Connected', $this->options->isConnected() ? 'yes ('.$this->options->baseUrl().')' : 'no'],
             ['Bundle cached', match (true) {
                 $this->cache->hasAny() => 'yes',
-                $this->cache->holdsForeignBundle() => 'no — the cached one is from another website_url and is not served (gt:refresh drops it)',
+                $this->cache->holdsForeignBundle() => 'no — the cached one is from another website_url and is not served',
                 default => 'no',
             }],
             ['Installed version', '' !== (string) $state['installed_version'] ? (string) $state['installed_version'] : '—'],

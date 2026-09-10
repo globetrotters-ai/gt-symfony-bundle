@@ -49,16 +49,16 @@ final class RefreshCommand extends Command
     {
         $io = new SymfonyStyle($input, $output);
 
-        // Before the due-check: forgetting resets last_refresh, so a changed
-        // website_url is pulled on this run rather than a full interval later.
-        if ($this->sync->forgetForeignBundle()) {
-            $io->note('Dropped the bundle cached for a previous website_url. It was no longer being served.');
-        }
-
         if (!$this->options->isConnected()) {
             $io->warning('No website_url configured — nothing to refresh.');
 
             return Command::SUCCESS;
+        }
+
+        // Before the due-check: forgetting resets last_refresh, so a changed
+        // website_url is pulled on this run rather than a full interval later.
+        if ($this->sync->forgetForeignBundle()) {
+            $io->note('Dropped the bundle cached for a previous website_url. It was no longer being served.');
         }
 
         if (!$input->getOption('force') && !$this->isDue()) {
