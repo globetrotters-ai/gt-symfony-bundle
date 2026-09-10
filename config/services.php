@@ -20,6 +20,7 @@ use Globetrotters\AiPresenceBundle\Serving\ConditionalGetSubscriber;
 use Globetrotters\AiPresenceBundle\Serving\HeadInjector;
 use Globetrotters\AiPresenceBundle\Serving\RobotsFilter;
 use Globetrotters\AiPresenceBundle\Serving\Router;
+use Globetrotters\AiPresenceBundle\Serving\Sitemap;
 use Globetrotters\AiPresenceBundle\Settings\BreadcrumbOptions;
 use Globetrotters\AiPresenceBundle\Settings\Options;
 use Globetrotters\AiPresenceBundle\Sync\ArtefactSync;
@@ -62,8 +63,11 @@ return static function (ContainerConfigurator $container): void {
             service('globetrotters_ai_presence.clock'),
         ]);
 
+    $services->set(Sitemap::class)
+        ->args([service(Options::class), service(ArtefactCache::class)]);
+
     $services->set(Router::class)
-        ->args([service(ArtefactCache::class), service(Options::class)])
+        ->args([service(ArtefactCache::class), service(Options::class), service(Sitemap::class)])
         ->tag('kernel.event_subscriber');
 
     $services->set(HeadInjector::class)

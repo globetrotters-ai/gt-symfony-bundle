@@ -7,6 +7,7 @@ namespace Globetrotters\AiPresenceBundle\Tests\Unit\Serving;
 use Globetrotters\AiPresenceBundle\Cache\ArtefactCache;
 use Globetrotters\AiPresenceBundle\Serving\ContentTypes;
 use Globetrotters\AiPresenceBundle\Serving\Router;
+use Globetrotters\AiPresenceBundle\Serving\Sitemap;
 use Globetrotters\AiPresenceBundle\Settings\Options;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Cache\Adapter\ArrayAdapter;
@@ -35,7 +36,7 @@ final class RouterTest extends TestCase
             '.well-known/mcp.json' => '{"m":1}',
         ], 'v1', 0);
         $this->options = new Options($pool, 'https://nantes.globetrotters.ai', 'daily', '/');
-        $this->router = new Router($this->cache, $this->options);
+        $this->router = new Router($this->cache, $this->options, new Sitemap($this->options, $this->cache));
     }
 
     private function storeKey(string $key): void
@@ -161,9 +162,101 @@ final class RouterTest extends TestCase
 
     public function testColdCacheFallsThrough(): void
     {
-        $router = new Router(new ArtefactCache(new ArrayAdapter()), $this->options);
+        $cold = new ArtefactCache(new ArrayAdapter());
+        $router = new Router($cold, $this->options, new Sitemap($this->options, $cold));
         $event = $this->event('/llms.txt');
         $router->onKernelRequest($event);
+
+        self::assertNull($event->getResponse());
+    }
+
+    public function testServesTheGeneratedSitemapAtItsOwnPath(): void
+    {
+        $event = $this->event('https://apex.example/'.Sitemap::PATH);
+        $this->router->onKernelRequest($event);
+
+        $response = $event->getResponse();
+        self::assertNotNull($response);
+        self::assertSame(200, $response->getStatusCode());
+        self::assertSame(Sitemap::CONTENT_TYPE, $response->headers->get('Content-Type'));
+        self::assertStringContainsString('<loc>https://apex.example/llms.txt</loc>', (string) $response->getContent());
+    }
+
+    /**
+     * A crawler reading a sitemap is not an agent fetching the presence, so it
+     * must not reach Presence Analytics — but the no-store headers still apply,
+     * and the CORS grant still does not.
+     */
+    public function testTheSitemapIsTaggedForHeadersButNotForCapture(): void
+    {
+        $event = $this->event('https://apex.example/'.Sitemap::PATH);
+        $this->router->onKernelRequest($event);
+
+        $attributes = $event->getRequest()->attributes;
+        self::assertTrue($attributes->get(Router::ATTRIBUTE_SITEMAP));
+        self::assertFalse($attributes->has(Router::ATTRIBUTE_PATH));
+        self::assertSame(Router::sitemapHeaders(), [
+            'Content-Type' => Sitemap::CONTENT_TYPE,
+            'X-Content-Type-Options' => 'nosniff',
+            'Cache-Control' => 'no-store, private',
+            'Surrogate-Control' => 'no-store',
+        ]);
+        self::assertArrayNotHasKey('Access-Control-Allow-Origin', Router::sitemapHeaders());
+    }
+
+    /**
+     * `ai-sitemap.xml` is itself a well-formed key filename (a ten-character
+     * [A-Za-z0-9-] stem), so an install whose key happened to be `ai-sitemap`
+     * must not shadow the sitemap. Structural, like the artefact map being
+     * matched before both.
+     */
+    public function testTheSitemapIsMatchedBeforeAKeyThatWouldShadowIt(): void
+    {
+        $this->storeKey('ai-sitemap');
+
+        $event = $this->event('https://apex.example/'.Sitemap::PATH);
+        $this->router->onKernelRequest($event);
+
+        $response = $event->getResponse();
+        self::assertNotNull($response);
+        self::assertStringContainsString('<urlset', (string) $response->getContent());
+    }
+
+    /**
+     * The site's own /sitemap.xml is the application's, whatever it does with
+     * it — the bundle never claims that path.
+     */
+    public function testNeverClaimsThePlainSitemapPath(): void
+    {
+        $event = $this->event('/sitemap.xml');
+        $this->router->onKernelRequest($event);
+
+        self::assertNull($event->getResponse());
+    }
+
+    public function testTheSitemapIsNotServedOnAColdCache(): void
+    {
+        $cold = new ArtefactCache(new ArrayAdapter());
+        $router = new Router($cold, $this->options, new Sitemap($this->options, $cold));
+        $event = $this->event('/'.Sitemap::PATH);
+        $router->onKernelRequest($event);
+
+        self::assertNull($event->getResponse());
+    }
+
+    /**
+     * The gate is what the listing holds, not whether the cache holds
+     * anything: with only the version marker left (an evicted pool, say) the
+     * listing would name nothing but the homepage.
+     */
+    public function testTheSitemapIsNotServedWhenNoArtefactIsListable(): void
+    {
+        $pool = new ArrayAdapter();
+        $cache = new ArtefactCache($pool);
+        $cache->store([ContentTypes::VERSION_MARKER => '{}'], 'v1', 0);
+        $options = new Options($pool, 'https://nantes.globetrotters.ai', 'daily', '/');
+        $event = $this->event('/'.Sitemap::PATH);
+        (new Router($cache, $options, new Sitemap($options, $cache)))->onKernelRequest($event);
 
         self::assertNull($event->getResponse());
     }
@@ -244,7 +337,7 @@ final class RouterTest extends TestCase
         $options->updateState(['indexnow_key' => self::INDEXNOW_KEY]);
 
         $event = $this->event('/'.$path);
-        (new Router($cache, $options))->onKernelRequest($event);
+        (new Router($cache, $options, new Sitemap($options, $cache)))->onKernelRequest($event);
 
         self::assertNotNull($event->getResponse());
         self::assertSame('artefact body', $event->getResponse()->getContent());
