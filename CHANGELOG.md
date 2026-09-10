@@ -155,6 +155,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the interval but never the lock, and a "not due" or "already running" skip is
   reported as a skip rather than a failed flush.
 
+### Notes
+
+- Upgrading from 0.4.x is opt-in: on 0.x semver a minor bump is treated as
+  breaking, so a `^0.4` constraint stays on 0.4.x until you move it to `^0.5`.
+  That also holds back every fix above, including https-only reporting.
+- A literal `http://` `reporting.endpoint` now fails the container build. One
+  bound to an env var still builds but reads as unconfigured at runtime, so
+  reporting stays off and `gt:status` says why. Use the `https://` endpoint
+  Studio issues.
+- `robots.txt` output changes on upgrade: more agents are named, and each now
+  inherits your `User-agent: *` rules instead of getting `Allow: /`. Set
+  `robots.ai_agents: allow_all` to grant them `Allow: /` again.
+- `ArtefactCache` takes the configured `website_url` as a second constructor
+  argument. Only code that builds it by hand is affected; the bundle wires it.
+
 ## [0.4.0] - 2026-09-09
 
 ### Added
