@@ -16,6 +16,7 @@ use Globetrotters\AiPresenceBundle\Analytics\FlushOutcome;
 use Globetrotters\AiPresenceBundle\Analytics\IngestResult;
 use Globetrotters\AiPresenceBundle\Analytics\NdjsonEventStore;
 use Globetrotters\AiPresenceBundle\Analytics\PageViewCounter;
+use Globetrotters\AiPresenceBundle\Analytics\PageViewOptions;
 use Globetrotters\AiPresenceBundle\Analytics\PageViewRules;
 use Globetrotters\AiPresenceBundle\Tests\Support\FakeIngestTransport;
 use Globetrotters\AiPresenceBundle\Tests\Support\TempDirectory;
@@ -197,6 +198,57 @@ final class FlusherPageViewsTest extends TestCase
         self::assertSame(['/oldest-accepted'], array_column($this->transport->envelopes()[0]['pageViews'], 'path'));
         self::assertFileDoesNotExist($this->dir.'/pageviews-2026-09-19.json');
         self::assertFileDoesNotExist($this->dir.'/pageviews-sealed-2026-09-19.json');
+    }
+
+    /**
+     * Switching the opt-in off is an opt-out: counts collected while it was on
+     * are neither sealed nor sent, and are deleted.
+     */
+    public function testWithPageViewsDisabledNothingIsSentAndEveryFileIsDiscarded(): void
+    {
+        $this->view('2026-09-25', '/sealed-earlier', 1);
+        $this->pageViews->seal('2026-09-26');
+        $this->view('2026-09-26', '/closed', 2);
+        $this->view(self::TODAY, '/open', 1);
+        $directory = new BufferDirectory($this->dir);
+        $options = new AnalyticsOptions(true, 'https://api.globetrotters.ai/presence/analytics/server-log', 'token', true, false);
+        $flusher = new Flusher(
+            $this->buffer,
+            $this->transport,
+            $options,
+            new AnalyticsState(new ArrayAdapter()),
+            new FlushGate($directory, $this->clock),
+            $this->clock,
+            $this->pageViews,
+            new PageViewOptions($options, false, false),
+        );
+
+        self::assertSame(FlushOutcome::Accepted, $flusher->run(AnalyticsState::LANE_COMMAND));
+
+        self::assertCount(1, $this->transport->sent, 'the heartbeat still goes');
+        self::assertArrayNotHasKey('pageViews', $this->transport->envelopes()[0]);
+        self::assertSame([], glob($this->dir.'/pageviews-*') ?: []);
+    }
+
+    public function testWithPageViewsEnabledTheyAreSent(): void
+    {
+        $this->view('2026-09-26', '/closed', 1);
+        $directory = new BufferDirectory($this->dir);
+        $options = new AnalyticsOptions(true, 'https://api.globetrotters.ai/presence/analytics/server-log', 'token', true, false);
+        $flusher = new Flusher(
+            $this->buffer,
+            $this->transport,
+            $options,
+            new AnalyticsState(new ArrayAdapter()),
+            new FlushGate($directory, $this->clock),
+            $this->clock,
+            $this->pageViews,
+            new PageViewOptions($options, true, false),
+        );
+
+        $flusher->run(AnalyticsState::LANE_COMMAND);
+
+        self::assertCount(1, $this->transport->envelopes()[0]['pageViews']);
     }
 
     private function view(string $day, string $path, int $times, string $bucket = PageViewRules::BUCKET_BROWSER): void

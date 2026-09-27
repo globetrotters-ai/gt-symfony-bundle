@@ -58,6 +58,7 @@ final class Flusher
         private readonly FlushGate $gate,
         private readonly ClockInterface $clock,
         private readonly ?PageViewCounter $pageViews = null,
+        private readonly ?PageViewOptions $pageViewOptions = null,
     ) {
     }
 
@@ -203,6 +204,14 @@ final class Flusher
             return;
         }
 
+        // Disabling the opt-in is an opt-out: counts collected while it was on
+        // are neither sealed nor sent, but deleted.
+        if (null !== $this->pageViewOptions && !$this->pageViewOptions->isEnabled()) {
+            $this->pageViews->discardAll();
+
+            return;
+        }
+
         $today = $this->today();
         $this->pageViews->prune($today);
         $this->pageViews->seal($today);
@@ -213,7 +222,11 @@ final class Flusher
      */
     private function pendingPageViews(int $limit): array
     {
-        return null === $this->pageViews ? [] : $this->pageViews->pending($limit);
+        if (null === $this->pageViews || (null !== $this->pageViewOptions && !$this->pageViewOptions->isEnabled())) {
+            return [];
+        }
+
+        return $this->pageViews->pending($limit);
     }
 
     private function today(): string

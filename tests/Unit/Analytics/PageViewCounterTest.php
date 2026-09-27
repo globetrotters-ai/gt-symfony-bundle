@@ -136,6 +136,75 @@ final class PageViewCounterTest extends TestCase
         self::assertSame(1, $pending[1]['count']);
     }
 
+    /**
+     * The crash window: the sealed file was written but the process died
+     * before the open file was unlinked. Re-sealing it under fresh UUIDs would
+     * make the backend (which dedupes on id) count the day twice.
+     */
+    public function testReSealingAnOpenFileThatWasAlreadySealedAddsNothing(): void
+    {
+        $this->counter->increment('2026-09-26', '/a', PageViewRules::BUCKET_BROWSER);
+        $this->counter->increment('2026-09-26', '/b', PageViewRules::BUCKET_AI_BROWSER);
+        $open = $this->dir.'/pageviews-2026-09-26.json';
+        clearstatcache(true, $open);
+        $stat = stat($open);
+        self::assertIsArray($stat);
+        $source = PageViewCounter::fingerprint($stat, (string) file_get_contents($open));
+
+        // What the sealed file looks like after the rename, before the unlink.
+        $sealed = [
+            ['id' => '00000000-0000-4000-8000-000000000001', 'day' => '2026-09-26', 'path' => '/a', 'bucket' => 'browser', 'count' => 1, 'src' => $source],
+            ['id' => '00000000-0000-4000-8000-000000000002', 'day' => '2026-09-26', 'path' => '/b', 'bucket' => 'ai_browser', 'count' => 1, 'src' => $source],
+        ];
+        file_put_contents($this->dir.'/pageviews-sealed-2026-09-26.json', json_encode($sealed));
+
+        self::assertSame(0, $this->counter->seal('2026-09-27'));
+
+        self::assertSame(
+            ['00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000002'],
+            array_column($this->counter->pending(10), 'id'),
+        );
+        self::assertFileDoesNotExist($open, 'the already-sealed open file is removed');
+    }
+
+    public function testTheSourceFingerprintIsNeverSent(): void
+    {
+        $this->counter->increment('2026-09-26', '/a', PageViewRules::BUCKET_BROWSER);
+        $this->counter->seal('2026-09-27');
+
+        $raw = json_decode((string) file_get_contents($this->dir.'/pageviews-sealed-2026-09-26.json'), true);
+        self::assertIsArray($raw);
+        self::assertIsString($raw[0]['src'], 'the sealed file carries the fingerprint');
+        self::assertSame(['id', 'day', 'path', 'bucket', 'count'], array_keys($this->counter->pending(10)[0]));
+    }
+
+    public function testRemovingSomeRecordsKeepsTheFingerprintOnTheRest(): void
+    {
+        $this->counter->increment('2026-09-26', '/a', PageViewRules::BUCKET_BROWSER);
+        $this->counter->increment('2026-09-26', '/b', PageViewRules::BUCKET_BROWSER);
+        $this->counter->seal('2026-09-27');
+
+        $this->counter->remove([$this->counter->pending(1)[0]['id']]);
+
+        $raw = json_decode((string) file_get_contents($this->dir.'/pageviews-sealed-2026-09-26.json'), true);
+        self::assertIsArray($raw);
+        self::assertCount(1, $raw);
+        self::assertIsString($raw[0]['src']);
+    }
+
+    public function testDiscardAllRemovesEveryPageViewFile(): void
+    {
+        $this->counter->increment('2026-09-25', '/a', PageViewRules::BUCKET_BROWSER);
+        $this->counter->seal('2026-09-26');
+        $this->counter->increment('2026-09-26', '/b', PageViewRules::BUCKET_BROWSER);
+        file_put_contents($this->dir.'/events.ndjson', "{}\n");
+
+        self::assertSame(2, $this->counter->discardAll());
+
+        self::assertSame([], glob($this->dir.'/pageviews-*') ?: []);
+        self::assertFileExists($this->dir.'/events.ndjson', 'the event buffer is not page-view data');
+    }
+
     public function testRemovesOnlyTheGivenIds(): void
     {
         $this->counter->increment('2026-09-25', '/a', PageViewRules::BUCKET_BROWSER);
@@ -202,7 +271,9 @@ final class PageViewCounterTest extends TestCase
 
     /**
      * Privacy by construction: what lands on disk is a day, a path, a bucket
-     * and a count — nothing that identifies a visitor.
+     * and a count — nothing that identifies a visitor. The one other field is
+     * ``src``, a sha1 of the open file it was sealed from (inode, mtime and the
+     * counts themselves), which is bookkeeping about a file, not a visitor.
      */
     public function testWritesNothingButDayPathBucketAndCount(): void
     {
@@ -214,6 +285,7 @@ final class PageViewCounterTest extends TestCase
 
         $records = json_decode((string) file_get_contents($this->dir.'/'.$files[0]), true);
         self::assertIsArray($records);
-        self::assertSame(['id', 'day', 'path', 'bucket', 'count'], array_keys($records[0]));
+        self::assertSame(['id', 'day', 'path', 'bucket', 'count', 'src'], array_keys($records[0]));
+        self::assertMatchesRegularExpression('/^[0-9a-f]{40}$/', $records[0]['src']);
     }
 }

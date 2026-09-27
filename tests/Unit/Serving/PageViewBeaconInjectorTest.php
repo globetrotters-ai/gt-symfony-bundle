@@ -56,6 +56,21 @@ final class PageViewBeaconInjectorTest extends TestCase
         self::assertSame($page, $response->getContent());
     }
 
+    /**
+     * Idempotence keys on the rendered script, not on the endpoint path: a
+     * page that merely mentions the path (a privacy notice linking to it, say)
+     * still counts.
+     */
+    public function testAPageThatMerelyMentionsTheEndpointStillGetsTheScript(): void
+    {
+        $page = '<html><body><a href="'.PageViewBeacon::PATH.'">'.PageViewBeacon::PATH.'</a></body></html>';
+
+        $response = $this->inject(new Response($page, 200, ['Content-Type' => 'text/html']));
+
+        self::assertSame(1, substr_count((string) $response->getContent(), PageViewBeacon::SCRIPT));
+        self::assertStringEndsWith(PageViewBeacon::SCRIPT.'</body></html>', (string) $response->getContent());
+    }
+
     public function testDropsTheStaleEntityTagMetadata(): void
     {
         $response = new Response(self::PAGE, 200, ['Content-Type' => 'text/html']);

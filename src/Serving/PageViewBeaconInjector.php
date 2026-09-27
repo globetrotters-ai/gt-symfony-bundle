@@ -65,7 +65,10 @@ final class PageViewBeaconInjector implements EventSubscriberInterface
         }
 
         $script = $this->beacon->render();
-        if ('' === $script || str_contains($content, PageViewBeacon::PATH)) {
+        // Keyed on the rendered script, not the endpoint path: a page that
+        // merely mentions the path (a privacy notice linking to it) must still
+        // count.
+        if ('' === $script || str_contains($content, $script)) {
             return;
         }
 

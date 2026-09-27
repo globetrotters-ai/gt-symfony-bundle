@@ -33,7 +33,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   accepts them. A page-view-only envelope (`events: []`) is valid, so the cron
   and Scheduler lanes carry page views with no agent traffic buffered, and on
   the `kernel.terminate` lane a beacon request, or a closed day waiting, can
-  trigger the flush too.
+  trigger the flush too. Sealing is idempotent across a crash (each sealed
+  record remembers which open file it came from), and switching
+  `page_views.enabled` back off deletes every count not yet sent.
 - `gt:status` shows whether the counter is on, the records waiting to be sent
   and the views counted on open days; `gt:presence:flush` reports page-view
   records alongside events.

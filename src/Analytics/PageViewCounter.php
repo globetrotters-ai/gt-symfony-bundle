@@ -19,7 +19,10 @@ namespace Globetrotters\AiPresenceBundle\Analytics;
  *   carrying a UUID assigned once, when the day is sealed. The backend dedupes
  *   on that id, so a retried flush re-sends the same ids and cannot double
  *   count. Only the flusher touches sealed files, under the flush lock; they
- *   are replaced by atomic rename, so a reader never sees half of one.
+ *   are replaced by atomic rename, so a reader never sees half of one. Each
+ *   record also carries ``src``, a fingerprint of the open file it was sealed
+ *   from, which makes sealing idempotent across a crash (see sealDay()). It
+ *   stays on disk and is never sent.
  *
  * Nothing that identifies a visitor ever reaches this class: no IP, no
  * User-Agent string, no cookie. A day, a path, a bucket and a count.
@@ -82,6 +85,36 @@ final class PageViewCounter
         }
 
         return false;
+    }
+
+    /**
+     * Drop every page-view file, open and sealed — what disabling the opt-in
+     * means for counts already collected. Returns how many files went.
+     */
+    public function discardAll(): int
+    {
+        $removed = 0;
+        foreach ([self::OPEN_FILE => 'pageviews-', self::SEALED_FILE => 'pageviews-sealed-'] as $pattern => $prefix) {
+            foreach ($this->days($pattern) as $day) {
+                if (@unlink($this->directory->path($prefix.$day.'.json'))) {
+                    ++$removed;
+                }
+            }
+        }
+
+        return $removed;
+    }
+
+    /**
+     * Identify one open file's contents at one moment: its inode, its mtime and
+     * its bytes. A file recreated for the same day (a late view after sealing)
+     * gets a new inode and mtime, so it never matches the one sealed before it.
+     *
+     * @param array<int|string, int> $stat as returned by stat()/fstat()
+     */
+    public static function fingerprint(array $stat, string $contents): string
+    {
+        return sha1(($stat['ino'] ?? 0).'|'.($stat['mtime'] ?? 0).'|'.$contents);
     }
 
     /**
@@ -187,7 +220,8 @@ final class PageViewCounter
         $set = array_flip($ids);
         $removed = 0;
         foreach ($this->days(self::SEALED_FILE) as $day) {
-            $records = $this->sealedRecords($day);
+            // The stored form, so the records kept keep their fingerprint.
+            $records = $this->storedRecords($day);
             $kept = array_values(array_filter($records, static fn (array $record): bool => !isset($set[$record['id']])));
             $gone = \count($records) - \count($kept);
             if (0 === $gone) {
@@ -252,15 +286,28 @@ final class PageViewCounter
         $openPath = $this->directory->path('pageviews-'.$day.'.json');
 
         return $this->withExclusiveLock($openPath, function ($handle) use ($day, $openPath): int {
+            $contents = self::readAll($handle);
+            $stat = fstat($handle);
+            $source = self::fingerprint(false === $stat ? [] : $stat, $contents);
+
             $records = [];
-            foreach (self::decodeCounts(self::readAll($handle)) as $key => $count) {
+            foreach (self::decodeCounts($contents) as $key => $count) {
                 [$bucket, $path] = explode("\t", $key, 2);
-                $records[] = ['id' => Uuid::v4(), 'day' => $day, 'path' => $path, 'bucket' => $bucket, 'count' => $count];
+                $records[] = ['id' => Uuid::v4(), 'day' => $day, 'path' => $path, 'bucket' => $bucket, 'count' => $count, 'src' => $source];
             }
 
             if ([] !== $records) {
-                $sealedPath = $this->directory->path('pageviews-sealed-'.$day.'.json');
-                if (!$this->replace($sealedPath, array_merge($this->sealedRecords($day), $records))) {
+                $existing = $this->storedRecords($day);
+                // Idempotence across a crash. If the process died after the
+                // rename below but before the unlink, this very file (same
+                // inode, mtime and bytes) is back here with its records already
+                // sealed — re-sealing it under fresh UUIDs would make the
+                // backend, which dedupes on id, count the day twice. So the
+                // merge is skipped and only the unlink is finished.
+                $alreadySealed = [] !== array_filter($existing, static fn (array $record): bool => ($record['src'] ?? null) === $source);
+                if ($alreadySealed) {
+                    $records = [];
+                } elseif (!$this->replace($this->directory->path('pageviews-sealed-'.$day.'.json'), array_merge($existing, $records))) {
                     // Nothing sealed, nothing lost: the open file stays for the
                     // next run.
                     return 0;
@@ -269,9 +316,8 @@ final class PageViewCounter
 
             // Unlinked while the lock is still held, so an increment waiting on
             // it finds the file gone (see increment()) rather than writing into
-            // a day that has already been read. A crash between the rename
-            // above and this line would seal the day twice; that window is two
-            // syscalls wide and taken only once a day.
+            // a day that has already been read. A crash before this line is
+            // caught by the fingerprint check above on the next run.
             @unlink($openPath);
 
             return \count($records);
@@ -279,9 +325,31 @@ final class PageViewCounter
     }
 
     /**
+     * Sealed records in their wire form: ``src`` is local bookkeeping and is
+     * never sent.
+     *
      * @return list<array{id: string, day: string, path: string, bucket: string, count: int}>
      */
     private function sealedRecords(string $day): array
+    {
+        return array_map(
+            static fn (array $record): array => [
+                'id' => $record['id'],
+                'day' => $record['day'],
+                'path' => $record['path'],
+                'bucket' => $record['bucket'],
+                'count' => $record['count'],
+            ],
+            $this->storedRecords($day),
+        );
+    }
+
+    /**
+     * Sealed records as stored, with the ``src`` fingerprint when present.
+     *
+     * @return list<array{id: string, day: string, path: string, bucket: string, count: int, src?: string}>
+     */
+    private function storedRecords(string $day): array
     {
         $decoded = json_decode($this->readShared($this->directory->path('pageviews-sealed-'.$day.'.json')), true);
         if (!\is_array($decoded)) {
@@ -297,13 +365,17 @@ final class PageViewCounter
                 && \is_int($record['count'] ?? null)
                 && $record['count'] > 0
             ) {
-                $records[] = [
+                $stored = [
                     'id' => $record['id'],
                     'day' => $day,
                     'path' => $record['path'],
                     'bucket' => $record['bucket'],
                     'count' => $record['count'],
                 ];
+                if (\is_string($record['src'] ?? null)) {
+                    $stored['src'] = $record['src'];
+                }
+                $records[] = $stored;
             }
         }
 
@@ -314,7 +386,7 @@ final class PageViewCounter
      * Write a whole file by atomic rename, so a reader sees the old contents
      * or the new, never a truncated one.
      *
-     * @param list<array{id: string, day: string, path: string, bucket: string, count: int}> $records
+     * @param list<array{id: string, day: string, path: string, bucket: string, count: int, src?: string}> $records
      */
     private function replace(string $path, array $records): bool
     {

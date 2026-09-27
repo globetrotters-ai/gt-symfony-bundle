@@ -90,6 +90,7 @@ return static function (ContainerConfigurator $container): void {
             service(FlushGate::class),
             service('globetrotters_ai_presence.clock'),
             service(PageViewCounter::class),
+            service(PageViewOptions::class),
         ]);
 
     $services->set(ArtefactHeaderSubscriber::class)
