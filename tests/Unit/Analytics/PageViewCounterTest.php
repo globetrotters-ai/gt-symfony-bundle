@@ -1,0 +1,219 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Globetrotters\AiPresenceBundle\Tests\Unit\Analytics;
+
+use Globetrotters\AiPresenceBundle\Analytics\BufferDirectory;
+use Globetrotters\AiPresenceBundle\Analytics\PageViewCounter;
+use Globetrotters\AiPresenceBundle\Analytics\PageViewRules;
+use Globetrotters\AiPresenceBundle\Tests\Support\TempDirectory;
+use PHPUnit\Framework\TestCase;
+
+final class PageViewCounterTest extends TestCase
+{
+    private const UUID_V4 = '/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/';
+
+    private string $dir;
+    private PageViewCounter $counter;
+
+    protected function setUp(): void
+    {
+        $this->dir = TempDirectory::make();
+        $this->counter = new PageViewCounter(new BufferDirectory($this->dir));
+    }
+
+    protected function tearDown(): void
+    {
+        TempDirectory::remove($this->dir);
+    }
+
+    public function testIncrementsPerDayPathAndBucket(): void
+    {
+        self::assertTrue($this->counter->increment('2026-09-26', '/a', PageViewRules::BUCKET_BROWSER));
+        $this->counter->increment('2026-09-26', '/a', PageViewRules::BUCKET_BROWSER);
+        $this->counter->increment('2026-09-26', '/a', PageViewRules::BUCKET_AI_BROWSER);
+        $this->counter->increment('2026-09-26', '/b', PageViewRules::BUCKET_BROWSER);
+        $this->counter->increment('2026-09-27', '/a', PageViewRules::BUCKET_BROWSER);
+
+        self::assertSame([
+            "browser\t/a" => 2,
+            "ai_browser\t/a" => 1,
+            "browser\t/b" => 1,
+        ], $this->counter->counts('2026-09-26'));
+        self::assertSame(["browser\t/a" => 1], $this->counter->counts('2026-09-27'));
+        self::assertFileExists($this->dir.'/pageviews-2026-09-26.json');
+    }
+
+    public function testThe2001stDistinctPathOfADayGoesToOther(): void
+    {
+        for ($i = 0; $i < PageViewCounter::MAX_PATHS_PER_DAY; ++$i) {
+            $this->counter->increment('2026-09-26', '/p'.$i, PageViewRules::BUCKET_BROWSER);
+        }
+
+        $this->counter->increment('2026-09-26', '/new-path', PageViewRules::BUCKET_BROWSER);
+        $this->counter->increment('2026-09-26', '/another', PageViewRules::BUCKET_AI_BROWSER);
+        // A path already counted keeps counting under its own name.
+        $this->counter->increment('2026-09-26', '/p0', PageViewRules::BUCKET_BROWSER);
+        // …and in a bucket it had not been seen in: the cap is on paths, not keys.
+        $this->counter->increment('2026-09-26', '/p1', PageViewRules::BUCKET_AI_BROWSER);
+
+        $counts = $this->counter->counts('2026-09-26');
+        self::assertArrayNotHasKey("browser\t/new-path", $counts);
+        self::assertSame(1, $counts["browser\t(other)"]);
+        self::assertSame(1, $counts["ai_browser\t(other)"]);
+        self::assertSame(2, $counts["browser\t/p0"]);
+        self::assertSame(1, $counts["ai_browser\t/p1"]);
+    }
+
+    public function testAnUnusableDirectoryDegradesWithoutThrowing(): void
+    {
+        $file = $this->dir.'/not-a-dir';
+        file_put_contents($file, 'x');
+        $counter = new PageViewCounter(new BufferDirectory($file.'/nested'));
+
+        self::assertFalse($counter->increment('2026-09-26', '/a', PageViewRules::BUCKET_BROWSER));
+        self::assertSame([], $counter->counts('2026-09-26'));
+        self::assertSame(0, $counter->seal('2026-09-27'));
+        self::assertSame([], $counter->pending(10));
+        self::assertSame(0, $counter->remove(['x']));
+        self::assertFalse($counter->hasReportable('2026-09-27'));
+    }
+
+    public function testSealsOnlyClosedDays(): void
+    {
+        $this->counter->increment('2026-09-25', '/a', PageViewRules::BUCKET_BROWSER);
+        $this->counter->increment('2026-09-26', '/b', PageViewRules::BUCKET_BROWSER);
+        $this->counter->increment('2026-09-27', '/today', PageViewRules::BUCKET_BROWSER);
+
+        self::assertSame(2, $this->counter->seal('2026-09-27'));
+
+        $pending = $this->counter->pending(10);
+        self::assertSame(['2026-09-25', '2026-09-26'], array_column($pending, 'day'));
+        self::assertSame(['/a', '/b'], array_column($pending, 'path'));
+        self::assertSame([1, 1], array_column($pending, 'count'));
+        self::assertSame(['browser', 'browser'], array_column($pending, 'bucket'));
+        foreach ($pending as $record) {
+            self::assertMatchesRegularExpression(self::UUID_V4, $record['id']);
+        }
+        // Today is still open, and still counting.
+        self::assertSame(["browser\t/today" => 1], $this->counter->counts('2026-09-27'));
+        self::assertFileDoesNotExist($this->dir.'/pageviews-2026-09-26.json');
+    }
+
+    public function testSealingAssignsIdsOnceSoARetryResendsTheSameIds(): void
+    {
+        $this->counter->increment('2026-09-26', '/a', PageViewRules::BUCKET_BROWSER);
+        $this->counter->seal('2026-09-27');
+        $first = $this->counter->pending(10);
+
+        // A second flush (the retry after a rejected one) seals again first.
+        self::assertSame(0, $this->counter->seal('2026-09-27'));
+        self::assertSame($first, $this->counter->pending(10));
+
+        // And a fresh object over the same directory reads the same records.
+        self::assertSame($first, (new PageViewCounter(new BufferDirectory($this->dir)))->pending(10));
+    }
+
+    /**
+     * A request that computed its day just before midnight can increment after
+     * that day was sealed. Those views are added as new records rather than
+     * overwriting (and re-identifying) the ones already sealed.
+     */
+    public function testALateIncrementAfterSealingAddsRecordsWithoutTouchingSealedOnes(): void
+    {
+        $this->counter->increment('2026-09-26', '/a', PageViewRules::BUCKET_BROWSER);
+        $this->counter->seal('2026-09-27');
+        $sealed = $this->counter->pending(10);
+
+        $this->counter->increment('2026-09-26', '/a', PageViewRules::BUCKET_BROWSER);
+        $this->counter->seal('2026-09-27');
+
+        $pending = $this->counter->pending(10);
+        self::assertCount(2, $pending);
+        self::assertSame($sealed[0], $pending[0]);
+        self::assertNotSame($sealed[0]['id'], $pending[1]['id']);
+        self::assertSame(1, $pending[1]['count']);
+    }
+
+    public function testRemovesOnlyTheGivenIds(): void
+    {
+        $this->counter->increment('2026-09-25', '/a', PageViewRules::BUCKET_BROWSER);
+        $this->counter->increment('2026-09-26', '/b', PageViewRules::BUCKET_BROWSER);
+        $this->counter->increment('2026-09-26', '/c', PageViewRules::BUCKET_BROWSER);
+        $this->counter->seal('2026-09-27');
+        $pending = $this->counter->pending(10);
+
+        self::assertSame(2, $this->counter->remove([$pending[0]['id'], $pending[1]['id']]));
+
+        self::assertSame([$pending[2]], $this->counter->pending(10));
+        self::assertFileDoesNotExist($this->dir.'/pageviews-sealed-2026-09-25.json', 'an emptied day is deleted');
+    }
+
+    public function testPendingHonoursTheLimitOldestDayFirst(): void
+    {
+        for ($i = 0; $i < 5; ++$i) {
+            $this->counter->increment('2026-09-26', '/b'.$i, PageViewRules::BUCKET_BROWSER);
+            $this->counter->increment('2026-09-25', '/a'.$i, PageViewRules::BUCKET_BROWSER);
+        }
+        $this->counter->seal('2026-09-27');
+
+        $pending = $this->counter->pending(7);
+
+        self::assertCount(7, $pending);
+        self::assertSame(array_merge(array_fill(0, 5, '2026-09-25'), ['2026-09-26', '2026-09-26']), array_column($pending, 'day'));
+        self::assertSame(10, $this->counter->pendingRecords());
+    }
+
+    /**
+     * The backend accepts yesterday back to seven days ago, and drops the rest:
+     * sending an older day only wastes the batch, so it is deleted instead.
+     */
+    public function testPrunesDaysTheBackendWouldDrop(): void
+    {
+        $this->counter->increment('2026-09-19', '/too-old', PageViewRules::BUCKET_BROWSER);
+        $this->counter->increment('2026-09-20', '/oldest-kept', PageViewRules::BUCKET_BROWSER);
+        $this->counter->seal('2026-09-21');
+        $this->counter->increment('2026-09-18', '/too-old-open', PageViewRules::BUCKET_BROWSER);
+
+        self::assertSame(2, $this->counter->prune('2026-09-27'));
+
+        self::assertSame(['/oldest-kept'], array_column($this->counter->pending(10), 'path'));
+        self::assertSame([], $this->counter->counts('2026-09-18'));
+    }
+
+    public function testReportsWhetherAnythingIsReportable(): void
+    {
+        self::assertFalse($this->counter->hasReportable('2026-09-27'));
+
+        $this->counter->increment('2026-09-27', '/today', PageViewRules::BUCKET_BROWSER);
+        self::assertFalse($this->counter->hasReportable('2026-09-27'), 'today is still open');
+        self::assertSame(1, $this->counter->openViews());
+
+        $this->counter->increment('2026-09-26', '/a', PageViewRules::BUCKET_BROWSER);
+        self::assertTrue($this->counter->hasReportable('2026-09-27'), 'a closed day waiting to be sealed');
+
+        $this->counter->seal('2026-09-27');
+        self::assertTrue($this->counter->hasReportable('2026-09-27'), 'a sealed record waiting to be sent');
+
+        $this->counter->remove(array_column($this->counter->pending(10), 'id'));
+        self::assertFalse($this->counter->hasReportable('2026-09-27'));
+    }
+
+    /**
+     * Privacy by construction: what lands on disk is a day, a path, a bucket
+     * and a count — nothing that identifies a visitor.
+     */
+    public function testWritesNothingButDayPathBucketAndCount(): void
+    {
+        $this->counter->increment('2026-09-26', '/a', PageViewRules::BUCKET_BROWSER);
+        $this->counter->seal('2026-09-27');
+
+        $files = array_values(array_diff(scandir($this->dir) ?: [], ['.', '..']));
+        self::assertSame(['pageviews-sealed-2026-09-26.json'], $files);
+
+        $records = json_decode((string) file_get_contents($this->dir.'/'.$files[0]), true);
+        self::assertIsArray($records);
+        self::assertSame(['id', 'day', 'path', 'bucket', 'count'], array_keys($records[0]));
+    }
+}

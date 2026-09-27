@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Globetrotters\AiPresenceBundle;
 
 use Globetrotters\AiPresenceBundle\Analytics\AnalyticsOptions;
+use Globetrotters\AiPresenceBundle\Analytics\PageViewOptions;
 use Symfony\Component\Config\Definition\Configurator\DefinitionConfigurator;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
@@ -12,13 +13,15 @@ use Symfony\Component\HttpKernel\Bundle\AbstractBundle;
 use Symfony\Component\Messenger\MessageBusInterface;
 use Symfony\Component\Scheduler\Schedule;
 
+use function Symfony\Component\DependencyInjection\Loader\Configurator\service;
+
 /**
  * Composition root: config tree + service wiring. The extension alias derived
  * from the class name is "globetrotters_ai_presence", the bundle config key.
  */
 final class GlobetrottersAiPresenceBundle extends AbstractBundle
 {
-    public const VERSION = '0.5.0';
+    public const VERSION = '0.6.0';
 
     public function getPath(): string
     {
@@ -111,6 +114,20 @@ final class GlobetrottersAiPresenceBundle extends AbstractBundle
                             ->info('Resolve the client IP from CF-Connecting-IP. Only honoured for requests arriving from a framework.trusted_proxies entry, since the header is otherwise forgeable.')
                             ->defaultFalse()
                         ->end()
+                        ->arrayNode('page_views')
+                            ->info('First-party human page-view counts per page, reported through the same lane. Off by default. When on: a tiny inline script posts the page path to your own site (/.well-known/globetrotters/pv); only a count per UTC day, path and coarse browser bucket is kept — no IP, no cookie, no User-Agent string. Needs reporting configured.')
+                            ->addDefaultsIfNotSet()
+                            ->children()
+                                ->booleanNode('enabled')
+                                    ->info('Answer the counter endpoint and render the script from {{ gt_ai_presence_beacon() }}.')
+                                    ->defaultFalse()
+                                ->end()
+                                ->booleanNode('auto_inject')
+                                    ->info('Also insert the script before </body> on every HTML page, instead of placing {{ gt_ai_presence_beacon() }} yourself. Only with enabled.')
+                                    ->defaultFalse()
+                                ->end()
+                            ->end()
+                        ->end()
                     ->end()
                 ->end()
             ->end();
@@ -137,6 +154,10 @@ final class GlobetrottersAiPresenceBundle extends AbstractBundle
      *         buffer_dir: string,
      *         opportunistic_flush: bool,
      *         trust_cloudflare_header: bool,
+     *         page_views: array{
+     *             enabled: bool,
+     *             auto_inject: bool,
+     *         },
      *     },
      * } $config
      */
@@ -169,6 +190,14 @@ final class GlobetrottersAiPresenceBundle extends AbstractBundle
                 $config['reporting']['ingest_token'],
                 $config['reporting']['opportunistic_flush'],
                 $config['reporting']['trust_cloudflare_header'],
+            ]);
+
+        $container->services()
+            ->set(PageViewOptions::class)
+            ->args([
+                service(AnalyticsOptions::class),
+                $config['reporting']['page_views']['enabled'],
+                $config['reporting']['page_views']['auto_inject'],
             ]);
 
         $container->import('../config/services.php');

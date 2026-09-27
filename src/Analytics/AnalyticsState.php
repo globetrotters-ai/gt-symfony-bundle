@@ -34,6 +34,7 @@ final class AnalyticsState implements ResetInterface
         'last_flush_lane' => '',
         'flush_count' => 0,
         'events_sent' => 0,
+        'page_views_sent' => 0,
         // Whether a captured request has ever been observed, and whether the
         // client IP on those requests could be resolved past a proxy.
         'ip_observed' => false,

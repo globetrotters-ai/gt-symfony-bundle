@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Globetrotters\AiPresenceBundle\Tests\Unit;
 
 use Globetrotters\AiPresenceBundle\Analytics\AnalyticsOptions;
+use Globetrotters\AiPresenceBundle\Analytics\PageViewOptions;
 use Globetrotters\AiPresenceBundle\GlobetrottersAiPresenceBundle;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Config\Definition\BaseNode;
@@ -32,6 +33,43 @@ final class GlobetrottersAiPresenceBundleTest extends TestCase
         $container = $this->build(['reporting' => ['endpoint' => self::ENDPOINT]]);
 
         self::assertSame(self::ENDPOINT, $container->getDefinition(AnalyticsOptions::class)->getArgument(1));
+    }
+
+    /**
+     * The version lives in three places that must move together, and in step
+     * with gt-wordpress-plugin: the constant, the CHANGELOG heading and the
+     * composer branch alias.
+     */
+    public function testTheVersionAgreesInAllThreePlaces(): void
+    {
+        $root = \dirname(__DIR__, 2);
+        [$major, $minor] = explode('.', GlobetrottersAiPresenceBundle::VERSION);
+
+        $composer = json_decode((string) file_get_contents($root.'/composer.json'), true);
+        self::assertIsArray($composer);
+        self::assertSame($major.'.'.$minor.'.x-dev', $composer['extra']['branch-alias']['dev-main']);
+
+        self::assertMatchesRegularExpression(
+            '/^## \['.preg_quote(GlobetrottersAiPresenceBundle::VERSION, '/').'\] - \d{4}-\d{2}-\d{2}$/m',
+            (string) file_get_contents($root.'/CHANGELOG.md'),
+        );
+    }
+
+    public function testPageViewsAreOffByDefault(): void
+    {
+        $definition = $this->build([])->getDefinition(PageViewOptions::class);
+
+        self::assertFalse($definition->getArgument(1), 'enabled');
+        self::assertFalse($definition->getArgument(2), 'auto_inject');
+    }
+
+    public function testPageViewsAreAnOptIn(): void
+    {
+        $definition = $this->build(['reporting' => ['page_views' => ['enabled' => true, 'auto_inject' => true]]])
+            ->getDefinition(PageViewOptions::class);
+
+        self::assertTrue($definition->getArgument(1));
+        self::assertTrue($definition->getArgument(2));
     }
 
     public function testAnUnsetEndpointBuilds(): void

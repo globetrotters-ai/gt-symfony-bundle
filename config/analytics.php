@@ -17,16 +17,23 @@ use Globetrotters\AiPresenceBundle\Analytics\FlushGate;
 use Globetrotters\AiPresenceBundle\Analytics\IngestClient;
 use Globetrotters\AiPresenceBundle\Analytics\IngestTransportInterface;
 use Globetrotters\AiPresenceBundle\Analytics\NdjsonEventStore;
+use Globetrotters\AiPresenceBundle\Analytics\PageViewCounter;
+use Globetrotters\AiPresenceBundle\Analytics\PageViewOptions;
 use Globetrotters\AiPresenceBundle\Command\PresenceFlushCommand;
 use Globetrotters\AiPresenceBundle\Serving\ArtefactCaptureSubscriber;
 use Globetrotters\AiPresenceBundle\Serving\ArtefactHeaderSubscriber;
 use Globetrotters\AiPresenceBundle\Serving\OpportunisticFlushSubscriber;
+use Globetrotters\AiPresenceBundle\Serving\PageViewBeacon;
+use Globetrotters\AiPresenceBundle\Serving\PageViewBeaconInjector;
+use Globetrotters\AiPresenceBundle\Serving\PageViewEndpoint;
 use Globetrotters\AiPresenceBundle\Serving\ResponseFinalization;
 
 /*
- * Server-log reporting lane. AnalyticsOptions is deliberately absent: it
- * carries the ingest token and is wired in the bundle's loadExtension() so the
- * credential never becomes a container parameter.
+ * Server-log reporting lane, and the first-party page-view counter that
+ * reports through it. AnalyticsOptions and PageViewOptions are deliberately
+ * absent: the first carries the ingest token and is wired in the bundle's
+ * loadExtension() so the credential never becomes a container parameter, and
+ * the second is wired beside it.
  */
 return static function (ContainerConfigurator $container): void {
     $services = $container->services();
@@ -44,6 +51,9 @@ return static function (ContainerConfigurator $container): void {
 
     $services->set(EventBuffer::class)
         ->args([service(EventStoreInterface::class), service(DroppedCounter::class)]);
+
+    $services->set(PageViewCounter::class)
+        ->args([service(BufferDirectory::class)]);
 
     $services->set(AnalyticsState::class)
         ->args([service('globetrotters_ai_presence.cache_pool')])
@@ -79,6 +89,7 @@ return static function (ContainerConfigurator $container): void {
             service(AnalyticsState::class),
             service(FlushGate::class),
             service('globetrotters_ai_presence.clock'),
+            service(PageViewCounter::class),
         ]);
 
     $services->set(ArtefactHeaderSubscriber::class)
@@ -99,7 +110,27 @@ return static function (ContainerConfigurator $container): void {
             service(AnalyticsOptions::class),
             service(FlushGate::class),
             service(ResponseFinalization::class),
+            service(PageViewCounter::class),
+            service('globetrotters_ai_presence.clock'),
         ])
+        ->tag('kernel.event_subscriber');
+
+    // The page-view counter. Registered unconditionally and gated at runtime
+    // on PageViewOptions, like the rest of the lane, so an env-bound token
+    // switches it on without a container rebuild.
+    $services->set(PageViewBeacon::class)
+        ->args([service(PageViewOptions::class)]);
+
+    $services->set(PageViewEndpoint::class)
+        ->args([
+            service(PageViewOptions::class),
+            service(PageViewCounter::class),
+            service('globetrotters_ai_presence.clock'),
+        ])
+        ->tag('kernel.event_subscriber');
+
+    $services->set(PageViewBeaconInjector::class)
+        ->args([service(PageViewBeacon::class), service(PageViewOptions::class)])
         ->tag('kernel.event_subscriber');
 
     $services->set(PresenceFlushCommand::class)
@@ -109,6 +140,7 @@ return static function (ContainerConfigurator $container): void {
             service(AnalyticsOptions::class),
             service(AnalyticsState::class),
             service(FlushGate::class),
+            service(PageViewCounter::class),
         ])
         ->tag('console.command');
 };

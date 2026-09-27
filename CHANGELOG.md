@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-09-27
+
+### Added
+
+- **First-party human page-view counter, off by default.** Presence Analytics
+  can now set agent traffic against how many people view each page of the
+  site. Opt in with `reporting.page_views.enabled: true` (reporting must be
+  configured) and place `{{ gt_ai_presence_beacon() }}` in your layout, or set
+  `reporting.page_views.auto_inject: true` to have it inserted before
+  `</body>` on every successful HTML response. The script posts the page's
+  path with `navigator.sendBeacon` to `/.well-known/globetrotters/pv` on your
+  own site; the bundle answers it before routing and the firewall, counts it
+  only for a same-origin `Origin` (or `Referer`) and a path Globetrotters
+  accepts, sorts the visitor into `browser` or `ai_browser` and drops obvious
+  bots, and answers `204` with the no-store headers. It never reads the client
+  IP, never stores the User-Agent string and never sets a cookie — including
+  one the host application adds to that response. Counts are kept per UTC day,
+  path and bucket in `buffer_dir` (2000 distinct paths a day, the rest under
+  `(other)`), and only a day that has ended is sent.
+- **`pageViews` in the flush envelope.** Every flush first seals the closed
+  days — assigning each record its id once, so a retry re-sends the same ids —
+  and deletes days older than the backend's seven-day window, then sends up to
+  2000 records beside the events. Records are deleted only after the endpoint
+  accepts them. A page-view-only envelope (`events: []`) is valid, so the cron
+  and Scheduler lanes carry page views with no agent traffic buffered, and on
+  the `kernel.terminate` lane a beacon request, or a closed day waiting, can
+  trigger the flush too.
+- `gt:status` shows whether the counter is on, the records waiting to be sent
+  and the views counted on open days; `gt:presence:flush` reports page-view
+  records alongside events.
+
 ## [0.5.0] - 2026-09-10
 
 ### Changed

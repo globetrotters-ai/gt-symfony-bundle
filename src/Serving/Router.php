@@ -74,6 +74,17 @@ final class Router implements EventSubscriberInterface
     public const ATTRIBUTE_SITEMAP = '_gt_sitemap';
 
     /**
+     * Marks a page-view beacon answered by {@see PageViewEndpoint}, read by
+     * {@see ArtefactHeaderSubscriber} and {@see OpportunisticFlushSubscriber}.
+     *
+     * Not {@see self::ATTRIBUTE_PATH}: a human page view is not an agent fetch,
+     * and is counted by its own lane rather than captured as an event. The
+     * response still needs its no-store headers re-asserted, and must leave
+     * without any cookie the host application tried to add.
+     */
+    public const ATTRIBUTE_PAGE_VIEW = '_gt_page_view';
+
+    /**
      * The headers that make an artefact response measurable, re-asserted on
      * kernel.response by {@see ArtefactHeaderSubscriber}. Directives are
      * ksorted by ResponseHeaderBag; written in the served order so code, README

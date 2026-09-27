@@ -27,6 +27,15 @@ use Symfony\Component\Clock\ClockInterface;
  * Note that ``202`` is not confirmation the data was good: the endpoint answers
  * it for a bad token, an unknown install and a malformed body too. All this
  * class can honestly record is that a batch was accepted.
+ *
+ * **Page views ride the same envelope.** When the first-party page-view
+ * counter is in use, every run first seals the UTC days that have ended —
+ * which is where each record gets its UUID, once — and deletes days older than
+ * the backend accepts. Sealed records then go out under ``pageViews`` beside
+ * the events, with the same rule: deleted only after a 2xx, so a retry
+ * re-sends the same ids. Today is never sent. None of this depends on agent
+ * traffic: a run with no event buffered still carries the page views, which is
+ * what makes a page-view-only envelope (``events: []``) possible.
  */
 final class Flusher
 {
@@ -48,6 +57,7 @@ final class Flusher
         private readonly AnalyticsState $state,
         private readonly FlushGate $gate,
         private readonly ClockInterface $clock,
+        private readonly ?PageViewCounter $pageViews = null,
     ) {
     }
 
@@ -81,13 +91,15 @@ final class Flusher
             $this->gate->stamp();
 
             try {
+                $this->sealPageViews();
+
                 $sent = false;
                 for ($batch = 0; $batch < $maxBatches; ++$batch) {
                     if (!$this->flushOnce($lane)) {
                         break;
                     }
                     $sent = true;
-                    if (0 === $this->buffer->count()) {
+                    if (0 === $this->buffer->count() && [] === $this->pendingPageViews(1)) {
                         break;
                     }
                 }
@@ -119,13 +131,15 @@ final class Flusher
         $this->buffer->prune();
 
         $claimed = $this->buffer->claim(IngestTransportInterface::MAX_EVENTS_PER_BATCH);
-        if ([] === $claimed) {
+        $pageViews = $this->pendingPageViews(PageViewCounter::MAX_RECORDS_PER_BATCH);
+        $dropped = $this->buffer->droppedPending();
+
+        if ([] === $claimed && [] === $pageViews) {
             // Empty envelopes are health heartbeats: the backend stamps the
             // install's "producer is alive" watermark even when no agent has
             // visited since the previous run. They also carry and settle any
             // pending overflow count left after the last event was removed.
-            $dropped = $this->buffer->droppedPending();
-            $json = $this->encode([], $dropped);
+            $json = $this->encode([], $dropped, []);
             if (!$this->fits($json)) {
                 return false;
             }
@@ -135,7 +149,7 @@ final class Flusher
                 $this->options->ingestToken(),
                 $json,
             );
-            $this->recordAttempt($result, $lane, 0);
+            $this->recordAttempt($result, $lane, 0, 0);
             if ($result->isAccepted()) {
                 $this->buffer->settleDropped($dropped);
             }
@@ -143,14 +157,15 @@ final class Flusher
             return $result->isAccepted();
         }
 
-        $dropped = $this->buffer->droppedPending();
-        $batch = $this->fit($claimed, $dropped);
+        $batch = $this->fit($claimed, $dropped, $pageViews);
 
-        if ([] === $batch['events']) {
-            // Nothing fits, not even one event. Drop the head rather than wedge
-            // every later flush behind it — and count it, so the gap stays
-            // measured.
-            $this->buffer->discard([$claimed[0]->id()]);
+        if ([] === $batch['events'] && [] === $batch['pageViews']) {
+            if ([] !== $claimed) {
+                // Nothing fits, not even one event. Drop the head rather than
+                // wedge every later flush behind it — and count it, so the gap
+                // stays measured.
+                $this->buffer->discard([$claimed[0]->id()]);
+            }
 
             return false;
         }
@@ -161,51 +176,91 @@ final class Flusher
             $batch['json'],
         );
 
-        $this->recordAttempt($result, $lane, \count($batch['events']));
+        $this->recordAttempt($result, $lane, \count($batch['events']), \count($batch['pageViews']));
 
         if (!$result->isAccepted()) {
-            // Leave every claimed event in place: the next attempt re-sends
-            // this exact payload, same UUIDs, and the backend dedupes it.
+            // Leave every claimed event and page-view record in place: the next
+            // attempt re-sends this exact payload, same UUIDs, and the backend
+            // dedupes it.
             return false;
         }
 
         $this->buffer->release(array_map(static fn (Event $event): string => $event->id(), $batch['events']));
+        $this->pageViews?->remove(array_column($batch['pageViews'], 'id'));
         $this->buffer->settleDropped($dropped);
 
         return true;
     }
 
     /**
-     * Reduce a claim until its envelope fits under the backend's wire caps.
-     *
-     * Halves rather than trimming one event at a time: an oversize batch is
-     * rare, and halving converges in a handful of encodes instead of hundreds.
-     * Whatever is left over stays buffered for the next batch rather than being
-     * discarded.
-     *
-     * @param list<Event> $claimed
-     *
-     * @return array{events: list<Event>, json: string}
+     * Seal the page-view days that have ended and drop the ones the backend
+     * would refuse. Inside the flush lock, so only one process ever assigns a
+     * day's ids.
      */
-    private function fit(array $claimed, int $dropped): array
+    private function sealPageViews(): void
     {
-        $count = \count($claimed);
-
-        while ($count >= 1) {
-            $slice = \array_slice($claimed, 0, $count);
-            $json = $this->encode($slice, $dropped);
-
-            if ($this->fits($json)) {
-                return ['events' => $slice, 'json' => $json];
-            }
-
-            if (1 === $count) {
-                break;
-            }
-            $count = (int) max(1, floor($count / 2));
+        if (null === $this->pageViews) {
+            return;
         }
 
-        return ['events' => [], 'json' => ''];
+        $today = $this->today();
+        $this->pageViews->prune($today);
+        $this->pageViews->seal($today);
+    }
+
+    /**
+     * @return list<array{id: string, day: string, path: string, bucket: string, count: int}>
+     */
+    private function pendingPageViews(int $limit): array
+    {
+        return null === $this->pageViews ? [] : $this->pageViews->pending($limit);
+    }
+
+    private function today(): string
+    {
+        return $this->clock->now()->setTimezone(new \DateTimeZone('UTC'))->format('Y-m-d');
+    }
+
+    /**
+     * Reduce a claim until its envelope fits under the backend's wire caps.
+     *
+     * Halves rather than trimming one item at a time: an oversize batch is
+     * rare, and halving converges in a handful of encodes instead of hundreds.
+     * Events and page-view records halve together; at one of each, the
+     * page-view record steps aside so the event can be tried alone. Whatever
+     * is left over stays buffered for the next batch rather than being
+     * discarded.
+     *
+     * @param list<Event>                                                                    $claimed
+     * @param list<array{id: string, day: string, path: string, bucket: string, count: int}> $pageViews
+     *
+     * @return array{events: list<Event>, pageViews: list<array{id: string, day: string, path: string, bucket: string, count: int}>, json: string}
+     */
+    private function fit(array $claimed, int $dropped, array $pageViews): array
+    {
+        $events = \count($claimed);
+        $records = \count($pageViews);
+
+        while ($events > 0 || $records > 0) {
+            $eventSlice = \array_slice($claimed, 0, $events);
+            $recordSlice = \array_slice($pageViews, 0, $records);
+            $json = $this->encode($eventSlice, $dropped, $recordSlice);
+
+            if ($this->fits($json)) {
+                return ['events' => $eventSlice, 'pageViews' => $recordSlice, 'json' => $json];
+            }
+
+            if ($events > 1 || $records > 1) {
+                $events = $events > 1 ? intdiv($events, 2) : $events;
+                $records = $records > 1 ? intdiv($records, 2) : $records;
+            } elseif (1 === $events && 1 === $records) {
+                $records = 0;
+            } else {
+                break;
+            }
+        }
+
+        return ['events' => [], 'pageViews' => [], 'json' => ''];
     }
 
     /**
@@ -225,11 +280,16 @@ final class Flusher
     /**
      * Encode one flush envelope. camelCase throughout, per the contract.
      *
-     * @param list<Event> $events
+     * ``pageViews`` is only present when there are records to send, so an
+     * install that does not count page views sends exactly the envelope it
+     * always has.
+     *
+     * @param list<Event>                                                                    $events
+     * @param list<array{id: string, day: string, path: string, bucket: string, count: int}> $pageViews
      */
-    private function encode(array $events, int $dropped): string
+    private function encode(array $events, int $dropped, array $pageViews): string
     {
-        $json = json_encode([
+        $envelope = [
             'producer' => 'symfony-bundle/'.GlobetrottersAiPresenceBundle::VERSION,
             // Local sampling is the escape hatch for a very high-traffic apex;
             // the backend scales counts by 1/sampleRate. This bundle reports
@@ -237,12 +297,17 @@ final class Flusher
             'sampleRate' => 1.0,
             'dropped' => $dropped,
             'events' => array_map(static fn (Event $event): array => $event->toPayload(), $events),
-        ], Event::JSON_FLAGS);
+        ];
+        if ([] !== $pageViews) {
+            $envelope['pageViews'] = $pageViews;
+        }
+
+        $json = json_encode($envelope, Event::JSON_FLAGS);
 
         return \is_string($json) ? $json : '';
     }
 
-    private function recordAttempt(IngestResult $result, string $lane, int $events): void
+    private function recordAttempt(IngestResult $result, string $lane, int $events, int $pageViews): void
     {
         $now = $this->now();
         $state = $this->state->state();
@@ -259,6 +324,7 @@ final class Flusher
             $update['last_flush_ok'] = $now;
             $update['flush_count'] = (int) $state['flush_count'] + 1;
             $update['events_sent'] = (int) $state['events_sent'] + $events;
+            $update['page_views_sent'] = (int) $state['page_views_sent'] + $pageViews;
         }
 
         $this->state->update($update);

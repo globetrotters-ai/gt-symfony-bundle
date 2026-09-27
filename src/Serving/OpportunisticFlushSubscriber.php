@@ -9,6 +9,8 @@ use Globetrotters\AiPresenceBundle\Analytics\AnalyticsState;
 use Globetrotters\AiPresenceBundle\Analytics\EventBuffer;
 use Globetrotters\AiPresenceBundle\Analytics\Flusher;
 use Globetrotters\AiPresenceBundle\Analytics\FlushGate;
+use Globetrotters\AiPresenceBundle\Analytics\PageViewCounter;
+use Symfony\Component\Clock\ClockInterface;
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
 use Symfony\Component\HttpKernel\Event\TerminateEvent;
 use Symfony\Component\HttpKernel\KernelEvents;
@@ -34,7 +36,14 @@ use Symfony\Component\HttpKernel\KernelEvents;
  * Only a request this bundle served as an artefact can trigger it, never an
  * ordinary page: the application's own traffic must not pay for reporting.
  * The sitemap and the IndexNow key are marked with their own attributes and
- * are excluded the same way they are from capture.
+ * are excluded the same way they are from capture. The one other trigger is a
+ * page-view beacon ({@see PageViewEndpoint}): a fire-and-forget POST no
+ * visitor waits on, and on an install with page views on but no cron, the
+ * request that carries them out.
+ *
+ * An empty event buffer is not reason enough to skip when a page-view day has
+ * ended and is waiting to be sent — page views must not depend on agent
+ * traffic arriving to be reported.
  *
  * Rate-limited to at most one attempt every 15 minutes regardless of traffic,
  * through the same stamp file every other lane writes — so on an install that
@@ -61,6 +70,8 @@ final class OpportunisticFlushSubscriber implements EventSubscriberInterface
         private readonly AnalyticsOptions $options,
         private readonly FlushGate $gate,
         private readonly ResponseFinalization $runtime,
+        private readonly ?PageViewCounter $pageViews = null,
+        private readonly ?ClockInterface $clock = null,
     ) {
     }
 
@@ -72,10 +83,11 @@ final class OpportunisticFlushSubscriber implements EventSubscriberInterface
     public function onKernelTerminate(TerminateEvent $event): void
     {
         try {
-            // A request attribute read first, so an ordinary page costs one
-            // array lookup and nothing else.
-            $path = $event->getRequest()->attributes->get(Router::ATTRIBUTE_PATH);
-            if (!\is_string($path) || '' === $path) {
+            // Request attributes read first, so an ordinary page costs two
+            // array lookups and nothing else.
+            $attributes = $event->getRequest()->attributes;
+            $path = $attributes->get(Router::ATTRIBUTE_PATH);
+            if ((!\is_string($path) || '' === $path) && true !== $attributes->get(Router::ATTRIBUTE_PAGE_VIEW)) {
                 return;
             }
             if (!$this->options->opportunisticFlush() || !$this->options->isConfigured()) {
@@ -84,10 +96,10 @@ final class OpportunisticFlushSubscriber implements EventSubscriberInterface
             if (!$this->runtime->finishesBeforeTerminate()) {
                 return;
             }
-            // Two stat() calls before anything expensive: nothing buffered, or
-            // not yet due, and this request is done. The flusher re-checks the
-            // interval under its lock; this is only the cheap early exit.
-            if ($this->buffer->sizeBytes() <= 0 || !$this->gate->isDue()) {
+            // Cheap checks before anything expensive: not yet due, or nothing
+            // to send, and this request is done. The flusher re-checks the
+            // interval under its lock; this is only the early exit.
+            if (!$this->gate->isDue() || !$this->hasSomethingToSend()) {
                 return;
             }
 
@@ -97,5 +109,19 @@ final class OpportunisticFlushSubscriber implements EventSubscriberInterface
             // nothing to gain from letting this escape into the app's error
             // handling.
         }
+    }
+
+    private function hasSomethingToSend(): bool
+    {
+        if ($this->buffer->sizeBytes() > 0) {
+            return true;
+        }
+        if (null === $this->pageViews) {
+            return false;
+        }
+
+        $now = null === $this->clock ? new \DateTimeImmutable() : $this->clock->now();
+
+        return $this->pageViews->hasReportable($now->setTimezone(new \DateTimeZone('UTC'))->format('Y-m-d'));
     }
 }

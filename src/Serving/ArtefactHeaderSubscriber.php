@@ -57,6 +57,11 @@ final class ArtefactHeaderSubscriber implements EventSubscriberInterface
             return;
         }
         $attributes = $event->getRequest()->attributes;
+        if (true === $attributes->get(Router::ATTRIBUTE_PAGE_VIEW)) {
+            $this->finishPageView($event);
+
+            return;
+        }
         if ($attributes->has(Router::ATTRIBUTE_PATH)) {
             $restore = Router::NO_STORE_HEADERS + Router::CORS_HEADERS;
         } elseif (true === $attributes->get(Router::ATTRIBUTE_KEY)
@@ -68,6 +73,27 @@ final class ArtefactHeaderSubscriber implements EventSubscriberInterface
 
         $headers = $event->getResponse()->headers;
         foreach ($restore as $name => $value) {
+            $headers->set($name, $value);
+        }
+    }
+
+    /**
+     * The page-view beacon's answer: no-store, and **no cookie**.
+     *
+     * The counter promises it never sets a cookie, and that promise has to hold
+     * against the host application too — a session listener (which runs at
+     * -1000, just above this one), a consent banner or a CSRF bundle stamping
+     * one on every response. Stripping here, last, is the only place that
+     * covers all of them. No CORS grant either: the beacon is same-origin by
+     * construction.
+     */
+    private function finishPageView(ResponseEvent $event): void
+    {
+        $headers = $event->getResponse()->headers;
+        // ResponseHeaderBag keeps cookies apart from the other headers; removing
+        // Set-Cookie clears that store as well.
+        $headers->remove('Set-Cookie');
+        foreach (Router::NO_STORE_HEADERS as $name => $value) {
             $headers->set($name, $value);
         }
     }

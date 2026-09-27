@@ -36,6 +36,7 @@ The response carries `nosniff` and both `no-store` headers — the document is r
 On top of the routes, the bundle:
 
 - **reports agent traffic** to those six paths back to Globetrotters, so an apex install still shows up in Presence Analytics (see [Reporting agent traffic](#reporting-agent-traffic));
+- optionally **counts human page views per page** of your site, first-party and cookie-free, so Presence Analytics can set agent traffic against it — **off by default** (see [Counting human page views](#counting-human-page-views-optional));
 - injects a **server-rendered, breakout-safe JSON-LD** `<script>` (built from the cached `schema.json`) into your homepage HTML, so crawlers see it in the raw markup without executing JavaScript;
 - decorates `/robots.txt` with the AI-crawler registry plus a `Sitemap:` directive naming **your own host's** `/ai-sitemap.xml` (or serves a generated `robots.txt` when your app has none) — **without changing what any crawler may fetch** unless you opt in (see [robots.txt](#robotstxt));
 - **stale-serves**: the cached bundle is only ever replaced by a fully successful pull — every file fetched, and every JSON artefact a well-formed JSON document — so an unreachable Globetrotters, or a proxy answering a maintenance page with `200`, leaves the last known good version serving.
@@ -148,6 +149,8 @@ The endpoint must be `https://`: it receives the token and every client IP. A li
 
 Both are required; until both are set nothing is captured and nothing is written to disk. What is sent, per served artefact request: a UUID, a UTC timestamp, the canonical path, the User-Agent, the client IP, the referer, the status and the byte size. No cookies, no per-visitor identifiers. The backend uses the IP transiently to verify the agent against published vendor ranges and to resolve a country, then drops it — it is never stored.
 
+That covers **AI agents fetching your six discovery files**, nothing else. Your visitors and your own pages are not reported unless you also turn on the page-view counter below, which is **off by default**; when on, it adds a tiny script that posts to your own site, and keeps counts only — no IP, no cookie, no User-Agent string.
+
 ### Scheduling the flush
 
 Events are buffered locally and flushed at most every 15 minutes. Three lanes, all sharing one interval, so whichever you have wins and the others stay dormant. The interval is checked under the flush lock, so two lanes firing a second apart never both send; `gt:presence:flush --force` skips the interval but never the lock.
@@ -166,6 +169,55 @@ It only runs where PHP delivers the response before `kernel.terminate`: **PHP-FP
 
 `bin/console gt:status` reports which lane last flushed, how many events are buffered, how many were dropped, and whether client-IP resolution looks trustworthy.
 
+### Counting human page views (optional)
+
+Presence Analytics can set agent traffic against how many **people** view each page of your site — the denominator it cannot otherwise see. It is **off by default**, a separate opt-in on top of reporting, and needs reporting configured:
+
+```yaml
+globetrotters_ai_presence:
+    reporting:
+        page_views:
+            enabled: true
+```
+
+Then place the script in your base layout, anywhere in the page (before `</body>` is conventional):
+
+```twig
+{{ gt_ai_presence_beacon() }}
+```
+
+It renders nothing while the counter is off or reporting is not configured, so it is safe to leave in the template. If you would rather not touch templates, `auto_inject: true` has the bundle insert it before `</body>` on every successful HTML response (never on XHR responses, never twice if you also placed it yourself). That is a second opt-in on purpose: otherwise the bundle only ever injects `<head>` markup that runs nothing.
+
+```yaml
+globetrotters_ai_presence:
+    reporting:
+        page_views:
+            enabled: true
+            auto_inject: true
+```
+
+**How it counts.** The script is one line, under 300 bytes:
+
+```html
+<script>(function(){try{var n=navigator;if(!n.sendBeacon)return;n.sendBeacon('/.well-known/globetrotters/pv',new Blob([JSON.stringify({p:location.pathname})],{type:'text/plain'}))}catch(e){}})();</script>
+```
+
+It posts the page's path — never its query string — to `/.well-known/globetrotters/pv` on **your own site**. The browser never talks to Globetrotters. The bundle answers that `POST` before routing and the firewall, and:
+
+- counts it only when the `Origin` (or, failing that, `Referer`) host is your site's own;
+- counts only a path Globetrotters would accept (absolute, no query string or fragment, at most 512 characters; a trailing slash is folded);
+- sorts the visitor into `browser` or `ai_browser` (a browser that says it is driven by ChatGPT, Comet, Perplexity or Claude) by the User-Agent, and does not count an obvious bot at all;
+- increments a counter per UTC day, path and bucket in `buffer_dir` — at most 2000 distinct paths a day, the rest counted under `(other)`;
+- answers `204` with `X-Content-Type-Options: nosniff`, `Cache-Control: no-store, private` and `Surrogate-Control: no-store`, and strips any cookie your application tries to add to that response.
+
+It **never reads the client IP, never stores the User-Agent string and never sets a cookie**. A day's counts are sent in the regular flush only once that UTC day has ended, each record with an id minted once so a retried flush cannot double-count, and deleted locally once accepted. Days older than a week are dropped, as Globetrotters would drop them. The counts are indicative: visitors with JavaScript off are missed, and a same-origin endpoint can be spammed — they are never billed on.
+
+Page views are flushed by every lane, including a run with no agent traffic buffered, so cron and `symfony/scheduler` carry them as they carry events. On the `kernel.terminate` lane a beacon request can trigger the flush too (a beacon is fire-and-forget, nobody waits on it), so an install with no cron still sends them. `gt:status` shows whether the counter is on, and how many records are waiting.
+
+**For your privacy policy.** Adapt this to your own wording and legal context:
+
+> To understand which pages of our website people visit, we count page views with a first-party counter. When you open a page, a small script sends the address of that page (without any query string) to our own server, which adds one to a daily count for that page. We do not set a cookie, do not store your IP address or browser details, and do not build any profile of you; only the daily total per page is kept. These totals — not any data about you — are shared with our AI-presence provider, Globetrotters, to report how our website is used alongside how AI assistants use it.
+
 ### Behind a proxy or CDN
 
 The client IP is what lets the backend confirm that a claimed ClaudeBot hit really came from Anthropic. Resolution uses Symfony's own [`framework.trusted_proxies`](https://symfony.com/doc/current/deployment/proxies.html) — **without it every hit reports your proxy's address and every row is recorded unverified.** `gt:status` flags this.
@@ -183,6 +235,9 @@ globetrotters_ai_presence:
         buffer_dir: '%kernel.project_dir%/var/globetrotters-ai-presence'
         opportunistic_flush: true                            # the kernel.terminate lane (PHP-FPM, FrankenPHP, LiteSpeed)
         trust_cloudflare_header: false                       # read CF-Connecting-IP
+        page_views:
+            enabled: false                                   # first-party human page-view counter, off by default
+            auto_inject: false                               # insert the script before </body> for you
 ```
 
 ## Install profiles
@@ -251,6 +306,12 @@ Each injection is automatic on `homepage_path`. If you'd rather place markup exp
 
 `gt_ai_presence_breadcrumb_link()` is the only way the visible anchor ever reaches a page — there is no setting that makes the bundle place it for you.
 
+The page-view script, when you have turned the counter on, is placed the same way; it renders `''` otherwise, and `reporting.page_views.auto_inject` is the opt-in that places it for you (see [Counting human page views](#counting-human-page-views-optional)):
+
+```twig
+{{ gt_ai_presence_beacon() }}           {# before </body> #}
+```
+
 ## Caveats
 
 - **Static files shadow the kernel.** If a real file exists in `public/` for one of the artefact paths (or `public/robots.txt`), your web server serves it directly and the bundle never sees the request. Delete the static copies when migrating from the file-drop lane.
@@ -258,7 +319,7 @@ Each injection is automatic on `homepage_path`. If you'd rather place markup exp
 - **Don't use a per-process pool.** `cache_pool` must be shared between CLI and web (filesystem, Redis, shared APCu) — with an in-memory pool, CLI refreshes would be invisible to web requests.
 - **Changing or clearing `website_url` stops serving the previous source at once.** The cached bundle records the URL it was pulled from and is served only while that URL is configured. After a change, the next `gt:refresh` drops it and pulls the new source straight away, whatever the interval; a process with no `website_url` never deletes it. On the Scheduler lane, run `gt:refresh --force` after the deploy, or the new source waits for the next scheduled refresh.
 - The configured `website_url` is fetched with an SSRF guard (private/reserved IPs are rejected), a 5-second timeout, and a 1 MiB per-file size cap.
-- **Reporting needs a writable `buffer_dir`**, shared by the web user and whoever runs the flush — the rest of the bundle needs no filesystem write access, and an install that doesn't report never creates the directory. It holds at most 5000 events or 512KB; past that the oldest are dropped and counted, and the count is reported so the gap is visible rather than silent. `gt:status` shows both.
+- **Reporting needs a writable `buffer_dir`**, shared by the web user and whoever runs the flush — the rest of the bundle needs no filesystem write access, and an install that doesn't report never creates the directory. It holds at most 5000 events or 512KB; past that the oldest are dropped and counted, and the count is reported so the gap is visible rather than silent. `gt:status` shows both. With the page-view counter on it also holds one small file per day (`pageviews-<day>.json`, then `pageviews-sealed-<day>.json` until sent), a week at most.
 - **The breadcrumb needs a `</head>` in the response.** The block is inserted before the closing tag, so a page that streams, is served from a static cache, or omits `</head>` gets nothing — place it with `gt_ai_presence_breadcrumb_head()` instead.
 - **Conditional GETs survive injection; `Last-Modified` does not.** Rewriting a body makes metadata describing the original representation untrue. The `ETag` is therefore **recomputed** from the injected bytes — preserving your weak/strong flavour — and revalidated once, after every injection has run, so a client holding what was actually served still gets a `304` while one holding a half-injected body correctly gets a fresh `200`. A response that published no `ETag` is left without one; the bundle will not invent a caching contract you did not opt into. `Last-Modified` is dropped rather than restamped: a changed body says nothing about when the underlying resource changed.
 - **An accepted flush is not proof the token is right.** The ingest endpoint answers `202` to a bad token, an unknown install and a malformed body alike, deliberately revealing nothing about which tokens exist. `gt:status` distinguishes "configured but never accepted" from "reporting normally", but confirm the numbers in Studio.
