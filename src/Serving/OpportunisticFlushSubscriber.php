@@ -10,6 +10,7 @@ use Globetrotters\AiPresenceBundle\Analytics\EventBuffer;
 use Globetrotters\AiPresenceBundle\Analytics\Flusher;
 use Globetrotters\AiPresenceBundle\Analytics\FlushGate;
 use Globetrotters\AiPresenceBundle\Analytics\PageViewCounter;
+use Globetrotters\AiPresenceBundle\Analytics\PageViewOptions;
 use Symfony\Component\Clock\ClockInterface;
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
 use Symfony\Component\HttpKernel\Event\TerminateEvent;
@@ -72,6 +73,7 @@ final class OpportunisticFlushSubscriber implements EventSubscriberInterface
         private readonly ResponseFinalization $runtime,
         private readonly ?PageViewCounter $pageViews = null,
         private readonly ?ClockInterface $clock = null,
+        private readonly ?PageViewOptions $pageViewOptions = null,
     ) {
     }
 
@@ -87,7 +89,8 @@ final class OpportunisticFlushSubscriber implements EventSubscriberInterface
             // array lookups and nothing else.
             $attributes = $event->getRequest()->attributes;
             $path = $attributes->get(Router::ATTRIBUTE_PATH);
-            if ((!\is_string($path) || '' === $path) && true !== $attributes->get(Router::ATTRIBUTE_PAGE_VIEW)) {
+            if ((!\is_string($path) || '' === $path)
+                && !(true === $attributes->get(Router::ATTRIBUTE_PAGE_VIEW) && $this->pageViewsActive())) {
                 return;
             }
             if (!$this->options->opportunisticFlush() || !$this->options->isConfigured()) {
@@ -111,12 +114,22 @@ final class OpportunisticFlushSubscriber implements EventSubscriberInterface
         }
     }
 
+    /**
+     * The beacon path is answered even with the counter off (for pages cached
+     * while it was on), so neither the beacon nor leftover files may drive a
+     * flush then.
+     */
+    private function pageViewsActive(): bool
+    {
+        return null === $this->pageViewOptions || $this->pageViewOptions->isActive();
+    }
+
     private function hasSomethingToSend(): bool
     {
         if ($this->buffer->sizeBytes() > 0) {
             return true;
         }
-        if (null === $this->pageViews) {
+        if (null === $this->pageViews || !$this->pageViewsActive()) {
             return false;
         }
 

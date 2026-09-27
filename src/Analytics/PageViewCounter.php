@@ -65,6 +65,16 @@ final class PageViewCounter
      */
     public const GENERATION_KEY = '#gen';
 
+    /**
+     * How long an increment waits for the day's file: at most ten
+     * non-blocking tries 5 ms apart, then the view is dropped.
+     */
+    private const LOCK_ATTEMPTS = 10;
+    private const LOCK_RETRY_MICROSECONDS = 5000;
+
+    /** A temporary file older than this is an orphan of a killed write. */
+    private const TEMPORARY_FILE_TTL_SECONDS = 86400;
+
     private const JSON_FLAGS = \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE;
 
     public function __construct(private readonly BufferDirectory $directory)
@@ -72,7 +82,9 @@ final class PageViewCounter
     }
 
     /**
-     * Count one view. False when it could not be stored.
+     * Count one view. False when it could not be stored — including when the
+     * day's file stays locked for more than a few milliseconds: dropping one
+     * view is better than queueing every PHP-FPM worker behind a slow writer.
      */
     public function increment(string $day, string $path, string $bucket): bool
     {
@@ -80,44 +92,47 @@ final class PageViewCounter
             return false;
         }
 
-        // Two attempts: the file opened first may be the one the flusher seals
-        // and unlinks while this worker waits for its lock. The second open
-        // starts a fresh file for the day, which the next flush seals as a
-        // late addition.
-        for ($attempt = 0; $attempt < 2; ++$attempt) {
-            $stored = $this->withExclusiveLock($this->directory->path('pageviews-'.$day.'.json'), static function ($handle) use ($path, $bucket): bool {
-                $contents = self::readAll($handle);
-                $counts = self::decodeCounts($contents);
-                $generation = self::generation($contents) ?? ([] === $counts ? random_int(1, \PHP_INT_MAX) : null);
-                $key = self::keyFor($counts, $path, $bucket);
-                $counts[$key] = ($counts[$key] ?? 0) + 1;
+        $file = $this->directory->path('pageviews-'.$day.'.json');
+        for ($attempt = 0; $attempt < self::LOCK_ATTEMPTS; ++$attempt) {
+            $handle = @fopen($file, 'c+');
+            if (false === $handle) {
+                return false;
+            }
 
-                return self::overwrite($handle, null === $generation ? $counts : [self::GENERATION_KEY => $generation] + $counts);
-            });
-            if (null !== $stored) {
-                return $stored;
+            try {
+                if (!flock($handle, \LOCK_EX | \LOCK_NB)) {
+                    usleep(self::LOCK_RETRY_MICROSECONDS);
+
+                    continue;
+                }
+
+                try {
+                    // The file this handle holds was replaced (by another
+                    // increment's rename) or sealed and unlinked while this
+                    // worker waited: go again, on whatever the path names now.
+                    $stat = fstat($handle);
+                    if (false === $stat || 0 === $stat['nlink']) {
+                        continue;
+                    }
+
+                    [$counts, $generation] = self::decodeOpen(self::readAll($handle));
+                    $generation ??= random_int(1, \PHP_INT_MAX);
+                    $key = self::keyFor($counts, $path, $bucket);
+                    $counts[$key] = ($counts[$key] ?? 0) + 1;
+
+                    // Renamed over the file while its lock is still held, so a
+                    // write that dies halfway (a full disk, a killed worker)
+                    // leaves yesterday's bytes, never a truncated day.
+                    return $this->replaceJson($file, (object) ([self::GENERATION_KEY => $generation] + $counts));
+                } finally {
+                    flock($handle, \LOCK_UN);
+                }
+            } finally {
+                fclose($handle);
             }
         }
 
         return false;
-    }
-
-    /**
-     * Drop every page-view file, open and sealed — what disabling the opt-in
-     * means for counts already collected. Returns how many files went.
-     */
-    public function discardAll(): int
-    {
-        $removed = 0;
-        foreach ([self::OPEN_FILE => 'pageviews-', self::SEALED_FILE => 'pageviews-sealed-'] as $pattern => $prefix) {
-            foreach ($this->days($pattern) as $day) {
-                if (@unlink($this->directory->path($prefix.$day.'.json'))) {
-                    ++$removed;
-                }
-            }
-        }
-
-        return $removed;
     }
 
     /**
@@ -200,6 +215,15 @@ final class PageViewCounter
                 if ($day < $cutoff && @unlink($this->directory->path($prefix.$day.'.json'))) {
                     ++$removed;
                 }
+            }
+        }
+
+        // A write killed between creating its temporary file and renaming it
+        // leaves the file behind. A day is far longer than any write takes.
+        foreach (glob($this->directory->path('pageviews-*.tmp')) ?: [] as $temporary) {
+            $modified = @filemtime($temporary);
+            if (\is_int($modified) && $modified < time() - self::TEMPORARY_FILE_TTL_SECONDS && @unlink($temporary)) {
+                ++$removed;
             }
         }
 
@@ -414,13 +438,25 @@ final class PageViewCounter
      */
     private function replace(string $path, array $records): bool
     {
-        $json = json_encode($records, self::JSON_FLAGS);
+        return $this->replaceJson($path, $records);
+    }
+
+    /**
+     * Write a whole file by writing a temporary one beside it and renaming it
+     * over the original, so a reader sees the old contents or the new, never
+     * a truncated one.
+     */
+    private function replaceJson(string $path, mixed $data): bool
+    {
+        $json = json_encode($data, self::JSON_FLAGS);
         if (!\is_string($json)) {
             return false;
         }
 
         $temporary = $path.'.'.bin2hex(random_bytes(6)).'.tmp';
-        if (false === @file_put_contents($temporary, $json)) {
+        if (\strlen($json) !== @file_put_contents($temporary, $json)) {
+            @unlink($temporary);
+
             return false;
         }
         if (!@rename($temporary, $path)) {
@@ -561,25 +597,6 @@ final class PageViewCounter
     }
 
     /**
-     * @param resource           $handle
-     * @param array<string, int> $counts including the generation entry
-     */
-    private static function overwrite($handle, array $counts): bool
-    {
-        $json = json_encode((object) $counts, self::JSON_FLAGS);
-        if (!\is_string($json)) {
-            return false;
-        }
-
-        rewind($handle);
-        ftruncate($handle, 0);
-        $written = fwrite($handle, $json);
-        fflush($handle);
-
-        return \strlen($json) === $written;
-    }
-
-    /**
      * The ``"bucket\tpath"`` counts only. The generation entry has no tab, so
      * it never reaches counts(), openViews(), the path cap or a sealed record;
      * {@see self::generation()} reads it.
@@ -588,9 +605,27 @@ final class PageViewCounter
      */
     private static function decodeCounts(string $contents): array
     {
+        return self::decodeOpen($contents)[0];
+    }
+
+    /**
+     * The open file's generation, or null when it has none.
+     */
+    private static function generation(string $contents): ?int
+    {
+        return self::decodeOpen($contents)[1];
+    }
+
+    /**
+     * An open file's counts and generation, from one decode.
+     *
+     * @return array{0: array<string, int>, 1: int|null}
+     */
+    private static function decodeOpen(string $contents): array
+    {
         $decoded = json_decode($contents, true);
         if (!\is_array($decoded)) {
-            return [];
+            return [[], null];
         }
 
         $counts = [];
@@ -599,19 +634,9 @@ final class PageViewCounter
                 $counts[$key] = $count;
             }
         }
+        $generation = $decoded[self::GENERATION_KEY] ?? null;
 
-        return $counts;
-    }
-
-    /**
-     * The open file's generation, or null when it has none.
-     */
-    private static function generation(string $contents): ?int
-    {
-        $decoded = json_decode($contents, true);
-        $generation = \is_array($decoded) ? ($decoded[self::GENERATION_KEY] ?? null) : null;
-
-        return \is_int($generation) ? $generation : null;
+        return [$counts, \is_int($generation) ? $generation : null];
     }
 
     private static function isDay(string $day): bool

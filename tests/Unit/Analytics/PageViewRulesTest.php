@@ -82,6 +82,8 @@ final class PageViewRulesTest extends TestCase
         yield 'perplexity' => [$chrome.' Perplexity-Comet', PageViewRules::BUCKET_AI_BROWSER];
         yield 'claude' => [$chrome.' Claude-Browser', PageViewRules::BUCKET_AI_BROWSER];
         yield 'bot marker wins over ai marker' => ['ClaudeBot/1.0', null];
+        yield 'bingbot' => ['Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)', null];
+        yield 'a CUBOT phone is a person' => ['Mozilla/5.0 (Linux; Android 13; CUBOT X30) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36', PageViewRules::BUCKET_BROWSER];
     }
 
     #[DataProvider('userAgents')]

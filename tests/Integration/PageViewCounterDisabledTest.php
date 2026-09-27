@@ -16,7 +16,7 @@ final class PageViewCounterDisabledTest extends IntegrationTestCase
 {
     protected static bool $withReporting = true;
 
-    public function testTheBeaconPathIsNotIntercepted(): void
+    public function testTheBeaconIsAnsweredButNotCounted(): void
     {
         $client = $this->bootClient();
 
@@ -26,8 +26,9 @@ final class PageViewCounterDisabledTest extends IntegrationTestCase
             'HTTP_USER_AGENT' => 'Mozilla/5.0 Chrome/140.0.0.0 Safari/537.36',
         ], content: '{"p":"/a"}');
 
-        self::assertSame(200, $client->getResponse()->getStatusCode());
-        self::assertSame('ANTAGONIST', $client->getResponse()->getContent(), 'the application answered it');
+        self::assertSame(204, $client->getResponse()->getStatusCode(), 'a cached page still beaconing gets the cheap answer, not the app');
+        self::assertSame('', $client->getResponse()->getContent());
+        self::assertSame('no-store, private', $client->getResponse()->headers->get('Cache-Control'));
 
         $kernel = static::$kernel;
         \assert($kernel instanceof TestKernel);

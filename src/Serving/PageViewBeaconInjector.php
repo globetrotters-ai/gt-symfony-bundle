@@ -19,9 +19,14 @@ use Symfony\Component\HttpKernel\KernelEvents;
  * their own layout where they can see it.
  *
  * The same gates as {@see HeadInjector} and {@see BreadcrumbInjector} (main
- * request, HTML), widened to any 2xx, plus: never an XHR response, which is a
- * fragment or data rather than a page view. Idempotent against a script the
- * integrator already placed with Twig.
+ * request, a 200, HTML) — a 206 is a byte range, and appending to it corrupts
+ * the reassembled page — plus: never an XHR response, which is a fragment or
+ * data rather than a page view. Idempotent against a script the integrator
+ * already placed with Twig, with or without a CSP nonce.
+ *
+ * The injected tag carries no nonce: a page whose Content-Security-Policy
+ * forbids inline scripts needs ``'unsafe-inline'``, or the Twig function with
+ * its nonce argument instead of this subscriber.
  */
 final class PageViewBeaconInjector implements EventSubscriberInterface
 {
@@ -49,7 +54,7 @@ final class PageViewBeaconInjector implements EventSubscriberInterface
         }
 
         $response = $event->getResponse();
-        if (!$response->isSuccessful()) {
+        if (200 !== $response->getStatusCode()) {
             return;
         }
         // As in HeadInjector: during kernel.response the Content-Type is often
@@ -65,10 +70,10 @@ final class PageViewBeaconInjector implements EventSubscriberInterface
         }
 
         $script = $this->beacon->render();
-        // Keyed on the rendered script, not the endpoint path: a page that
-        // merely mentions the path (a privacy notice linking to it) must still
-        // count.
-        if ('' === $script || str_contains($content, $script)) {
+        // Keyed on the script body, not the endpoint path: a page that merely
+        // mentions the path (a privacy notice linking to it) must still count,
+        // while a copy placed with Twig — nonce or not — must not be doubled.
+        if ('' === $script || str_contains($content, PageViewBeacon::SCRIPT_BODY)) {
             return;
         }
 

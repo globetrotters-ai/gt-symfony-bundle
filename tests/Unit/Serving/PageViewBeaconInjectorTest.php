@@ -71,6 +71,26 @@ final class PageViewBeaconInjectorTest extends TestCase
         self::assertStringEndsWith(PageViewBeacon::SCRIPT.'</body></html>', (string) $response->getContent());
     }
 
+    public function testDoesNotDuplicateANoncedScriptPlacedWithTwig(): void
+    {
+        $page = '<html><body><script nonce="abc">'.PageViewBeacon::SCRIPT_BODY.'</script></body></html>';
+
+        $response = $this->inject(new Response($page, 200, ['Content-Type' => 'text/html']));
+
+        self::assertSame($page, $response->getContent());
+    }
+
+    /**
+     * Only a 200, like the other injectors: a 206 is a byte range of the
+     * page, and appending to it corrupts the reassembled document.
+     */
+    public function testLeavesAPartialContentResponseAlone(): void
+    {
+        $response = $this->inject(new Response(self::PAGE, 206, ['Content-Type' => 'text/html']));
+
+        self::assertSame(self::PAGE, $response->getContent());
+    }
+
     public function testDropsTheStaleEntityTagMetadata(): void
     {
         $response = new Response(self::PAGE, 200, ['Content-Type' => 'text/html']);

@@ -113,6 +113,7 @@ return static function (ContainerConfigurator $container): void {
             service(ResponseFinalization::class),
             service(PageViewCounter::class),
             service('globetrotters_ai_presence.clock'),
+            service(PageViewOptions::class),
         ])
         ->tag('kernel.event_subscriber');
 

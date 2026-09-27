@@ -252,17 +252,87 @@ final class PageViewCounterTest extends TestCase
         self::assertIsString($raw[0]['src']);
     }
 
-    public function testDiscardAllRemovesEveryPageViewFile(): void
+    /**
+     * A blocking lock would queue every PHP-FPM worker behind a slow writer
+     * (or the flusher sealing the day). The increment waits a few milliseconds
+     * at most, then drops the view.
+     */
+    public function testALockedFileDropsTheViewInsteadOfQueueing(): void
     {
-        $this->counter->increment('2026-09-25', '/a', PageViewRules::BUCKET_BROWSER);
-        $this->counter->seal('2026-09-26');
+        $this->counter->increment('2026-09-26', '/a', PageViewRules::BUCKET_BROWSER);
+        $handle = fopen($this->dir.'/pageviews-2026-09-26.json', 'c+');
+        self::assertIsResource($handle);
+        self::assertTrue(flock($handle, \LOCK_EX));
+
+        try {
+            $started = hrtime(true);
+            self::assertFalse($this->counter->increment('2026-09-26', '/a', PageViewRules::BUCKET_BROWSER));
+            self::assertLessThan(500, (hrtime(true) - $started) / 1e6, 'bounded, in milliseconds');
+        } finally {
+            flock($handle, \LOCK_UN);
+            fclose($handle);
+        }
+
+        self::assertSame(["browser\t/a" => 1], $this->counter->counts('2026-09-26'));
+    }
+
+    /**
+     * An increment writes a new file and renames it over the old one, so an
+     * interrupted write cannot truncate the day. Simulated for real: a child
+     * process with a zero file-size limit is killed by SIGXFSZ on its first
+     * byte written — as a worker is by a full disk or a kill mid-write.
+     */
+    public function testAWriteKilledHalfwayLeavesThePreviousCountsIntact(): void
+    {
+        $this->counter->increment('2026-09-26', '/a', PageViewRules::BUCKET_BROWSER);
+        $before = (string) file_get_contents($this->dir.'/pageviews-2026-09-26.json');
+
+        $script = \sprintf(
+            'require %s; (new %s(new %s(%s)))->increment("2026-09-26", "/a", "browser");',
+            var_export(\dirname(__DIR__, 3).'/vendor/autoload.php', true),
+            PageViewCounter::class,
+            BufferDirectory::class,
+            var_export($this->dir, true),
+        );
+        exec('ulimit -f 0; '.escapeshellarg(\PHP_BINARY).' -r '.escapeshellarg($script).' 2>/dev/null', $output, $status);
+        self::assertNotSame(0, $status, 'the child was killed mid-write');
+
+        self::assertSame($before, file_get_contents($this->dir.'/pageviews-2026-09-26.json'));
+        self::assertSame(["browser\t/a" => 1], $this->counter->counts('2026-09-26'));
+    }
+
+    public function testAnIncrementReplacesTheFileAndKeepsItsGeneration(): void
+    {
+        $open = $this->dir.'/pageviews-2026-09-26.json';
+        $this->counter->increment('2026-09-26', '/a', PageViewRules::BUCKET_BROWSER);
+        clearstatcache(true, $open);
+        $inode = fileinode($open);
+        $generation = json_decode((string) file_get_contents($open), true)[PageViewCounter::GENERATION_KEY];
+
         $this->counter->increment('2026-09-26', '/b', PageViewRules::BUCKET_BROWSER);
-        file_put_contents($this->dir.'/events.ndjson', "{}\n");
 
-        self::assertSame(2, $this->counter->discardAll());
+        clearstatcache(true, $open);
+        self::assertNotSame($inode, fileinode($open), 'renamed over, not rewritten in place');
+        self::assertSame($generation, json_decode((string) file_get_contents($open), true)[PageViewCounter::GENERATION_KEY]);
+        self::assertSame(["browser\t/a" => 1, "browser\t/b" => 1], $this->counter->counts('2026-09-26'));
+    }
 
-        self::assertSame([], glob($this->dir.'/pageviews-*') ?: []);
-        self::assertFileExists($this->dir.'/events.ndjson', 'the event buffer is not page-view data');
+    public function testPruneRemovesTemporaryFilesOlderThanADay(): void
+    {
+        $stale = $this->dir.'/pageviews-sealed-2026-09-26.json.0a1b2c.tmp';
+        $fresh = $this->dir.'/pageviews-2026-09-27.json.3d4e5f.tmp';
+        $other = $this->dir.'/events.ndjson.tmp';
+        foreach ([$stale, $fresh, $other] as $file) {
+            file_put_contents($file, '{}');
+        }
+        touch($stale, time() - 2 * 86400);
+        touch($other, time() - 2 * 86400);
+
+        $this->counter->prune('2026-09-27');
+
+        self::assertFileDoesNotExist($stale);
+        self::assertFileExists($fresh, 'may be a write in flight');
+        self::assertFileExists($other, 'not the counter\'s file');
     }
 
     public function testRemovesOnlyTheGivenIds(): void

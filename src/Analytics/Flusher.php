@@ -204,16 +204,18 @@ final class Flusher
             return;
         }
 
-        // Disabling the opt-in is an opt-out: counts collected while it was on
-        // are neither sealed nor sent, but deleted.
-        if (null !== $this->pageViewOptions && !$this->pageViewOptions->isEnabled()) {
-            $this->pageViews->discardAll();
+        // Pruning runs regardless, so counts age out past the backend's window
+        // whatever the flag says.
+        $today = $this->today();
+        $this->pageViews->prune($today);
 
+        // Not enabled here: nothing is sealed or sent, and nothing else is
+        // deleted either. A CLI or worker missing the flag (a forgotten env
+        // var) must not destroy what a correctly configured web tier counted.
+        if (!$this->pageViewsEnabled()) {
             return;
         }
 
-        $today = $this->today();
-        $this->pageViews->prune($today);
         $this->pageViews->seal($today);
     }
 
@@ -222,11 +224,16 @@ final class Flusher
      */
     private function pendingPageViews(int $limit): array
     {
-        if (null === $this->pageViews || (null !== $this->pageViewOptions && !$this->pageViewOptions->isEnabled())) {
+        if (null === $this->pageViews || !$this->pageViewsEnabled()) {
             return [];
         }
 
         return $this->pageViews->pending($limit);
+    }
+
+    private function pageViewsEnabled(): bool
+    {
+        return null === $this->pageViewOptions || $this->pageViewOptions->isEnabled();
     }
 
     private function today(): string
@@ -239,10 +246,11 @@ final class Flusher
      *
      * Halves rather than trimming one item at a time: an oversize batch is
      * rare, and halving converges in a handful of encodes instead of hundreds.
-     * Events and page-view records halve together; at one of each, the
-     * page-view record steps aside so the event can be tried alone. Whatever
-     * is left over stays buffered for the next batch rather than being
-     * discarded.
+     * Page-view records give way first — halved down to one before a single
+     * event is held back, since events age out of the backend's 90-minute
+     * window and closed days have a week — then events halve, and at one of
+     * each the record steps aside so the event can be tried alone. Whatever is
+     * left over stays buffered for the next batch rather than being discarded.
      *
      * @param list<Event>                                                                    $claimed
      * @param list<array{id: string, day: string, path: string, bucket: string, count: int}> $pageViews
@@ -263,9 +271,10 @@ final class Flusher
                 return ['events' => $eventSlice, 'pageViews' => $recordSlice, 'json' => $json];
             }
 
-            if ($events > 1 || $records > 1) {
-                $events = $events > 1 ? intdiv($events, 2) : $events;
-                $records = $records > 1 ? intdiv($records, 2) : $records;
+            if ($records > 1) {
+                $records = intdiv($records, 2);
+            } elseif ($events > 1) {
+                $events = intdiv($events, 2);
             } elseif (1 === $events && 1 === $records) {
                 $records = 0;
             } else {

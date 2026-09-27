@@ -169,20 +169,68 @@ final class PageViewEndpointTest extends TestCase
         }
     }
 
-    public function testDoesNotInterceptWhenDisabled(): void
+    /**
+     * Pages cached while the counter was on keep sending the beacon after it
+     * is switched off. They get the same cheap 204 rather than falling through
+     * to the application's 404/405 — they are just not counted.
+     */
+    public function testAnswersButDoesNotCountWhenDisabled(): void
     {
         $event = $this->handle($this->beacon('/a'), enabled: false);
 
-        self::assertNull($event->getResponse());
-        self::assertFalse($event->isPropagationStopped());
+        self::assertSame(204, $event->getResponse()?->getStatusCode());
+        foreach (Router::NO_STORE_HEADERS as $name => $value) {
+            self::assertSame($value, $event->getResponse()->headers->get($name), $name);
+        }
+        self::assertTrue($event->isPropagationStopped());
         self::assertSame([], $this->counter->counts(self::TODAY));
+        self::assertSame([], glob($this->dir.'/*') ?: [], 'nothing written');
     }
 
-    public function testDoesNotInterceptWhenReportingIsNotConfigured(): void
+    public function testAnswersButDoesNotCountWhenReportingIsNotConfigured(): void
     {
         $event = $this->handle($this->beacon('/a'), configured: false);
 
-        self::assertNull($event->getResponse());
+        self::assertSame(204, $event->getResponse()?->getStatusCode());
+        self::assertSame([], $this->counter->counts(self::TODAY));
+    }
+
+    /**
+     * A site with ``Referrer-Policy: no-referrer`` sends its beacon with
+     * ``Origin: null`` and no Referer. ``null`` is not an origin, and
+     * ``Sec-Fetch-Site`` then says where the request came from.
+     *
+     * @return iterable<string, array{array<string, string>, bool}>
+     */
+    public static function originSignals(): iterable
+    {
+        $self = 'https://'.self::HOST;
+
+        yield 'null origin, same-origin fetch' => [['Origin' => 'null', 'Sec-Fetch-Site' => 'same-origin'], true];
+        yield 'null origin, cross-site fetch' => [['Origin' => 'null', 'Sec-Fetch-Site' => 'cross-site'], false];
+        yield 'null origin, same-site fetch is not same-origin' => [['Origin' => 'null', 'Sec-Fetch-Site' => 'same-site'], false];
+        yield 'no origin, same-origin fetch' => [['Sec-Fetch-Site' => 'same-origin'], true];
+        yield 'sec-fetch-site outranks the referer' => [['Origin' => 'null', 'Sec-Fetch-Site' => 'cross-site', 'Referer' => $self.'/'], false];
+        yield 'null origin, no fetch metadata, same-host referer' => [['Origin' => 'null', 'Referer' => $self.'/a'], true];
+        yield 'null origin, no fetch metadata, foreign referer' => [['Origin' => 'null', 'Referer' => 'https://evil.example/'], false];
+        yield 'a real origin decides over fetch metadata' => [['Origin' => 'https://evil.example', 'Sec-Fetch-Site' => 'same-origin'], false];
+        yield 'a real same origin decides over fetch metadata' => [['Origin' => $self, 'Sec-Fetch-Site' => 'cross-site'], true];
+    }
+
+    /**
+     * @param array<string, string> $headers
+     */
+    #[DataProvider('originSignals')]
+    public function testDecidesSameOriginFromOriginThenFetchMetadataThenReferer(array $headers, bool $counted): void
+    {
+        $request = $this->beacon('/a', origin: null);
+        foreach ($headers as $name => $value) {
+            $request->headers->set($name, $value);
+        }
+
+        $this->handle($request);
+
+        self::assertSame($counted ? ["browser\t/a" => 1] : [], $this->counter->counts(self::TODAY));
     }
 
     public function testLeavesEveryOtherRequestAlone(): void

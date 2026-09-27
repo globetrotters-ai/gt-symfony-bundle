@@ -30,9 +30,10 @@ final class PageViewRules
     /**
      * An obvious automated client. Not counted at all: crawlers do not run the
      * script, so a beacon from one is a replay or a headless render, neither
-     * of which is a human view.
+     * of which is a human view. ``bot`` not preceded by ``cu``: CUBOT is a
+     * phone maker, and its handsets name themselves in the User-Agent.
      */
-    public const BOT_PATTERN = '/bot|crawl|spider|slurp|fetch|python|curl|wget|go-http|headlesschrome|phantomjs|lighthouse|preview/i';
+    public const BOT_PATTERN = '/(?<!cu)bot|crawl|spider|slurp|fetch|python|curl|wget|go-http|headlesschrome|phantomjs|lighthouse|preview/i';
 
     /**
      * A browser that says it is driven by an AI assistant (ChatGPT agent,

@@ -186,7 +186,9 @@ Then place the script in your base layout, anywhere in the page (before `</body>
 {{ gt_ai_presence_beacon() }}
 ```
 
-It renders nothing while the counter is off or reporting is not configured, so it is safe to leave in the template. If you would rather not touch templates, `auto_inject: true` has the bundle insert it before `</body>` on every successful HTML response (never on XHR responses, never twice if you also placed it yourself). That is a second opt-in on purpose: otherwise the bundle only ever injects `<head>` markup that runs nothing.
+It renders nothing while the counter is off or reporting is not configured, so it is safe to leave in the template. If you would rather not touch templates, `auto_inject: true` has the bundle insert it before `</body>` on every `200` HTML response (never on XHR responses, never twice if you also placed it yourself). That is a second opt-in on purpose: otherwise the bundle only ever injects `<head>` markup that runs nothing.
+
+**Content-Security-Policy.** The script is inline. If your policy forbids inline scripts, pass your per-request nonce to the Twig function — with NelmioSecurityBundle, `{{ gt_ai_presence_beacon(csp_nonce('script')) }}` — and it is rendered, escaped, as the tag's `nonce` attribute. The auto-injected copy carries no nonce, so `auto_inject` needs `'unsafe-inline'` in `script-src`; under a nonce-based policy use the Twig function instead.
 
 ```yaml
 globetrotters_ai_presence:
@@ -196,21 +198,21 @@ globetrotters_ai_presence:
             auto_inject: true
 ```
 
-**How it counts.** The script is one line, under 300 bytes:
+**How it counts.** The script is one line, under 400 bytes:
 
 ```html
-<script>(function(){try{var n=navigator;if(!n.sendBeacon)return;n.sendBeacon('/.well-known/globetrotters/pv',new Blob([JSON.stringify({p:location.pathname})],{type:'text/plain'}))}catch(e){}})();</script>
+<script>(function(){var n=navigator,d=document;function s(){try{n.sendBeacon('/.well-known/globetrotters/pv',new Blob([JSON.stringify({p:location.pathname})],{type:'text/plain'}))}catch(e){}}try{if(!n.sendBeacon)return;if(d.prerendering){d.addEventListener('prerenderingchange',s,{once:true})}else{s()}}catch(e){}})();</script>
 ```
 
-It posts the page's path — never its query string — to `/.well-known/globetrotters/pv` on **your own site**. The browser never talks to Globetrotters. The bundle answers that `POST` before routing and the firewall, and:
+It posts the page's path — never its query string — to `/.well-known/globetrotters/pv` on **your own site**. The browser never talks to Globetrotters. A page the browser only *prerenders* (Speculation Rules) is not counted until it is actually shown. The bundle answers that `POST` before routing and the firewall — always with the same empty `204`, even while the counter is off, so pages cached while it was on do not run into your application's 404 — and, when the counter is on:
 
-- counts it only when the `Origin` (or, failing that, `Referer`) host is your site's own;
+- counts it only when it comes from your own site: a real `Origin` header decides by its host; `Origin: null` (what a page under `Referrer-Policy: no-referrer` sends) counts as absent, and then `Sec-Fetch-Site: same-origin` decides, or failing both, the `Referer` host;
 - counts only a path Globetrotters would accept (absolute, no query string or fragment, at most 512 characters; a trailing slash is folded);
 - sorts the visitor into `browser` or `ai_browser` (a browser that says it is driven by ChatGPT, Comet, Perplexity or Claude) by the User-Agent, and does not count an obvious bot at all;
-- increments a counter per UTC day, path and bucket in `buffer_dir` — at most 2000 distinct paths a day, the rest counted under `(other)`;
+- increments a counter per UTC day, path and bucket in `buffer_dir` — at most 2000 distinct paths a day, the rest counted under `(other)`. The file is replaced atomically on each increment, and a view that cannot take the lock within a few milliseconds is dropped rather than queueing your PHP workers behind it;
 - answers `204` with `X-Content-Type-Options: nosniff`, `Cache-Control: no-store, private` and `Surrogate-Control: no-store`, and strips any cookie your application tries to add to that response.
 
-It **never reads the client IP, never stores the User-Agent string and never sets a cookie**. A day's counts are sent in the regular flush only once that UTC day has ended, each record with an id minted once so a retried flush cannot double-count, and deleted locally once accepted. Days older than a week are dropped, as Globetrotters would drop them. Turning `enabled` back off is an opt-out too: the next flush sends no page views and deletes every count not yet sent. The counts are indicative: visitors with JavaScript off are missed, and a same-origin endpoint can be spammed — they are never billed on.
+It **never reads the client IP, never stores the User-Agent string and never sets a cookie**. A day's counts are sent in the regular flush only once that UTC day has ended, each record with an id minted once so a retried flush cannot double-count, and deleted locally once accepted. Days older than a week are dropped, as Globetrotters would drop them. With `enabled` off, a flush neither seals nor sends page views; counts not yet sent stay on disk (a CLI or worker that is merely missing the setting cannot delete what the web tier counted) and age out after a week like any other day. Turn it back on and they go with the next flush. The counts are indicative: visitors with JavaScript off are missed, and a same-origin endpoint can be spammed — they are never billed on.
 
 Page views are flushed by every lane, including a run with no agent traffic buffered, so cron and `symfony/scheduler` carry them as they carry events. On the `kernel.terminate` lane a beacon request can trigger the flush too (a beacon is fire-and-forget, nobody waits on it), so an install with no cron still sends them. `gt:status` shows whether the counter is on, and how many records are waiting.
 
@@ -309,7 +311,7 @@ Each injection is automatic on `homepage_path`. If you'd rather place markup exp
 The page-view script, when you have turned the counter on, is placed the same way; it renders `''` otherwise, and `reporting.page_views.auto_inject` is the opt-in that places it for you (see [Counting human page views](#counting-human-page-views-optional)):
 
 ```twig
-{{ gt_ai_presence_beacon() }}           {# before </body> #}
+{{ gt_ai_presence_beacon() }}           {# before </body>; or gt_ai_presence_beacon(csp_nonce('script')) under a CSP #}
 ```
 
 ## Caveats
@@ -319,7 +321,7 @@ The page-view script, when you have turned the counter on, is placed the same wa
 - **Don't use a per-process pool.** `cache_pool` must be shared between CLI and web (filesystem, Redis, shared APCu) — with an in-memory pool, CLI refreshes would be invisible to web requests.
 - **Changing or clearing `website_url` stops serving the previous source at once.** The cached bundle records the URL it was pulled from and is served only while that URL is configured. After a change, the next `gt:refresh` drops it and pulls the new source straight away, whatever the interval; a process with no `website_url` never deletes it. On the Scheduler lane, run `gt:refresh --force` after the deploy, or the new source waits for the next scheduled refresh.
 - The configured `website_url` is fetched with an SSRF guard (private/reserved IPs are rejected), a 5-second timeout, and a 1 MiB per-file size cap.
-- **Reporting needs a writable `buffer_dir`**, shared by the web user and whoever runs the flush — the rest of the bundle needs no filesystem write access, and an install that doesn't report never creates the directory. It holds at most 5000 events or 512KB; past that the oldest are dropped and counted, and the count is reported so the gap is visible rather than silent. `gt:status` shows both. With the page-view counter on it also holds one small file per day (`pageviews-<day>.json`, then `pageviews-sealed-<day>.json` until sent), a week at most.
+- **Reporting needs a writable `buffer_dir`**, shared by the web user and whoever runs the flush — the rest of the bundle needs no filesystem write access, and an install that doesn't report never creates the directory. It holds at most 5000 events or 512KB; past that the oldest are dropped and counted, and the count is reported so the gap is visible rather than silent. `gt:status` shows both. With the page-view counter on it also holds one small file per day (`pageviews-<day>.json`, then `pageviews-sealed-<day>.json` until sent), a week at most. **It must be a local POSIX filesystem** (not NFS, SMB or a Windows share): the counter relies on `flock()` and on seeing a file it has locked be unlinked or renamed away, which network filesystems do not reliably provide.
 - **The breadcrumb needs a `</head>` in the response.** The block is inserted before the closing tag, so a page that streams, is served from a static cache, or omits `</head>` gets nothing — place it with `gt_ai_presence_breadcrumb_head()` instead.
 - **Conditional GETs survive injection; `Last-Modified` does not.** Rewriting a body makes metadata describing the original representation untrue. The `ETag` is therefore **recomputed** from the injected bytes — preserving your weak/strong flavour — and revalidated once, after every injection has run, so a client holding what was actually served still gets a `304` while one holding a half-injected body correctly gets a fresh `200`. A response that published no `ETag` is left without one; the bundle will not invent a caching contract you did not opt into. `Last-Modified` is dropped rather than restamped: a changed body says nothing about when the underlying resource changed.
 - **An accepted flush is not proof the token is right.** The ingest endpoint answers `202` to a bad token, an unknown install and a malformed body alike, deliberately revealing nothing about which tokens exist. `gt:status` distinguishes "configured but never accepted" from "reporting normally", but confirm the numbers in Studio.

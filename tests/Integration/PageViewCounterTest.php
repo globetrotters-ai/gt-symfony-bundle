@@ -96,6 +96,10 @@ final class PageViewCounterTest extends IntegrationTestCase
         \assert($twig instanceof Environment);
 
         self::assertSame(PageViewBeacon::SCRIPT, $twig->createTemplate('{{ gt_ai_presence_beacon() }}')->render());
+        self::assertSame(
+            '<script nonce="n0nce&quot;">'.PageViewBeacon::SCRIPT_BODY.'</script>',
+            $twig->createTemplate('{{ gt_ai_presence_beacon(nonce) }}')->render(['nonce' => 'n0nce"']),
+        );
     }
 
     /**

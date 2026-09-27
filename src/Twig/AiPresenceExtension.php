@@ -27,6 +27,7 @@ use Twig\TwigFunction;
  * - ``{{ gt_ai_presence_beacon() }}`` — the first-party page-view script, an
  *   empty string unless ``reporting.page_views.enabled`` is on and reporting
  *   is configured. Anywhere in the page; before ``</body>`` is conventional.
+ *   Takes an optional CSP nonce: ``gt_ai_presence_beacon(csp_nonce('script'))``.
  */
 final class AiPresenceExtension extends AbstractExtension
 {
@@ -62,8 +63,8 @@ final class AiPresenceExtension extends AbstractExtension
         return $this->breadcrumb->anchor();
     }
 
-    public function renderBeacon(): string
+    public function renderBeacon(?string $nonce = null): string
     {
-        return $this->beacon->render();
+        return $this->beacon->render($nonce);
     }
 }

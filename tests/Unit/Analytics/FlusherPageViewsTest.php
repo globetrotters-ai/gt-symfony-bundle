@@ -204,8 +204,14 @@ final class FlusherPageViewsTest extends TestCase
      * Switching the opt-in off is an opt-out: counts collected while it was on
      * are neither sealed nor sent, and are deleted.
      */
-    public function testWithPageViewsDisabledNothingIsSentAndEveryFileIsDiscarded(): void
+    /**
+     * A CLI or worker without the flag (a missing env var) must not destroy
+     * what a correctly configured web tier counted: disabled means nothing is
+     * sealed or sent, and files only age out past the backend's window.
+     */
+    public function testWithPageViewsDisabledNothingIsSentOrSealedAndOnlyOldDaysArePruned(): void
     {
+        $this->view('2026-09-18', '/too-old', 1);
         $this->view('2026-09-25', '/sealed-earlier', 1);
         $this->pageViews->seal('2026-09-26');
         $this->view('2026-09-26', '/closed', 2);
@@ -227,7 +233,34 @@ final class FlusherPageViewsTest extends TestCase
 
         self::assertCount(1, $this->transport->sent, 'the heartbeat still goes');
         self::assertArrayNotHasKey('pageViews', $this->transport->envelopes()[0]);
-        self::assertSame([], glob($this->dir.'/pageviews-*') ?: []);
+        $files = array_map('basename', glob($this->dir.'/pageviews-*') ?: []);
+        sort($files);
+        self::assertSame([
+            'pageviews-2026-09-26.json',
+            'pageviews-2026-09-27.json',
+            'pageviews-sealed-2026-09-25.json',
+        ], $files, 'left as they were, except the day past the window');
+        self::assertSame(["browser\t/closed" => 2], $this->pageViews->counts('2026-09-26'));
+    }
+
+    /**
+     * Page-view records give way first: an oversize batch halves them down to
+     * one before a single event is held back.
+     */
+    public function testFitHalvesPageViewRecordsBeforeEvents(): void
+    {
+        $this->fill(3);
+        for ($i = 0; $i < 400; ++$i) {
+            $this->pageViews->increment('2026-09-26', '/'.str_repeat('x', 400).$i, PageViewRules::BUCKET_BROWSER);
+        }
+        $this->transport->capAt(64 * 1024);
+
+        $this->flusher->run(AnalyticsState::LANE_COMMAND, maxBatches: 1);
+
+        $envelope = $this->transport->envelopes()[0];
+        self::assertCount(3, $envelope['events'], 'every event still goes');
+        self::assertGreaterThan(0, \count($envelope['pageViews']));
+        self::assertLessThan(400, \count($envelope['pageViews']));
     }
 
     public function testWithPageViewsEnabledTheyAreSent(): void

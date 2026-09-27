@@ -14,6 +14,7 @@ use Globetrotters\AiPresenceBundle\Analytics\Flusher;
 use Globetrotters\AiPresenceBundle\Analytics\FlushGate;
 use Globetrotters\AiPresenceBundle\Analytics\NdjsonEventStore;
 use Globetrotters\AiPresenceBundle\Analytics\PageViewCounter;
+use Globetrotters\AiPresenceBundle\Analytics\PageViewOptions;
 use Globetrotters\AiPresenceBundle\Analytics\PageViewRules;
 use Globetrotters\AiPresenceBundle\Serving\OpportunisticFlushSubscriber;
 use Globetrotters\AiPresenceBundle\Serving\ResponseFinalization;
@@ -228,6 +229,31 @@ final class OpportunisticFlushSubscriberTest extends TestCase
         $this->subscriber()->onKernelTerminate($this->terminate('/.well-known/globetrotters/pv', [Router::ATTRIBUTE_PAGE_VIEW => true]));
 
         self::assertCount(1, $this->transport->sent);
+    }
+
+    /**
+     * The beacon path is answered even with the counter off, so with it off
+     * neither a beacon nor a leftover closed day may drive a flush.
+     */
+    public function testWithPageViewsOffNeitherABeaconNorAClosedDayTriggersAFlush(): void
+    {
+        $this->pageViews->increment('2026-08-10', '/a', PageViewRules::BUCKET_BROWSER);
+        $options = $this->options();
+        $subscriber = new OpportunisticFlushSubscriber(
+            new Flusher($this->buffer, $this->transport, $options, new AnalyticsState(new ArrayAdapter()), $this->gate, $this->clock, $this->pageViews),
+            $this->buffer,
+            $options,
+            $this->gate,
+            new ResponseFinalization(true),
+            $this->pageViews,
+            $this->clock,
+            new PageViewOptions($options, false, false),
+        );
+
+        $subscriber->onKernelTerminate($this->terminate('/.well-known/globetrotters/pv', [Router::ATTRIBUTE_PAGE_VIEW => true]));
+        $subscriber->onKernelTerminate($this->terminate());
+
+        self::assertCount(0, $this->transport->sent);
     }
 
     private function subscriber(?AnalyticsOptions $options = null, bool $finishesEarly = true): OpportunisticFlushSubscriber
