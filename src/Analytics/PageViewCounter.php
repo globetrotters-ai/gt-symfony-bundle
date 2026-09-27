@@ -52,6 +52,19 @@ final class PageViewCounter
     private const OPEN_FILE = '/^pageviews-(\d{4}-\d{2}-\d{2})\.json$/';
     private const SEALED_FILE = '/^pageviews-sealed-(\d{4}-\d{2}-\d{2})\.json$/';
 
+    /**
+     * Reserved key in an open file holding its generation: a random number
+     * written when the file is created and kept for its life. It is what
+     * identifies an open file when sealing (see {@see self::fingerprint()}) —
+     * Linux reuses a freed inode at once and mtime is to the second, so a
+     * late-view file recreated just after sealing can otherwise match the
+     * sealed one on inode, mtime and bytes. No ``"bucket\tpath"`` key can
+     * collide with it: it has no tab. (Not a NUL-prefixed key: the file is
+     * written through an object cast, where PHP reads one as a private property
+     * name and json_encode() drops it.).
+     */
+    public const GENERATION_KEY = '#gen';
+
     private const JSON_FLAGS = \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE;
 
     public function __construct(private readonly BufferDirectory $directory)
@@ -73,11 +86,13 @@ final class PageViewCounter
         // late addition.
         for ($attempt = 0; $attempt < 2; ++$attempt) {
             $stored = $this->withExclusiveLock($this->directory->path('pageviews-'.$day.'.json'), static function ($handle) use ($path, $bucket): bool {
-                $counts = self::decodeCounts(self::readAll($handle));
+                $contents = self::readAll($handle);
+                $counts = self::decodeCounts($contents);
+                $generation = self::generation($contents) ?? ([] === $counts ? random_int(1, \PHP_INT_MAX) : null);
                 $key = self::keyFor($counts, $path, $bucket);
                 $counts[$key] = ($counts[$key] ?? 0) + 1;
 
-                return self::overwrite($handle, $counts);
+                return self::overwrite($handle, null === $generation ? $counts : [self::GENERATION_KEY => $generation] + $counts);
             });
             if (null !== $stored) {
                 return $stored;
@@ -106,14 +121,23 @@ final class PageViewCounter
     }
 
     /**
-     * Identify one open file's contents at one moment: its inode, its mtime and
-     * its bytes. A file recreated for the same day (a late view after sealing)
-     * gets a new inode and mtime, so it never matches the one sealed before it.
+     * Identify one open file for sealing: its generation
+     * ({@see self::GENERATION_KEY}), which a file recreated for the same day (a
+     * late view after sealing) never shares with the one sealed before it,
+     * whatever the filesystem does with inodes. The same file surviving a crash
+     * keeps its generation, so it is recognised as already sealed.
      *
      * @param array<int|string, int> $stat as returned by stat()/fstat()
      */
     public static function fingerprint(array $stat, string $contents): string
     {
+        $generation = self::generation($contents);
+        if (null !== $generation) {
+            return sha1('gen|'.$generation);
+        }
+
+        // A file written before generations existed: identified by inode,
+        // mtime and bytes, which holds wherever inodes are not reused at once.
         return sha1(($stat['ino'] ?? 0).'|'.($stat['mtime'] ?? 0).'|'.$contents);
     }
 
@@ -538,7 +562,7 @@ final class PageViewCounter
 
     /**
      * @param resource           $handle
-     * @param array<string, int> $counts
+     * @param array<string, int> $counts including the generation entry
      */
     private static function overwrite($handle, array $counts): bool
     {
@@ -556,6 +580,10 @@ final class PageViewCounter
     }
 
     /**
+     * The ``"bucket\tpath"`` counts only. The generation entry has no tab, so
+     * it never reaches counts(), openViews(), the path cap or a sealed record;
+     * {@see self::generation()} reads it.
+     *
      * @return array<string, int>
      */
     private static function decodeCounts(string $contents): array
@@ -573,6 +601,17 @@ final class PageViewCounter
         }
 
         return $counts;
+    }
+
+    /**
+     * The open file's generation, or null when it has none.
+     */
+    private static function generation(string $contents): ?int
+    {
+        $decoded = json_decode($contents, true);
+        $generation = \is_array($decoded) ? ($decoded[self::GENERATION_KEY] ?? null) : null;
+
+        return \is_int($generation) ? $generation : null;
     }
 
     private static function isDay(string $day): bool

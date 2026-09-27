@@ -167,6 +167,66 @@ final class PageViewCounterTest extends TestCase
         self::assertFileDoesNotExist($open, 'the already-sealed open file is removed');
     }
 
+    /**
+     * Linux (ext4, tmpfs) reuses a freed inode at once, and mtime is to the
+     * second: a late-view file recreated right after sealing can match the
+     * sealed one on inode, mtime *and* bytes. Each open file's random
+     * generation is what tells them apart, so the late views still seal.
+     */
+    public function testALateFileWithTheSameInodeMtimeAndCountsStillSeals(): void
+    {
+        $this->counter->increment('2026-09-26', '/x', PageViewRules::BUCKET_BROWSER);
+        $open = $this->dir.'/pageviews-2026-09-26.json';
+        clearstatcache(true, $open);
+        $stat = stat($open);
+        self::assertIsArray($stat);
+        $source = PageViewCounter::fingerprint($stat, (string) file_get_contents($open));
+        file_put_contents($this->dir.'/pageviews-sealed-2026-09-26.json', json_encode([
+            ['id' => '00000000-0000-4000-8000-000000000001', 'day' => '2026-09-26', 'path' => '/x', 'bucket' => 'browser', 'count' => 1, 'src' => $source],
+        ]));
+
+        // The same inode (rewritten in place), the same mtime, the same counts
+        // — only the generation differs, as for a file created afresh.
+        $late = (array) json_decode((string) file_get_contents($open), true);
+        self::assertArrayHasKey(PageViewCounter::GENERATION_KEY, $late, 'a new open file carries a generation');
+        ++$late[PageViewCounter::GENERATION_KEY];
+        file_put_contents($open, json_encode((object) $late));
+        touch($open, $stat['mtime']);
+        clearstatcache(true, $open);
+        self::assertSame($stat['ino'], stat($open)['ino'] ?? null);
+
+        self::assertSame(1, $this->counter->seal('2026-09-27'));
+
+        $pending = $this->counter->pending(10);
+        self::assertCount(2, $pending);
+        self::assertSame('00000000-0000-4000-8000-000000000001', $pending[0]['id']);
+        self::assertSame(['/x', '/x'], array_column($pending, 'path'));
+    }
+
+    public function testTheGenerationIsNeitherACountNorAPath(): void
+    {
+        $this->counter->increment('2026-09-26', '/a', PageViewRules::BUCKET_BROWSER);
+        $this->counter->increment('2026-09-26', '/a', PageViewRules::BUCKET_BROWSER);
+
+        self::assertSame(["browser\t/a" => 2], $this->counter->counts('2026-09-26'));
+        self::assertSame(2, $this->counter->openViews());
+
+        $this->counter->seal('2026-09-27');
+        self::assertCount(1, $this->counter->pending(10));
+    }
+
+    public function testTheGenerationIsSetOnceForTheLifeOfAnOpenFile(): void
+    {
+        $open = $this->dir.'/pageviews-2026-09-26.json';
+        $this->counter->increment('2026-09-26', '/a', PageViewRules::BUCKET_BROWSER);
+        $first = (array) json_decode((string) file_get_contents($open), true);
+        $this->counter->increment('2026-09-26', '/b', PageViewRules::BUCKET_BROWSER);
+        $second = (array) json_decode((string) file_get_contents($open), true);
+
+        self::assertIsInt($first[PageViewCounter::GENERATION_KEY]);
+        self::assertSame($first[PageViewCounter::GENERATION_KEY], $second[PageViewCounter::GENERATION_KEY]);
+    }
+
     public function testTheSourceFingerprintIsNeverSent(): void
     {
         $this->counter->increment('2026-09-26', '/a', PageViewRules::BUCKET_BROWSER);
@@ -272,8 +332,8 @@ final class PageViewCounterTest extends TestCase
     /**
      * Privacy by construction: what lands on disk is a day, a path, a bucket
      * and a count — nothing that identifies a visitor. The one other field is
-     * ``src``, a sha1 of the open file it was sealed from (inode, mtime and the
-     * counts themselves), which is bookkeeping about a file, not a visitor.
+     * ``src``, a sha1 of the random generation of the open file it was sealed
+     * from, which is bookkeeping about a file, not a visitor.
      */
     public function testWritesNothingButDayPathBucketAndCount(): void
     {
