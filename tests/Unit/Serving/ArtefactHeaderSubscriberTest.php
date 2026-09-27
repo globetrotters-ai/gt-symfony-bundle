@@ -7,6 +7,7 @@ namespace Globetrotters\AiPresenceBundle\Tests\Unit\Serving;
 use Globetrotters\AiPresenceBundle\Serving\ArtefactHeaderSubscriber;
 use Globetrotters\AiPresenceBundle\Serving\Router;
 use PHPUnit\Framework\TestCase;
+use Symfony\Component\HttpFoundation\Cookie;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\Event\ResponseEvent;
@@ -108,6 +109,34 @@ final class ArtefactHeaderSubscriberTest extends TestCase
 
         self::assertSame('https://app.example', $response->headers->get('Access-Control-Allow-Origin'));
         self::assertSame('no-store, private', $response->headers->get('Cache-Control'));
+    }
+
+    /**
+     * The page-view counter never sets a cookie — including one the host
+     * application's own session or consent listener stamps on every response.
+     */
+    public function testStripsEveryCookieFromAPageViewBeaconResponse(): void
+    {
+        $response = new Response('', 204);
+        $response->headers->setCookie(Cookie::create('PHPSESSID', 'abc'));
+        $response->headers->set('Set-Cookie', 'raw=1', false);
+        $response->setPublic();
+        $response->setMaxAge(600);
+
+        $request = Request::create('/.well-known/globetrotters/pv', 'POST');
+        $request->attributes->set(Router::ATTRIBUTE_PAGE_VIEW, true);
+        (new ArtefactHeaderSubscriber())->onKernelResponse(new ResponseEvent(
+            $this->createStub(HttpKernelInterface::class),
+            $request,
+            HttpKernelInterface::MAIN_REQUEST,
+            $response,
+        ));
+
+        self::assertSame([], $response->headers->getCookies());
+        self::assertFalse($response->headers->has('Set-Cookie'));
+        self::assertSame('no-store, private', $response->headers->get('Cache-Control'));
+        self::assertSame('no-store', $response->headers->get('Surrogate-Control'));
+        self::assertFalse($response->headers->has('Access-Control-Allow-Origin'));
     }
 
     private function subscribeKey(Response $response): void

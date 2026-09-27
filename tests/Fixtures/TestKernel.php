@@ -34,6 +34,7 @@ final class TestKernel extends Kernel
         private readonly bool $withOpportunisticFlush = false,
         private readonly bool $withBreadcrumb = false,
         private readonly bool $withSitemapRoute = false,
+        private readonly bool $withPageViews = false,
     ) {
         parent::__construct($environment, $debug);
     }
@@ -95,6 +96,12 @@ final class TestKernel extends Kernel
                 // on every terminate, so leaving it on would drain the buffer
                 // out from under a test that is asserting on capture.
                 'opportunistic_flush' => $this->withOpportunisticFlush,
+                // Off by default, as in the bundle: the counter is its own
+                // opt-in, and the auto-injection a second one on top of it.
+                'page_views' => [
+                    'enabled' => $this->withPageViews,
+                    'auto_inject' => $this->withPageViews,
+                ],
             ],
         ]);
 
@@ -119,6 +126,10 @@ final class TestKernel extends Kernel
         $services->set(AntagonistController::class)
             ->public()
             ->tag('controller.service_arguments');
+
+        if ($this->withPageViews) {
+            $services->set(CookieStampingListener::class)->tag('kernel.event_subscriber');
+        }
 
         if ($this->withRobotsRoute) {
             $services->set(LateValidatorListener::class)->tag('kernel.event_subscriber');
@@ -149,6 +160,7 @@ final class TestKernel extends Kernel
             .($this->withReporting ? '_reporting' : '')
             .($this->withOpportunisticFlush ? '_terminate' : '')
             .($this->withBreadcrumb ? '_breadcrumb' : '')
-            .($this->withSitemapRoute ? '_sitemap' : '');
+            .($this->withSitemapRoute ? '_sitemap' : '')
+            .($this->withPageViews ? '_pageviews' : '');
     }
 }

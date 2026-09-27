@@ -9,6 +9,8 @@ use Globetrotters\AiPresenceBundle\Analytics\AnalyticsState;
 use Globetrotters\AiPresenceBundle\Analytics\BufferDirectory;
 use Globetrotters\AiPresenceBundle\Analytics\EventBuffer;
 use Globetrotters\AiPresenceBundle\Analytics\FlushGate;
+use Globetrotters\AiPresenceBundle\Analytics\PageViewCounter;
+use Globetrotters\AiPresenceBundle\Analytics\PageViewOptions;
 use Globetrotters\AiPresenceBundle\Cache\ArtefactCache;
 use Globetrotters\AiPresenceBundle\Settings\Options;
 use Globetrotters\AiPresenceBundle\Sync\ArtefactSync;
@@ -43,6 +45,8 @@ final class StatusCommand extends Command
         private readonly EventBuffer $buffer,
         private readonly FlushGate $gate,
         private readonly BufferDirectory $bufferDir,
+        private readonly ?PageViewOptions $pageViewOptions = null,
+        private readonly ?PageViewCounter $pageViews = null,
     ) {
         parent::__construct();
     }
@@ -134,6 +138,11 @@ final class StatusCommand extends Command
             ['Last flush attempt', $lastAttempt > 0 ? gmdate('Y-m-d H:i:s', $lastAttempt).' UTC' : 'never'],
             ['Last accepted flush', $lastOk > 0 ? gmdate('Y-m-d H:i:s', $lastOk).' UTC' : 'never'],
             ['Accepted batches / events', \sprintf('%d / %d', (int) $state['flush_count'], (int) $state['events_sent'])],
+            ['Page views', $this->pageViewMode()],
+            ['Page views pending', $usable && null !== $this->pageViews
+                ? \sprintf('%d record(s) sealed; %d view(s) counted on open days', $this->pageViews->pendingRecords(), $this->pageViews->openViews())
+                : '—'],
+            ['Page-view records sent', (string) (int) $state['page_views_sent']],
             ['Scheduling lane in use', $this->lane($state)],
             ['Client IP resolution', $this->ipTrust($state)],
             ['Last flush error', '' !== (string) $state['last_flush_error'] ? (string) $state['last_flush_error'] : '—'],
@@ -156,6 +165,17 @@ final class StatusCommand extends Command
         }
 
         $io->writeln('Reporting normally. Note that the endpoint answers 202 to a bad token as well as a good one, so an accepted flush proves hand-off, not that this install is recognised — confirm the numbers in Studio.');
+    }
+
+    private function pageViewMode(): string
+    {
+        if (null === $this->pageViewOptions || !$this->pageViewOptions->isEnabled()) {
+            return 'off (reporting.page_views.enabled: false)';
+        }
+
+        return $this->pageViewOptions->autoInject()
+            ? 'on, auto-injected before </body>'
+            : 'on — place {{ gt_ai_presence_beacon() }} in your layout';
     }
 
     /**

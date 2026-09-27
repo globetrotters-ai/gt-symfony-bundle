@@ -7,6 +7,7 @@ namespace Globetrotters\AiPresenceBundle\Twig;
 use Globetrotters\AiPresenceBundle\Cache\ArtefactCache;
 use Globetrotters\AiPresenceBundle\Serving\BreadcrumbRenderer;
 use Globetrotters\AiPresenceBundle\Serving\HeadInjector;
+use Globetrotters\AiPresenceBundle\Serving\PageViewBeacon;
 use Twig\Extension\AbstractExtension;
 use Twig\TwigFunction;
 
@@ -23,12 +24,17 @@ use Twig\TwigFunction;
  *   They are separate functions because they belong in different places: the
  *   first in ``<head>``, the second in the visible footer, which is what a
  *   crawler actually follows.
+ * - ``{{ gt_ai_presence_beacon() }}`` — the first-party page-view script, an
+ *   empty string unless ``reporting.page_views.enabled`` is on and reporting
+ *   is configured. Anywhere in the page; before ``</body>`` is conventional.
+ *   Takes an optional CSP nonce: ``gt_ai_presence_beacon(csp_nonce('script'))``.
  */
 final class AiPresenceExtension extends AbstractExtension
 {
     public function __construct(
         private readonly ArtefactCache $cache,
         private readonly BreadcrumbRenderer $breadcrumb,
+        private readonly PageViewBeacon $beacon,
     ) {
     }
 
@@ -38,6 +44,7 @@ final class AiPresenceExtension extends AbstractExtension
             new TwigFunction('gt_ai_presence_head', $this->renderHead(...), ['is_safe' => ['html']]),
             new TwigFunction('gt_ai_presence_breadcrumb_head', $this->renderBreadcrumbHead(...), ['is_safe' => ['html']]),
             new TwigFunction('gt_ai_presence_breadcrumb_link', $this->renderBreadcrumbLink(...), ['is_safe' => ['html']]),
+            new TwigFunction('gt_ai_presence_beacon', $this->renderBeacon(...), ['is_safe' => ['html']]),
         ];
     }
 
@@ -54,5 +61,10 @@ final class AiPresenceExtension extends AbstractExtension
     public function renderBreadcrumbLink(): string
     {
         return $this->breadcrumb->anchor();
+    }
+
+    public function renderBeacon(?string $nonce = null): string
+    {
+        return $this->beacon->render($nonce);
     }
 }

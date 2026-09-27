@@ -13,6 +13,9 @@ use Globetrotters\AiPresenceBundle\Analytics\EventBuffer;
 use Globetrotters\AiPresenceBundle\Analytics\Flusher;
 use Globetrotters\AiPresenceBundle\Analytics\FlushGate;
 use Globetrotters\AiPresenceBundle\Analytics\NdjsonEventStore;
+use Globetrotters\AiPresenceBundle\Analytics\PageViewCounter;
+use Globetrotters\AiPresenceBundle\Analytics\PageViewOptions;
+use Globetrotters\AiPresenceBundle\Analytics\PageViewRules;
 use Globetrotters\AiPresenceBundle\Serving\OpportunisticFlushSubscriber;
 use Globetrotters\AiPresenceBundle\Serving\ResponseFinalization;
 use Globetrotters\AiPresenceBundle\Serving\Router;
@@ -32,6 +35,7 @@ final class OpportunisticFlushSubscriberTest extends TestCase
     private string $dir;
     private BufferDirectory $directory;
     private EventBuffer $buffer;
+    private PageViewCounter $pageViews;
     private FakeIngestTransport $transport;
     private FlushGate $gate;
     private MockClock $clock;
@@ -41,6 +45,7 @@ final class OpportunisticFlushSubscriberTest extends TestCase
         $this->dir = TempDirectory::make();
         $this->directory = new BufferDirectory($this->dir);
         $this->buffer = new EventBuffer(new NdjsonEventStore($this->directory), new DroppedCounter($this->directory));
+        $this->pageViews = new PageViewCounter($this->directory);
         $this->transport = new FakeIngestTransport();
         $this->clock = new MockClock('2026-08-11 09:00:00');
         $this->gate = new FlushGate($this->directory, $this->clock);
@@ -188,6 +193,69 @@ final class OpportunisticFlushSubscriberTest extends TestCase
         self::assertSame(1, $this->buffer->count());
     }
 
+    /**
+     * Page views must not depend on agent traffic to be reported: with the
+     * event buffer empty, a closed day waiting is reason enough to flush.
+     */
+    public function testAClosedDayOfPageViewsIsReasonEnoughToFlush(): void
+    {
+        $this->pageViews->increment('2026-08-10', '/a', PageViewRules::BUCKET_BROWSER);
+
+        $this->subscriber()->onKernelTerminate($this->terminate());
+
+        self::assertCount(1, $this->transport->sent);
+        self::assertSame([], $this->transport->envelopes()[0]['events']);
+        self::assertCount(1, $this->transport->envelopes()[0]['pageViews']);
+    }
+
+    public function testTodaysPageViewsAloneDoNotTriggerAFlush(): void
+    {
+        $this->pageViews->increment('2026-08-11', '/a', PageViewRules::BUCKET_BROWSER);
+
+        $this->subscriber()->onKernelTerminate($this->terminate());
+
+        self::assertCount(0, $this->transport->sent);
+        self::assertNull($this->gate->lastAttemptAt());
+    }
+
+    /**
+     * A page-view beacon is a fire-and-forget POST nobody waits on, so on an
+     * install with no cron it is the request that carries the page views out.
+     */
+    public function testAPageViewBeaconCanTriggerTheFlush(): void
+    {
+        $this->pageViews->increment('2026-08-10', '/a', PageViewRules::BUCKET_BROWSER);
+
+        $this->subscriber()->onKernelTerminate($this->terminate('/.well-known/globetrotters/pv', [Router::ATTRIBUTE_PAGE_VIEW => true]));
+
+        self::assertCount(1, $this->transport->sent);
+    }
+
+    /**
+     * The beacon path is answered even with the counter off, so with it off
+     * neither a beacon nor a leftover closed day may drive a flush.
+     */
+    public function testWithPageViewsOffNeitherABeaconNorAClosedDayTriggersAFlush(): void
+    {
+        $this->pageViews->increment('2026-08-10', '/a', PageViewRules::BUCKET_BROWSER);
+        $options = $this->options();
+        $subscriber = new OpportunisticFlushSubscriber(
+            new Flusher($this->buffer, $this->transport, $options, new AnalyticsState(new ArrayAdapter()), $this->gate, $this->clock, $this->pageViews),
+            $this->buffer,
+            $options,
+            $this->gate,
+            new ResponseFinalization(true),
+            $this->pageViews,
+            $this->clock,
+            new PageViewOptions($options, false, false),
+        );
+
+        $subscriber->onKernelTerminate($this->terminate('/.well-known/globetrotters/pv', [Router::ATTRIBUTE_PAGE_VIEW => true]));
+        $subscriber->onKernelTerminate($this->terminate());
+
+        self::assertCount(0, $this->transport->sent);
+    }
+
     private function subscriber(?AnalyticsOptions $options = null, bool $finishesEarly = true): OpportunisticFlushSubscriber
     {
         $options ??= $this->options();
@@ -200,11 +268,14 @@ final class OpportunisticFlushSubscriberTest extends TestCase
                 new AnalyticsState(new ArrayAdapter()),
                 $this->gate,
                 $this->clock,
+                $this->pageViews,
             ),
             $this->buffer,
             $options,
             $this->gate,
             new ResponseFinalization($finishesEarly),
+            $this->pageViews,
+            $this->clock,
         );
     }
 

@@ -9,6 +9,8 @@ use Globetrotters\AiPresenceBundle\Analytics\AnalyticsState;
 use Globetrotters\AiPresenceBundle\Analytics\BufferDirectory;
 use Globetrotters\AiPresenceBundle\Analytics\EventBuffer;
 use Globetrotters\AiPresenceBundle\Analytics\FlushGate;
+use Globetrotters\AiPresenceBundle\Analytics\PageViewCounter;
+use Globetrotters\AiPresenceBundle\Analytics\PageViewOptions;
 use Globetrotters\AiPresenceBundle\Cache\ArtefactCache;
 use Globetrotters\AiPresenceBundle\Client\FetcherInterface;
 use Globetrotters\AiPresenceBundle\Client\GtClient;
@@ -129,6 +131,8 @@ return static function (ContainerConfigurator $container): void {
             service(EventBuffer::class),
             service(FlushGate::class),
             service(BufferDirectory::class),
+            service(PageViewOptions::class),
+            service(PageViewCounter::class),
         ])
         ->tag('console.command');
 };
