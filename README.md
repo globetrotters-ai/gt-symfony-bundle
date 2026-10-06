@@ -46,6 +46,24 @@ On top of the routes, the bundle:
 - PHP 8.2+
 - Symfony 6.4 LTS or 7.x
 
+## Before you install
+
+Four questions about the hosting decide the configuration. Each answer below says what to set, or that the default already fits.
+
+**1. One web server, or several behind a load balancer?**
+The default `cache_pool` is `cache.app`, a filesystem pool local to each server, so a refresh fills only the server it runs on. With several servers, set `cache_pool` to a pool they all share, such as Redis. With one server the default works, but on a deploy that switches release directories (Deployer, Capistrano), run `bin/console gt:refresh` as a deploy step, because each release starts with an empty cache.
+
+**2. Do cron (or the Messenger worker) and PHP-FPM run as the same OS user?**
+This only matters with [reporting](#reporting-agent-traffic) configured, because both users write to `buffer_dir`. If they are the same user, nothing to do. If they differ, add both users to one group: the bundle creates the directory `2770` (setgid) and its files `0660`, so a shared group is all it needs. Either way, on a release-directory deploy, list `buffer_dir` as a shared directory. `gt:status`, run as each user, reports a file that user cannot write.
+
+**3. Cron or symfony/scheduler?**
+Either works. Pick cron when the host has no Messenger worker: add the hourly `gt:refresh` line and the five-minute `gt:presence:flush` line. Pick [symfony/scheduler](#2-symfonyscheduler-if-you-already-run-messenger-workers) when a worker already runs. With neither, the opportunistic flush still sends reporting on PHP-FPM, FrankenPHP and LiteSpeed, but nothing refreshes the artefacts: they update only when `gt:refresh` runs, so make it a deploy step and expect published changes to reach the apex only at your next deploy.
+
+**4. Is the site behind a reverse proxy, load balancer or CDN that terminates TLS?**
+If so, set [`framework.trusted_proxies`](https://symfony.com/doc/current/deployment/proxies.html) and make sure the proxy forwards the original `Host`. The bundle builds absolute URLs from the request: the robots.txt `Sitemap:` line and every `/ai-sitemap.xml` entry. Without `trusted_proxies` those URLs say `http://` and reporting records the proxy's IP instead of the agent's. If the proxy also rewrites `Host`, they name the backend's internal host, and the page-view counter's same-origin check rejects every view. Behind Cloudflare, also set `reporting.trust_cloudflare_header: true` (see [Behind a proxy or CDN](#behind-a-proxy-or-cdn)).
+
+After installing, `bin/console gt:status` (add `--remote` to also query Globetrotters for the latest version) shows whether the bundle is connected, whether a bundle is cached, and how reporting is doing.
+
 ## Install
 
 ```bash
@@ -318,7 +336,7 @@ The page-view script, when you have turned the counter on, is placed the same wa
 
 - **Static files shadow the kernel.** If a real file exists in `public/` for one of the artefact paths (or `public/robots.txt`), your web server serves it directly and the bundle never sees the request. Delete the static copies when migrating from the file-drop lane.
 - **`cache:clear` empties `cache.app`.** The artefacts then fall through to your app until the next `gt:refresh`, and the reporting lane forgets when it last flushed successfully — buffered events themselves live in `buffer_dir` and survive. For durability across deploys, point `cache_pool` at a pool that survives cache clears (e.g. a Redis-backed pool).
-- **Don't use a per-process pool.** `cache_pool` must be shared between CLI and web (filesystem, Redis, shared APCu) — with an in-memory pool, CLI refreshes would be invisible to web requests.
+- **Don't use a per-process pool.** `cache_pool` must be shared between CLI and web (filesystem on a single server, or Redis) — with an in-memory pool, CLI refreshes would be invisible to web requests. APCu never works here: PHP-FPM and the CLI each have their own, so a cron refresh would never reach the web tier.
 - **Changing or clearing `website_url` stops serving the previous source at once.** The cached bundle records the URL it was pulled from and is served only while that URL is configured. After a change, the next `gt:refresh` drops it and pulls the new source straight away, whatever the interval; a process with no `website_url` never deletes it. On the Scheduler lane the same happens on the next hourly poll; run `gt:refresh` in the deploy to have it at once.
 - The configured `website_url` must be `https://`: what it serves is published at your apex, homepage JSON-LD included. A literal `http://` or scheme-less value fails the container build; one bound to an env var is refused at refresh, which records why for `gt:status` and keeps the last good bundle serving.
 - The configured `website_url` is fetched with an SSRF guard (private/reserved IPs are rejected), a 5-second timeout, and a 1 MiB per-file size cap.
