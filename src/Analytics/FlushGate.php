@@ -68,7 +68,19 @@ final class FlushGate
             return;
         }
 
-        @touch($this->directory->path(self::STAMP_FILE), $this->clock->now()->getTimestamp());
+        // Written beside the stamp and renamed over it rather than touched in
+        // place: setting an explicit mtime needs ownership of the file, and
+        // the stamp is shared by every lane, which may each run as a different
+        // user. A rename needs write access on the directory only.
+        $path = $this->directory->path(self::STAMP_FILE);
+        $temporary = $path.'.'.bin2hex(random_bytes(6)).'.tmp';
+        if (!@touch($temporary, $this->clock->now()->getTimestamp())) {
+            return;
+        }
+        $this->directory->share($temporary);
+        if (!@rename($temporary, $path)) {
+            @unlink($temporary);
+        }
     }
 
     /**
@@ -91,7 +103,7 @@ final class FlushGate
             return null;
         }
 
-        $handle = @fopen($this->directory->path(self::LOCK_FILE), 'c');
+        $handle = $this->directory->openForLock($this->directory->path(self::LOCK_FILE), 'c');
         if (false === $handle) {
             return null;
         }

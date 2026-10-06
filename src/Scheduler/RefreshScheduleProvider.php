@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Globetrotters\AiPresenceBundle\Scheduler;
 
 use Globetrotters\AiPresenceBundle\Analytics\FlushGate;
-use Globetrotters\AiPresenceBundle\Settings\Options;
+use Globetrotters\AiPresenceBundle\Sync\ArtefactSync;
 use Psr\Cache\CacheItemPoolInterface;
 use Symfony\Component\Scheduler\RecurringMessage;
 use Symfony\Component\Scheduler\Schedule;
@@ -31,32 +31,39 @@ final class RefreshScheduleProvider implements ScheduleProviderInterface
      */
     private const FLUSH_POLL = '5 minutes';
 
-    public function __construct(
-        private readonly Options $options,
-        private readonly CacheItemPoolInterface $pool,
-    ) {
+    /**
+     * How often the schedule asks for a refresh — refresh_interval decides
+     * whether one happens ({@see ArtefactSync::isDue()}), as it does for the
+     * documented hourly cron line.
+     *
+     * Not the interval itself: a periodical trigger first fires one period
+     * after the worker starts, and its checkpoint is lost whenever the pool is
+     * (cache:clear, a deploy, a PSR-6-only pool), which also empties the
+     * bundle. Triggering once a day would leave the artefacts unserved for up
+     * to a day after every such deploy, a week on the weekly interval; polling
+     * hourly bounds that to an hour and retries a failed pull hourly too.
+     */
+    private const REFRESH_POLL = '1 hour';
+
+    public function __construct(private readonly CacheItemPoolInterface $pool)
+    {
     }
 
     public function getSchedule(): Schedule
     {
-        $every = 'weekly' === $this->options->refreshInterval() ? '1 week' : '1 day';
-
         $schedule = (new Schedule())
-            ->add(RecurringMessage::every($every, new RefreshMessage()))
-            // Reporting rides the same schedule object but deliberately not the
-            // same cadence: refresh_interval is a content-freshness choice the
-            // customer makes (down to weekly), while the flush interval is
-            // fixed by the ingest contract at 15 minutes. Sharing the cadence
-            // would let a weekly refresh sit the buffer for days, well past the
-            // backend's 90-minute staleness window, where hits are re-stamped
-            // to arrival time and land in the wrong buckets.
+            ->add(RecurringMessage::every(self::REFRESH_POLL, new RefreshMessage()))
+            // Reporting rides the same schedule object but its own gate: the
+            // flush interval is fixed by the ingest contract at 15 minutes,
+            // while refresh_interval is a content-freshness choice the
+            // customer makes (down to weekly).
             ->add(RecurringMessage::every(self::FLUSH_POLL, new FlushMessage()));
 
         // Collapse the runs a stopped worker missed into one. The option arrived
         // in Symfony 7.1; 6.4 LTS replays each missed run instead, which both
         // handlers absorb: a replayed flush finds the interval not yet due under
-        // the flush lock and sends nothing, and a replayed refresh is an
-        // idempotent re-pull. Detected through reflection rather than
+        // the flush lock and sends nothing, and a replayed refresh finds the
+        // refresh not yet due. Detected through reflection rather than
         // method_exists(), which static analysis — run against a single Symfony
         // version — would fold into a constant.
         if ((new \ReflectionClass($schedule))->hasMethod('processOnlyLastMissedRun')) {

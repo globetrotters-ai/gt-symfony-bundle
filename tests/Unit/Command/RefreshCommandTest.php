@@ -70,7 +70,7 @@ final class RefreshCommandTest extends TestCase
         $cache = new ArtefactCache($pool, '');
         $sync = new ArtefactSync(new FakeFetcher(), $cache, $options, $clock);
 
-        $tester = new CommandTester(new RefreshCommand($sync, $options, $clock));
+        $tester = new CommandTester(new RefreshCommand($sync, $options));
         self::assertSame(Command::SUCCESS, $tester->execute([]));
         self::assertStringContainsString('No website_url configured', $tester->getDisplay());
         // The scheduler lane calls run() directly.
@@ -84,6 +84,6 @@ final class RefreshCommandTest extends TestCase
 
     private function tester(FakeFetcher $fetcher, ArtefactCache $cache, Options $options, MockClock $clock): CommandTester
     {
-        return new CommandTester(new RefreshCommand(new ArtefactSync($fetcher, $cache, $options, $clock), $options, $clock));
+        return new CommandTester(new RefreshCommand(new ArtefactSync($fetcher, $cache, $options, $clock), $options));
     }
 }

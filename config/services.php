@@ -117,7 +117,6 @@ return static function (ContainerConfigurator $container): void {
         ->args([
             service(ArtefactSync::class),
             service(Options::class),
-            service('globetrotters_ai_presence.clock'),
         ])
         ->tag('console.command');
 

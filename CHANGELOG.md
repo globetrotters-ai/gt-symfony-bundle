@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Reporting works when the web user and the flush's user differ.** Files
+  in `buffer_dir` were left to the umask (`0644` under the usual `022`), so a
+  cron job or worker running as another user could not take the flush lock,
+  stamp the interval, count, seal or delete anything the web user had
+  created: every run reported the lock as held, page views were pruned
+  unsent and accepted events were re-sent forever. The directory is now
+  created `2770` (setgid) and every file `0660`; the flush lock and the
+  page-view files are opened read-only when they cannot be written (an
+  `flock()` needs no write access, and they are replaced by rename), and the
+  stamp is replaced rather than touched, which needed file ownership. Both
+  users still have to share a group. **Upgrading:** where they differ, run
+  `chmod 2770 <buffer_dir> && chmod 660 <buffer_dir>/*` once; `gt:status`
+  names the event log or drop counter when the user running it cannot write
+  them.
+- **The Scheduler lane no longer leaves the artefacts unserved for a day or
+  a week after a deploy.** The `gt` schedule fired the refresh every
+  `refresh_interval`, first one full interval after the worker started, and a
+  deploy or `cache:clear` empties the default pool's bundle and the
+  schedule's checkpoint together. It now polls hourly and pulls when
+  `refresh_interval` has elapsed, the due-check `gt:refresh` already applied
+  under cron, so an emptied cache is refilled within the hour and a failed
+  pull is retried hourly. A refresh is also due whenever no bundle is
+  servable, so a pool that evicted the bundle but kept its state (Redis
+  `allkeys-lru`) no longer waits out the interval, on either lane. A repointed `website_url` is also picked up on the
+  next poll rather than at the next scheduled refresh.
+
+### Security
+
+- **`website_url` must be `https://`.** A cleartext value was fetched as is,
+  letting anyone on the path rewrite what is published at the apex,
+  homepage JSON-LD included. A literal non-https or scheme-less value now
+  fails the container build; an env-bound one is refused at refresh, before
+  anything is fetched, with the reason recorded for `gt:status` and the last
+  good bundle kept serving.
+
 ## [0.6.0] - 2026-09-27
 
 ### Added

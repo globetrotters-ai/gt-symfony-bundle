@@ -94,7 +94,9 @@ final class PageViewCounter
 
         $file = $this->directory->path('pageviews-'.$day.'.json');
         for ($attempt = 0; $attempt < self::LOCK_ATTEMPTS; ++$attempt) {
-            $handle = @fopen($file, 'c+');
+            // Only read through: the new contents are renamed over the file,
+            // so a read-only handle on another user's file still counts.
+            $handle = $this->directory->openForLock($file, 'c+');
             if (false === $handle) {
                 return false;
             }
@@ -459,6 +461,7 @@ final class PageViewCounter
 
             return false;
         }
+        $this->directory->share($temporary);
         if (!@rename($temporary, $path)) {
             @unlink($temporary);
 
@@ -498,7 +501,7 @@ final class PageViewCounter
     }
 
     /**
-     * Run $work on a file opened ``c+`` and held under an exclusive lock, or
+     * Run $work on a file opened read-only and held under an exclusive lock, or
      * return null when it cannot be opened or locked, or was unlinked while
      * this process waited for the lock.
      *
@@ -510,9 +513,10 @@ final class PageViewCounter
      */
     private function withExclusiveLock(string $path, \Closure $work): mixed
     {
-        // 'c+' so the handle is writable without truncating on open — the
-        // truncate has to happen after the lock is held.
-        $handle = @fopen($path, 'c+');
+        // Read-only: the work only reads through the handle and replaces or
+        // unlinks by path, which needs write access on the directory, not on
+        // a file another lane's user may own.
+        $handle = @fopen($path, 'r');
         if (false === $handle) {
             return null;
         }

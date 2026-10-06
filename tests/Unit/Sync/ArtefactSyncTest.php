@@ -393,6 +393,39 @@ final class ArtefactSyncTest extends TestCase
         self::assertSame([], $this->fetcher->requested);
     }
 
+    /**
+     * The runtime half of the https rule, for an env-bound website_url the
+     * build only saw as a placeholder: nothing is fetched, the reason is
+     * recorded for gt:status, and the last good bundle keeps serving.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('unfetchableBaseUrls')]
+    public function testANonHttpsWebsiteUrlIsRefusedWithoutFetching(string $url): void
+    {
+        $this->cache = new ArtefactCache($this->pool, $url);
+        $this->cache->store(['llms.txt' => 'stale'], 'v0', 0);
+        $this->options = new Options($this->pool, $url, 'daily', '/');
+        $this->serveRequiredFiles();
+
+        $result = $this->sync()->run();
+
+        self::assertFalse($result->isSuccess());
+        self::assertStringContainsString('website_url must be an https:// URL', $result->errorMessage());
+        self::assertStringContainsString('website_url must be an https:// URL', (string) $this->options->state()['last_error']);
+        self::assertSame([], $this->fetcher->requested);
+        self::assertSame('stale', $this->cache->get('llms.txt'));
+        self::assertSame('', $this->sync()->checkLatest());
+        self::assertSame([], $this->fetcher->requested);
+    }
+
+    /**
+     * @return iterable<string, array{string}>
+     */
+    public static function unfetchableBaseUrls(): iterable
+    {
+        yield 'cleartext' => ['http://nantes.globetrotters.ai'];
+        yield 'no scheme' => ['nantes.globetrotters.ai'];
+    }
+
     public function testUpstreamMarkerKeyIsStoredInState(): void
     {
         $this->serveRequiredFiles();
@@ -589,6 +622,15 @@ final class ArtefactSyncTest extends TestCase
         $this->fetcher->on('/llms.txt', FetchResult::http(200, "# Nantes\n\n> {not json} <b>markdown may carry markup</b>\n"));
 
         self::assertTrue($this->sync()->run()->isSuccess());
+    }
+
+    public function testARefreshIsDueWhenTheBundleIsGoneButItsStateSurvived(): void
+    {
+        $this->options->updateState(['last_refresh' => $this->clock->now()->getTimestamp()]);
+        self::assertTrue($this->sync()->isDue());
+
+        $this->cache->store(['llms.txt' => 'hello'], 'v1', 0);
+        self::assertFalse($this->sync()->isDue());
     }
 
     public function testCheckLatestReadsUpstreamMarkerWithoutPulling(): void

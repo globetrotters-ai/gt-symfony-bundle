@@ -7,7 +7,6 @@ namespace Globetrotters\AiPresenceBundle\Tests\Unit\Scheduler;
 use Globetrotters\AiPresenceBundle\Scheduler\FlushMessage;
 use Globetrotters\AiPresenceBundle\Scheduler\RefreshMessage;
 use Globetrotters\AiPresenceBundle\Scheduler\RefreshScheduleProvider;
-use Globetrotters\AiPresenceBundle\Settings\Options;
 use PHPUnit\Framework\TestCase;
 use Psr\Cache\CacheItemInterface;
 use Psr\Cache\CacheItemPoolInterface;
@@ -35,22 +34,35 @@ final class RefreshScheduleProviderTest extends TestCase
             static fn (RecurringMessage $message): string => $message->getTrigger().' → '.self::messageClass($message),
             array_values($schedule->getRecurringMessages()),
         );
-        self::assertSame(['every 1 day → '.RefreshMessage::class, 'every 5 minutes → '.FlushMessage::class], $messages);
+        self::assertSame(['every 1 hour → '.RefreshMessage::class, 'every 5 minutes → '.FlushMessage::class], $messages);
         self::assertSame($pool, $schedule->getState());
     }
 
-    public function testWeeklyRefreshIntervalIsHonoured(): void
+    /**
+     * The refresh trigger is a poll, not refresh_interval (which the handler
+     * enforces, see RefreshMessageHandlerTest): a periodical trigger first
+     * fires one period after the worker starts, so a worker started on a pool
+     * emptied by a deploy or cache:clear must ask within the hour, not a day
+     * or a week later.
+     */
+    public function testAFreshWorkerAsksForARefreshWithinTheHour(): void
     {
-        $schedule = $this->provider(new ArrayAdapter(), 'weekly')->getSchedule();
+        $clock = new MockClock();
+        $generator = new MessageGenerator($this->provider(new ArrayAdapter()), 'gt', $clock);
 
-        self::assertSame('every 1 week', (string) array_values($schedule->getRecurringMessages())[0]->getTrigger());
+        iterator_to_array($generator->getMessages(), false);
+        $clock->sleep(3600 + 1);
+
+        $classes = array_map(static fn (object $message): string => $message::class, iterator_to_array($generator->getMessages(), false));
+
+        self::assertContains(RefreshMessage::class, $classes);
     }
 
     /**
      * Symfony 7.1+ can collapse the runs a stopped worker missed; 6.4 cannot,
      * and there the replayed runs are absorbed by the handlers themselves (the
-     * flush interval is enforced under the flush lock, a refresh is an
-     * idempotent re-pull).
+     * flush interval is enforced under the flush lock, a refresh by its due
+     * check).
      */
     public function testCollapsesMissedRunsWhereTheSchedulerSupportsIt(): void
     {
@@ -91,9 +103,9 @@ final class RefreshScheduleProviderTest extends TestCase
         self::assertContains(FlushMessage::class, $classes);
     }
 
-    private function provider(CacheItemPoolInterface $pool, string $interval = 'daily'): RefreshScheduleProvider
+    private function provider(CacheItemPoolInterface $pool): RefreshScheduleProvider
     {
-        return new RefreshScheduleProvider(new Options($pool, 'https://nantes.globetrotters.ai', $interval, '/'), $pool);
+        return new RefreshScheduleProvider($pool);
     }
 
     private static function messageClass(RecurringMessage $message): string

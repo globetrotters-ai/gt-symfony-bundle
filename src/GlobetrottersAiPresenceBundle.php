@@ -6,6 +6,7 @@ namespace Globetrotters\AiPresenceBundle;
 
 use Globetrotters\AiPresenceBundle\Analytics\AnalyticsOptions;
 use Globetrotters\AiPresenceBundle\Analytics\PageViewOptions;
+use Globetrotters\AiPresenceBundle\Settings\Options;
 use Symfony\Component\Config\Definition\Configurator\DefinitionConfigurator;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
@@ -33,8 +34,15 @@ final class GlobetrottersAiPresenceBundle extends AbstractBundle
         $definition->rootNode()
             ->children()
                 ->scalarNode('website_url')
-                    ->info('The published Globetrotters subdomain to pull artefacts from, e.g. https://your-site.globetrotters.ai')
+                    ->info('The published Globetrotters subdomain to pull artefacts from, e.g. https://your-site.globetrotters.ai. Must be https://: what it serves is published at your apex.')
                     ->defaultValue('')
+                    // Catches a literal value (or an env() default) at build.
+                    // An env-bound value is only resolved at runtime, where
+                    // ArtefactSync refuses a non-https one and records why.
+                    ->validate()
+                        ->ifTrue(static fn (mixed $url): bool => \is_string($url) && '' !== trim($url) && !AnalyticsOptions::isHttpsUrl(Options::normalizeUrl($url)))
+                        ->thenInvalid('The website_url must be an https:// URL, since what it serves is published at your apex; got %s.')
+                    ->end()
                 ->end()
                 ->enumNode('refresh_interval')
                     ->values(['daily', 'weekly'])
