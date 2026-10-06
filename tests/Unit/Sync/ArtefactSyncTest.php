@@ -624,6 +624,15 @@ final class ArtefactSyncTest extends TestCase
         self::assertTrue($this->sync()->run()->isSuccess());
     }
 
+    public function testARefreshIsDueWhenTheBundleIsGoneButItsStateSurvived(): void
+    {
+        $this->options->updateState(['last_refresh' => $this->clock->now()->getTimestamp()]);
+        self::assertTrue($this->sync()->isDue());
+
+        $this->cache->store(['llms.txt' => 'hello'], 'v1', 0);
+        self::assertFalse($this->sync()->isDue());
+    }
+
     public function testCheckLatestReadsUpstreamMarkerWithoutPulling(): void
     {
         $this->fetcher->on('/'.ContentTypes::VERSION_MARKER, FetchResult::http(200, '{"version":"2026-08-01-000000"}'));

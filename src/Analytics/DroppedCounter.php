@@ -104,14 +104,9 @@ final class DroppedCounter
             return;
         }
 
-        $path = $this->directory->path(self::FILE);
-        $existed = is_file($path);
-        $handle = @fopen($path, 'c+');
+        $handle = $this->directory->open($this->directory->path(self::FILE), 'c+');
         if (false === $handle) {
             return;
-        }
-        if (!$existed) {
-            $this->directory->share($path);
         }
 
         try {

@@ -177,11 +177,17 @@ final class ArtefactSync
      * Both scheduled lanes poll more often than the interval and ask this, so
      * a pool emptied by a deploy or cache:clear (which resets last_refresh
      * with the bundle) is refilled on the next poll rather than a full
-     * interval later. Call it after forgetForeignBundle(), which resets
-     * last_refresh too.
+     * interval later; so is one that lost the bundle but kept its state. Call
+     * it after forgetForeignBundle(), which resets last_refresh too.
      */
     public function isDue(): bool
     {
+        // Nothing servable (an evicted item, a pool emptied while the state
+        // item survived): waiting out the interval would leave the apex dark.
+        if (!$this->cache->hasAny()) {
+            return true;
+        }
+
         $lastRefresh = (int) $this->options->state()['last_refresh'];
         if (0 === $lastRefresh) {
             return true;

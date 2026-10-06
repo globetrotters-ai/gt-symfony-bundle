@@ -21,7 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   stamp is replaced rather than touched, which needed file ownership. Both
   users still have to share a group. **Upgrading:** where they differ, run
   `chmod 2770 <buffer_dir> && chmod 660 <buffer_dir>/*` once; `gt:status`
-  names any file the user running it cannot write.
+  names the event log or drop counter when the user running it cannot write
+  them.
 - **The Scheduler lane no longer leaves the artefacts unserved for a day or
   a week after a deploy.** The `gt` schedule fired the refresh every
   `refresh_interval`, first one full interval after the worker started, and a
@@ -29,7 +30,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   schedule's checkpoint together. It now polls hourly and pulls when
   `refresh_interval` has elapsed, the due-check `gt:refresh` already applied
   under cron, so an emptied cache is refilled within the hour and a failed
-  pull is retried hourly. A repointed `website_url` is also picked up on the
+  pull is retried hourly. A refresh is also due whenever no bundle is
+  servable, so a pool that evicted the bundle but kept its state (Redis
+  `allkeys-lru`) no longer waits out the interval, on either lane. A repointed `website_url` is also picked up on the
   next poll rather than at the next scheduled refresh.
 
 ### Security

@@ -81,10 +81,16 @@ final class BufferDirectory
      */
     public function unwritableFiles(): array
     {
+        // Only the files rewritten in place. The flush lock, the stamp and the
+        // page-view files are locked through a read-only handle when need be
+        // and replaced by rename(), so another user's copy of those is fine —
+        // and the lock file, never replaced, would otherwise be reported for
+        // ever, with a chmod its non-owner cannot run.
         $names = [];
-        foreach (glob($this->dir.\DIRECTORY_SEPARATOR.'*') ?: [] as $path) {
+        foreach ([NdjsonEventStore::FILE, DroppedCounter::FILE] as $name) {
+            $path = $this->path($name);
             if (is_file($path) && !is_writable($path)) {
-                $names[] = basename($path);
+                $names[] = $name;
             }
         }
 
@@ -115,16 +121,28 @@ final class BufferDirectory
      */
     public function openForLock(string $path, string $mode): mixed
     {
-        $existed = is_file($path);
-        $handle = @fopen($path, $mode);
+        $handle = $this->open($path, $mode);
         if (false !== $handle) {
-            if (!$existed) {
-                $this->share($path);
-            }
-
             return $handle;
         }
 
         return is_file($path) ? @fopen($path, 'r') : false;
+    }
+
+    /**
+     * Open a file with $mode, giving it the shared mode when this call created
+     * it. No read-only fallback: for writers that rewrite the file in place.
+     *
+     * @return resource|false
+     */
+    public function open(string $path, string $mode): mixed
+    {
+        $existed = is_file($path);
+        $handle = @fopen($path, $mode);
+        if (false !== $handle && !$existed) {
+            $this->share($path);
+        }
+
+        return $handle;
     }
 }
