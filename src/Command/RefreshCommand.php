@@ -6,7 +6,6 @@ namespace Globetrotters\AiPresenceBundle\Command;
 
 use Globetrotters\AiPresenceBundle\Settings\Options;
 use Globetrotters\AiPresenceBundle\Sync\ArtefactSync;
-use Symfony\Component\Clock\ClockInterface;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
@@ -24,18 +23,9 @@ use Symfony\Component\Console\Style\SymfonyStyle;
 #[AsCommand(name: 'gt:refresh', description: 'Pull the Globetrotters AI presence artefacts into the cache')]
 final class RefreshCommand extends Command
 {
-    /**
-     * Tolerance applied to the due-check so a cron firing on the same cadence
-     * as the configured interval doesn't drift into refreshing every *other*
-     * cycle: each run's last_refresh lands a few seconds after the cron fired,
-     * leaving the next same-time run just under a full interval elapsed.
-     */
-    private const DUE_SLACK_SECONDS = 900;
-
     public function __construct(
         private readonly ArtefactSync $sync,
         private readonly Options $options,
-        private readonly ClockInterface $clock,
     ) {
         parent::__construct();
     }
@@ -61,7 +51,7 @@ final class RefreshCommand extends Command
             $io->note('Dropped the bundle cached for a previous website_url. It was no longer being served.');
         }
 
-        if (!$input->getOption('force') && !$this->isDue()) {
+        if (!$input->getOption('force') && !$this->sync->isDue()) {
             $io->writeln('Refresh not due yet (interval: '.$this->options->refreshInterval().'). Use --force to pull now.');
 
             return Command::SUCCESS;
@@ -82,15 +72,5 @@ final class RefreshCommand extends Command
         ));
 
         return Command::SUCCESS;
-    }
-
-    private function isDue(): bool
-    {
-        $lastRefresh = (int) $this->options->state()['last_refresh'];
-        if (0 === $lastRefresh) {
-            return true;
-        }
-
-        return $this->clock->now()->getTimestamp() - $lastRefresh >= $this->options->refreshIntervalSeconds() - self::DUE_SLACK_SECONDS;
     }
 }

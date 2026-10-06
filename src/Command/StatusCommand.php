@@ -74,7 +74,11 @@ final class StatusCommand extends Command
 
         $io->section('Artefacts');
         $io->table([], [
-            ['Connected', $this->options->isConnected() ? 'yes ('.$this->options->baseUrl().')' : 'no'],
+            ['Connected', match (true) {
+                !$this->options->isConnected() => 'no',
+                !ArtefactSync::isFetchable($this->options->baseUrl()) => 'refused — website_url '.$this->options->baseUrl().' must be an https:// URL, so nothing is pulled',
+                default => 'yes ('.$this->options->baseUrl().')',
+            }],
             ['Bundle cached', match (true) {
                 $this->cache->hasAny() => 'yes',
                 $this->cache->holdsForeignBundle() => 'no — the cached one is from another website_url and is not served',
@@ -150,6 +154,18 @@ final class StatusCommand extends Command
 
         if (!$usable) {
             $io->error(\sprintf('The buffer directory is not writable, so nothing is being captured: %s', $this->bufferDir->dir()));
+
+            return;
+        }
+
+        $unwritable = $this->bufferDir->unwritableFiles();
+        if ([] !== $unwritable) {
+            $io->error(\sprintf(
+                'This user cannot write %s in the buffer directory, so the lane running as this user cannot flush what another user captured. Put the web user and the flush user in one group and run: chmod 2770 %s && chmod 660 %s/*',
+                implode(', ', $unwritable),
+                $this->bufferDir->dir(),
+                $this->bufferDir->dir(),
+            ));
 
             return;
         }

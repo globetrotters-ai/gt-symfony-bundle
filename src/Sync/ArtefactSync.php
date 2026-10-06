@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Globetrotters\AiPresenceBundle\Sync;
 
+use Globetrotters\AiPresenceBundle\Analytics\AnalyticsOptions;
 use Globetrotters\AiPresenceBundle\Cache\ArtefactCache;
 use Globetrotters\AiPresenceBundle\Client\FetcherInterface;
 use Globetrotters\AiPresenceBundle\Client\FetchResult;
@@ -19,6 +20,14 @@ use Symfony\Component\Clock\ClockInterface;
  */
 final class ArtefactSync
 {
+    /**
+     * Tolerance applied to the due-check so a lane polling on the same cadence
+     * as the configured interval doesn't drift into refreshing every *other*
+     * cycle: each run's last_refresh lands a few seconds after the poll fired,
+     * leaving the next same-time poll just under a full interval elapsed.
+     */
+    private const DUE_SLACK_SECONDS = 900;
+
     public function __construct(
         private readonly FetcherInterface $client,
         private readonly ArtefactCache $cache,
@@ -36,6 +45,9 @@ final class ArtefactSync
         $baseUrl = $this->options->baseUrl();
         if ('' === $baseUrl) {
             return $this->fail(['No destination is connected yet.']);
+        }
+        if (!self::isFetchable($baseUrl)) {
+            return $this->fail([\sprintf('website_url must be an https:// URL, got "%s"; nothing was fetched and the last good bundle keeps serving.', $baseUrl)]);
         }
 
         $files = [];
@@ -160,6 +172,25 @@ final class ArtefactSync
     }
 
     /**
+     * Whether refresh_interval has elapsed since the last successful pull.
+     *
+     * Both scheduled lanes poll more often than the interval and ask this, so
+     * a pool emptied by a deploy or cache:clear (which resets last_refresh
+     * with the bundle) is refilled on the next poll rather than a full
+     * interval later. Call it after forgetForeignBundle(), which resets
+     * last_refresh too.
+     */
+    public function isDue(): bool
+    {
+        $lastRefresh = (int) $this->options->state()['last_refresh'];
+        if (0 === $lastRefresh) {
+            return true;
+        }
+
+        return $this->clock->now()->getTimestamp() - $lastRefresh >= $this->options->refreshIntervalSeconds() - self::DUE_SLACK_SECONDS;
+    }
+
+    /**
      * Look up the latest version Globetrotters advertises, without pulling.
      *
      * Reads the upstream drift marker when one is served; returns an empty
@@ -169,11 +200,23 @@ final class ArtefactSync
     public function checkLatest(): string
     {
         $baseUrl = $this->options->baseUrl();
-        if ('' === $baseUrl) {
+        if ('' === $baseUrl || !self::isFetchable($baseUrl)) {
             return '';
         }
 
         return $this->markerVersion($this->client->fetch($baseUrl.'/'.ContentTypes::VERSION_MARKER)) ?? '';
+    }
+
+    /**
+     * The runtime half of the config tree's https rule, which only sees a
+     * placeholder for the documented %env()% binding. The artefacts are
+     * published verbatim at the apex (JSON-LD lands in the homepage HTML), so
+     * a cleartext pull would let anyone on the path rewrite them. The same
+     * rule as the ingest endpoint's.
+     */
+    public static function isFetchable(string $baseUrl): bool
+    {
+        return AnalyticsOptions::isHttpsUrl($baseUrl);
     }
 
     /**

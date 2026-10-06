@@ -118,6 +118,46 @@ final class GlobetrottersAiPresenceBundleTest extends TestCase
     }
 
     /**
+     * What website_url serves is published at the apex, so a cleartext or
+     * scheme-less literal is refused at build rather than pulled.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('refusedWebsiteUrls')]
+    public function testANonHttpsWebsiteUrlFailsTheBuild(string $url): void
+    {
+        $this->expectException(InvalidConfigurationException::class);
+        $this->expectExceptionMessageMatches('/"globetrotters_ai_presence\.website_url".*must be an https:\/\/ URL/');
+
+        $this->build(['website_url' => $url]);
+    }
+
+    /**
+     * @return iterable<string, array{string}>
+     */
+    public static function refusedWebsiteUrls(): iterable
+    {
+        yield 'cleartext' => ['http://nantes.globetrotters.ai'];
+        yield 'no scheme' => ['nantes.globetrotters.ai'];
+    }
+
+    public function testAnHttpsWebsiteUrlBuilds(): void
+    {
+        $container = $this->build(['website_url' => 'https://nantes.globetrotters.ai/']);
+
+        self::assertSame('https://nantes.globetrotters.ai/', $container->getParameter('globetrotters_ai_presence.website_url'));
+    }
+
+    /**
+     * The documented binding is only resolved at runtime, where ArtefactSync
+     * refuses a non-https value.
+     */
+    public function testAnEnvBoundWebsiteUrlBuilds(): void
+    {
+        $container = $this->build(['website_url' => '%env(GLOBETROTTERS_WEBSITE_URL)%']);
+
+        self::assertTrue($container->hasParameter('globetrotters_ai_presence.website_url'));
+    }
+
+    /**
      * @param array<string, mixed> $config
      * @param array<string, mixed> $parameters
      */

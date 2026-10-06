@@ -8,7 +8,6 @@ use Globetrotters\AiPresenceBundle\Analytics\Flusher;
 use Globetrotters\AiPresenceBundle\Scheduler\FlushMessageHandler;
 use Globetrotters\AiPresenceBundle\Scheduler\RefreshMessageHandler;
 use Globetrotters\AiPresenceBundle\Scheduler\RefreshScheduleProvider;
-use Globetrotters\AiPresenceBundle\Settings\Options;
 use Globetrotters\AiPresenceBundle\Sync\ArtefactSync;
 
 return static function (ContainerConfigurator $container): void {
@@ -23,6 +22,6 @@ return static function (ContainerConfigurator $container): void {
         ->tag('messenger.message_handler');
 
     $services->set(RefreshScheduleProvider::class)
-        ->args([service(Options::class), service('globetrotters_ai_presence.cache_pool')])
+        ->args([service('globetrotters_ai_presence.cache_pool')])
         ->tag('scheduler.schedule_provider', ['name' => 'gt']);
 };

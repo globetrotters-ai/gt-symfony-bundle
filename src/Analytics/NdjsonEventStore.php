@@ -44,7 +44,18 @@ final class NdjsonEventStore implements EventStoreInterface
             return false;
         }
 
-        return false !== @file_put_contents($this->path(), $line."\n", \FILE_APPEND | \LOCK_EX);
+        $path = $this->path();
+        $existed = is_file($path);
+        if (false === @file_put_contents($path, $line."\n", \FILE_APPEND | \LOCK_EX)) {
+            return false;
+        }
+        if (!$existed) {
+            // Rewritten in place by the flush (see rewrite()), so whichever
+            // user runs it needs write access to the file itself.
+            $this->directory->share($path);
+        }
+
+        return true;
     }
 
     public function sizeBytes(): int
