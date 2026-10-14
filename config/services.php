@@ -20,6 +20,7 @@ use Globetrotters\AiPresenceBundle\Serving\BreadcrumbInjector;
 use Globetrotters\AiPresenceBundle\Serving\BreadcrumbRenderer;
 use Globetrotters\AiPresenceBundle\Serving\ConditionalGetSubscriber;
 use Globetrotters\AiPresenceBundle\Serving\HeadInjector;
+use Globetrotters\AiPresenceBundle\Serving\LinkHeader;
 use Globetrotters\AiPresenceBundle\Serving\RobotsFilter;
 use Globetrotters\AiPresenceBundle\Serving\Router;
 use Globetrotters\AiPresenceBundle\Serving\Sitemap;
@@ -79,6 +80,10 @@ return static function (ContainerConfigurator $container): void {
         ->tag('kernel.event_subscriber');
 
     $services->set(HeadInjector::class)
+        ->args([service(ArtefactCache::class), service(Options::class)])
+        ->tag('kernel.event_subscriber');
+
+    $services->set(LinkHeader::class)
         ->args([service(ArtefactCache::class), service(Options::class)])
         ->tag('kernel.event_subscriber');
 

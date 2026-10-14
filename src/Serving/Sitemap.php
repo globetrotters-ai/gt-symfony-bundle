@@ -31,7 +31,7 @@ use Globetrotters\AiPresenceBundle\Settings\Options;
  * customer's apex is not ours: most already serve one, whether from a sitemap
  * bundle, a static file, or a redirect onto an SEO plugin's index. Answering
  * that path from a pre-routing subscriber would shadow the site's real sitemap
- * with a six-URL artefact listing, and the cost is measurable rather than
+ * with an artefact listing, and the cost is measurable rather than
  * theoretical — the readiness ``check_sitemap`` rubric scores a 5-9 URL sitemap
  * at 60 against 80-100 for a populated one, so shadowing would *lower* the
  * customer's public score. A distinct name collides with nothing and needs no
@@ -159,9 +159,10 @@ final class Sitemap
      * daily whether or not anything changed, so a refresh date claims a
      * freshness the content does not have. ``content_changed_at`` moves only
      * when the content hash does. ``0`` omits ``<lastmod>``, which is valid,
-     * and resolves itself on the next real change. Nothing is lost by the
-     * omission: ``check_sitemap`` only credits ``<lastmod>`` on a sitemap of
-     * ten or more URLs, and this one never lists more than six.
+     * and resolves itself on the next real change. ``check_sitemap`` credits
+     * ``<lastmod>`` only on a sitemap of ten or more URLs, which this one
+     * reaches since 0.7.0 (the homepage and nine artefacts), so an install
+     * that has not seen a change since then forgoes that credit until it does.
      */
     private function lastModified(): string
     {

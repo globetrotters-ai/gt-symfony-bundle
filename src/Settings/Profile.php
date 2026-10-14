@@ -29,7 +29,7 @@ enum Profile: string
      *
      * The locally served path set is deliberately unchanged from
      * {@see self::FullApex}. The backend's split is an *offload* list
-     * (``bundle_builder._MINIMAL_FOOTPRINT_OFFLOAD``) and none of the six paths
+     * (``bundle_builder._MINIMAL_FOOTPRINT_OFFLOAD``) and none of the paths
      * this bundle serves is on it — the offloaded files are the heavy ones
      * ({@see \Globetrotters\AiPresenceBundle\Serving\ContentTypes} never served
      * them). The difference this profile makes is the breadcrumb, not the

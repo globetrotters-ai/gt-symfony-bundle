@@ -130,11 +130,10 @@ final class Breadcrumb
      * subdomain's copy of a file *this very host answers at 200* would promote
      * the mirror over the original.
      *
-     * ``.well-known/ai-catalog.json`` is the exception, and the reason the block
-     * names the Globetrotters host at all: the apex bundle does not contain it
-     * (absent from the backend's ``bundle_builder._FILE_CONTENT_TYPES``, and so
-     * from {@see ContentTypes::MAP}), so the Globetrotters copy is the only one
-     * there is.
+     * Since 0.7.0 that is all four: ``.well-known/ai-catalog.json`` joined the
+     * served set, and was until then the one relation naming the Globetrotters
+     * host. A file outside {@see ContentTypes::MAP} would still name it, since
+     * the Globetrotters copy would be the only one there is.
      *
      * The test is {@see ContentTypes::has()} rather than a hardcoded split, so a
      * file added to the served set starts resolving locally on its own. This
@@ -149,7 +148,7 @@ final class Breadcrumb
      * These are pointers, not the discovery signal. A crawler follows the
      * anchor; see {@see self::anchor()}.
      */
-    public static function headBlock(string $origin, bool $withAlternate): string
+    public static function headBlock(string $origin, bool $withAlternate, ?\Closure $isCached = null): string
     {
         if ('' === $origin) {
             return '';
@@ -163,16 +162,16 @@ final class Breadcrumb
         if ($withAlternate) {
             $links[] = \sprintf(
                 '<link rel="alternate" type="application/ld+json" href="%s">',
-                self::href('schema.json', $origin),
+                self::href('schema.json', $origin, $isCached),
             );
         }
 
         // Site-scoped: these name where the *site's* agent surfaces live, which
         // is equally true from any page, and an agent that lands on an interior
         // page is exactly the case worth serving.
-        $links[] = \sprintf('<link rel="ai-catalog" href="%s">', self::href('.well-known/ai-catalog.json', $origin));
-        $links[] = \sprintf('<link rel="mcp" href="%s">', self::href('.well-known/mcp.json', $origin));
-        $links[] = \sprintf('<link rel="agent-card" href="%s">', self::href('.well-known/agent-card.json', $origin));
+        $links[] = \sprintf('<link rel="ai-catalog" href="%s">', self::href('.well-known/ai-catalog.json', $origin, $isCached));
+        $links[] = \sprintf('<link rel="mcp" href="%s">', self::href('.well-known/mcp.json', $origin, $isCached));
+        $links[] = \sprintf('<link rel="agent-card" href="%s">', self::href('.well-known/agent-card.json', $origin, $isCached));
 
         return implode("\n", $links)."\n";
     }
@@ -181,12 +180,20 @@ final class Breadcrumb
      * Where one relation should point: this apex when we serve the file, the
      * Globetrotters host when only it has a copy.
      *
-     * @param string $path   apex-relative path, no leading slash
-     * @param string $origin the derived Globetrotters origin
+     * "We serve it" is the served set *and* the cache: a bundle cached by an
+     * earlier version can lack a file the set has since gained (0.7.0's
+     * ``ai-catalog.json``), and {@see Router} answers it only once a refresh
+     * has cached it. ``$isCached`` answers that; ``null`` trusts the set alone.
+     *
+     * @param string                        $path     apex-relative path, no leading slash
+     * @param string                        $origin   the derived Globetrotters origin
+     * @param (\Closure(string): bool)|null $isCached whether the cache holds a path
      */
-    private static function href(string $path, string $origin): string
+    private static function href(string $path, string $origin, ?\Closure $isCached): string
     {
-        return ContentTypes::has($path) ? '/'.$path : self::escape($origin).'/'.$path;
+        $local = ContentTypes::has($path) && (null === $isCached || $isCached($path));
+
+        return $local ? '/'.$path : self::escape($origin).'/'.$path;
     }
 
     /**

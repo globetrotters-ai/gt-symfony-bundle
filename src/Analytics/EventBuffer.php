@@ -34,7 +34,7 @@ final class EventBuffer
 
         // One stat() per capture, and only the byte bound is consulted here:
         // a buffered line is structurally at least ~147 bytes (a 36-char UUID,
-        // a 20-char timestamp, one of six fixed paths, plus the JSON keys), so
+        // a 20-char timestamp, one of the fixed paths, plus the JSON keys), so
         // 5000 events cannot fit inside 512KB and the byte bound always trips
         // first. trim() still enforces both, for the case this reasoning is
         // wrong.

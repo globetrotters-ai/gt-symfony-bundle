@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-14
+
+### Added
+
+- **The apex now serves the four agent discovery files Globetrotters
+  publishes:** `/agent.json`, `/AGENTS.md`, `/.well-known/ai-catalog.json` and
+  `/.well-known/agent-skills/index.json`, on the same pull, validate, cache and
+  serve path as `mcp.json`, byte for byte from the published copy. They are
+  required artefacts of a refresh. The AI Readiness report counts them
+  (`agent_spec_coverage`, `ai_catalog`, `agent_skills_index`) as handled by the
+  agentic layer.
+- **A homepage `Link` header** naming the MCP card, the agent card and the AI
+  catalog (`link_headers`), on a `200` HTML response for `homepage_path` only,
+  added next to any `Link` header the application sends.
+- **`Agentmap: /.well-known/ai-catalog.json`** in the robots.txt block, while
+  the catalog is cached.
+
+### Changed
+
+- `<link rel="ai-catalog">` now points at the apex copy instead of the
+  Globetrotters host, since this install serves it.
+- `/ai-sitemap.xml` lists the four new files.
+
 ## [0.6.1] - 2026-10-06
 
 ### Fixed

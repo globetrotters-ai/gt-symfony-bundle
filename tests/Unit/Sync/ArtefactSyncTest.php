@@ -26,13 +26,17 @@ final class ArtefactSyncTest extends TestCase
         'schema.json' => '{"@context":"https://schema.org"}',
         '.well-known/mcp.json' => '{"m":1}',
         '.well-known/agent-card.json' => '{"c":2}',
+        '.well-known/ai-catalog.json' => '{"specVersion":"1.0"}',
+        '.well-known/agent-skills/index.json' => '{"skills":[]}',
+        'agent.json' => '{"name":"Nantes"}',
+        'AGENTS.md' => "# Nantes\n",
     ];
 
     /**
      * Computed with the backend canonical_hash implementation (hashlib, raw
      * inner digests) over BODIES — asserts byte-parity with the backend.
      */
-    private const EXPECTED_HASH = '757cb0a99fe4f51d6dde4584377408d7c7e383461fd58aef676733636d845fde';
+    private const EXPECTED_HASH = '86380143eceb4d659b3e0ad92443337ee09d9a2ca27cee6ee2243700dff5527b';
 
     /**
      * A key shaped like the ones the presence stack issues (32 hex chars).

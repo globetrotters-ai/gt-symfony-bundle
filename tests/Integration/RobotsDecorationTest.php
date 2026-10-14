@@ -36,6 +36,7 @@ final class RobotsDecorationTest extends IntegrationTestCase
         self::assertStringNotContainsString('Allow: /', $content);
         self::assertStringNotContainsString('ai-train', $content);
         self::assertStringContainsString('Sitemap: http://localhost/ai-sitemap.xml', $content);
+        self::assertStringContainsString("Agentmap: /.well-known/ai-catalog.json\n", $content);
         self::assertStringNotContainsString(TestKernel::WEBSITE_URL, $content);
         self::assertSame(1, substr_count($content, RobotsFilter::MARKER));
         // The app owns the wildcard group; appending a second one could

@@ -31,7 +31,9 @@ final class BreadcrumbInjectorTest extends TestCase
     {
         $pool = new ArrayAdapter();
         $this->cache = new ArtefactCache($pool, 'https://nantes.globetrotters.ai');
-        $this->cache->store(['ai.json' => self::AI_JSON], 'v1', 0);
+        // The whole served set, so each relation resolves to this apex.
+        $files = array_fill_keys(\Globetrotters\AiPresenceBundle\Serving\ContentTypes::paths(), '{}');
+        $this->cache->store(['ai.json' => self::AI_JSON] + $files, 'v1', 0);
         $this->options = new Options($pool, 'https://nantes.globetrotters.ai', 'daily', '/');
         $this->requests = new RequestStack();
     }
@@ -80,8 +82,7 @@ final class BreadcrumbInjectorTest extends TestCase
 
         self::assertStringContainsString('<link rel="alternate" type="application/ld+json" href="/schema.json">', $content);
         self::assertStringContainsString('<link rel="agent-card" href="/.well-known/agent-card.json">', $content);
-        // Only the file the apex bundle lacks names the Globetrotters host.
-        self::assertStringContainsString('<link rel="ai-catalog" href="https://ai.nantes.fr/.well-known/ai-catalog.json">', $content);
+        self::assertStringContainsString('<link rel="ai-catalog" href="/.well-known/ai-catalog.json">', $content);
         self::assertMatchesRegularExpression('~agent-card\.json">\n</head>~', $content);
     }
 
