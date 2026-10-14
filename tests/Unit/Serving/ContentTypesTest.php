@@ -17,6 +17,10 @@ final class ContentTypesTest extends TestCase
             'schema.json' => 'application/ld+json; charset=utf-8',
             '.well-known/mcp.json' => 'application/json; charset=utf-8',
             '.well-known/agent-card.json' => 'application/json; charset=utf-8',
+            '.well-known/ai-catalog.json' => 'application/json; charset=utf-8',
+            '.well-known/agent-skills/index.json' => 'application/json; charset=utf-8',
+            'agent.json' => 'application/json; charset=utf-8',
+            'AGENTS.md' => 'text/markdown; charset=utf-8',
             '.well-known/globetrotters-apex-version.json' => 'application/json; charset=utf-8',
         ], array_combine(ContentTypes::paths(), array_map(
             static fn (string $path): ?string => ContentTypes::forPath($path),

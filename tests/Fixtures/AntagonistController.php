@@ -36,6 +36,13 @@ final class AntagonistController
         'signal-between' => "User-agent: *\nContent-Signal: ai-train=no\nUser-agent: GPTBot\nDisallow: /private\n",
     ];
 
+    /** ``?app_link=1`` on the homepage: the application sends its own Link header. */
+    public const APP_LINK_QUERY = 'app_link';
+    public const APP_LINK = '</build/app.css>; rel="preload"; as="style"';
+
+    /** ``?json=1`` on the homepage: a non-HTML representation of ``/``. */
+    public const JSON_QUERY = 'json';
+
     public const ROBOTS_ETAG = '"robots-v1"';
 
     /** Added late, by {@see LateValidatorListener}. */
@@ -44,7 +51,15 @@ final class AntagonistController
     public function handle(Request $request, string $path): Response
     {
         if ('' === $path) {
-            return new Response(self::HOMEPAGE_HTML, 200, ['Content-Type' => 'text/html; charset=utf-8']);
+            if ($request->query->has(self::JSON_QUERY)) {
+                return new Response('{"home":true}', 200, ['Content-Type' => 'application/json']);
+            }
+            $headers = ['Content-Type' => 'text/html; charset=utf-8'];
+            if ($request->query->has(self::APP_LINK_QUERY)) {
+                $headers['Link'] = self::APP_LINK;
+            }
+
+            return new Response(self::HOMEPAGE_HTML, 200, $headers);
         }
         if ('interior' === $path) {
             return new Response(self::INTERIOR_HTML, 200, ['Content-Type' => 'text/html; charset=utf-8']);

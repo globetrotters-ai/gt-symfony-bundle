@@ -119,8 +119,7 @@ final class BreadcrumbTest extends TestCase
 
     /**
      * Each relation points at the canonical copy of its own file: the apex for
-     * everything this install serves, the Globetrotters host only for
-     * ai-catalog.json, which the apex bundle does not contain. Matches
+     * everything this install serves, which since 0.7.0 is all four. Matches
      * Breadcrumbs::href() in gt-wordpress-plugin.
      */
     public function testHeadBlockPointsEachRelationAtItsCanonicalCopy(): void
@@ -128,7 +127,7 @@ final class BreadcrumbTest extends TestCase
         self::assertSame(
             '<!-- Globetrotters — AI presence -->'."\n"
             .'<link rel="alternate" type="application/ld+json" href="/schema.json">'."\n"
-            .'<link rel="ai-catalog" href="https://ai.nantes.fr/.well-known/ai-catalog.json">'."\n"
+            .'<link rel="ai-catalog" href="/.well-known/ai-catalog.json">'."\n"
             .'<link rel="mcp" href="/.well-known/mcp.json">'."\n"
             .'<link rel="agent-card" href="/.well-known/agent-card.json">'."\n",
             Breadcrumb::headBlock('https://ai.nantes.fr', true),
@@ -143,15 +142,11 @@ final class BreadcrumbTest extends TestCase
     {
         $block = Breadcrumb::headBlock('https://ai.nantes.fr', true);
 
-        foreach (['schema.json', '.well-known/mcp.json', '.well-known/agent-card.json'] as $path) {
+        foreach (['schema.json', '.well-known/mcp.json', '.well-known/agent-card.json', '.well-known/ai-catalog.json'] as $path) {
             self::assertTrue(ContentTypes::has($path), $path.' is expected to be served locally');
             self::assertStringContainsString('href="/'.$path.'">', $block);
             self::assertStringNotContainsString('href="https://ai.nantes.fr/'.$path.'"', $block);
         }
-
-        // The one file the apex bundle does not contain stays absolute.
-        self::assertFalse(ContentTypes::has('.well-known/ai-catalog.json'));
-        self::assertStringContainsString('href="https://ai.nantes.fr/.well-known/ai-catalog.json">', $block);
     }
 
     /**

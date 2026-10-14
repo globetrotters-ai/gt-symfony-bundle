@@ -43,6 +43,8 @@ final class RobotsFallbackTest extends IntegrationTestCase
         // This host's own sitemap, not the Globetrotters origin's.
         self::assertStringContainsString('Sitemap: http://localhost/ai-sitemap.xml', $content);
         self::assertStringNotContainsString(TestKernel::WEBSITE_URL, $content);
+        // The ARD catalog this install serves, root-relative like the backend's.
+        self::assertStringContainsString("Agentmap: /.well-known/ai-catalog.json\nSitemap: ", $content);
     }
 
     /**

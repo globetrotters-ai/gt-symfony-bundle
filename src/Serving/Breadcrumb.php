@@ -130,11 +130,10 @@ final class Breadcrumb
      * subdomain's copy of a file *this very host answers at 200* would promote
      * the mirror over the original.
      *
-     * ``.well-known/ai-catalog.json`` is the exception, and the reason the block
-     * names the Globetrotters host at all: the apex bundle does not contain it
-     * (absent from the backend's ``bundle_builder._FILE_CONTENT_TYPES``, and so
-     * from {@see ContentTypes::MAP}), so the Globetrotters copy is the only one
-     * there is.
+     * Since 0.7.0 that is all four: ``.well-known/ai-catalog.json`` joined the
+     * served set, and was until then the one relation naming the Globetrotters
+     * host. A file outside {@see ContentTypes::MAP} would still name it, since
+     * the Globetrotters copy would be the only one there is.
      *
      * The test is {@see ContentTypes::has()} rather than a hardcoded split, so a
      * file added to the served set starts resolving locally on its own. This

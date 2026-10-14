@@ -184,7 +184,7 @@ final class Router implements EventSubscriberInterface
 
         // The canonical path (with its leading slash) and the size of what we
         // served, so the capture listener doesn't have to re-derive either. The
-        // guard above means this is always one of the six paths the backend
+        // guard above means this is always one of the paths the backend
         // matches exactly — getPathInfo() has already dropped any query string,
         // so /llms.txt?v=2 reports as /llms.txt rather than being dropped at
         // ingest.

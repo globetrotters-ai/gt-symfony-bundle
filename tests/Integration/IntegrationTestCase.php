@@ -34,6 +34,10 @@ abstract class IntegrationTestCase extends WebTestCase
         'schema.json' => '{"@context":"https://schema.org","@type":"TouristDestination"}',
         '.well-known/mcp.json' => '{"m":1}',
         '.well-known/agent-card.json' => '{"c":2}',
+        '.well-known/ai-catalog.json' => '{"specVersion":"1.0","host":{"identifier":"nantes.example"},"entries":[]}',
+        '.well-known/agent-skills/index.json' => '{"$schema":"https://schemas.agentskills.io/discovery/0.2.0/schema.json","skills":[]}',
+        'agent.json' => '{"name":"Nantes"}',
+        'AGENTS.md' => "# Nantes\n\nOfficial agent guide.\n",
     ];
 
     protected static function createKernel(array $options = []): KernelInterface

@@ -53,6 +53,10 @@ final class SitemapTest extends TestCase
             '/schema.json',
             '/.well-known/mcp.json',
             '/.well-known/agent-card.json',
+            '/.well-known/ai-catalog.json',
+            '/.well-known/agent-skills/index.json',
+            '/agent.json',
+            '/AGENTS.md',
         ], $this->sitemap($this->fullSet())->paths());
     }
 

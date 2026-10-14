@@ -22,7 +22,7 @@ use function Symfony\Component\DependencyInjection\Loader\Configurator\service;
  */
 final class GlobetrottersAiPresenceBundle extends AbstractBundle
 {
-    public const VERSION = '0.6.1';
+    public const VERSION = '0.7.0';
 
     public function getPath(): string
     {
@@ -87,7 +87,7 @@ final class GlobetrottersAiPresenceBundle extends AbstractBundle
                     ->end()
                 ->end()
                 ->arrayNode('reporting')
-                    ->info('Reports agent traffic to the six served artefact paths back to Globetrotters. An apex install is pull-and-cache, so those requests terminate in this application and are invisible without it.')
+                    ->info('Reports agent traffic to the served artefact paths back to Globetrotters. An apex install is pull-and-cache, so those requests terminate in this application and are invisible without it.')
                     ->addDefaultsIfNotSet()
                     ->children()
                         ->booleanNode('enabled')

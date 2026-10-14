@@ -17,6 +17,10 @@ What your apex serves once installed:
 | `/schema.json` | `application/ld+json; charset=utf-8` |
 | `/.well-known/mcp.json` | `application/json; charset=utf-8` |
 | `/.well-known/agent-card.json` | `application/json; charset=utf-8` |
+| `/.well-known/ai-catalog.json` | `application/json; charset=utf-8` (since 0.7.0) |
+| `/.well-known/agent-skills/index.json` | `application/json; charset=utf-8` (since 0.7.0) |
+| `/agent.json` | `application/json; charset=utf-8` (since 0.7.0) |
+| `/AGENTS.md` | `text/markdown; charset=utf-8` (since 0.7.0) |
 | `/.well-known/globetrotters-apex-version.json` | `application/json; charset=utf-8` (version/drift marker) |
 
 Every artefact response carries `X-Content-Type-Options: nosniff`, `Cache-Control: no-store, private`, `Surrogate-Control: no-store` and `Access-Control-Allow-Origin: *` (every artefact is public, unauthenticated, read-only metadata, so it's readable cross-origin by browser-context agent clients). Heavy files (`llms-full.txt`, `content.md`) are intentionally not served locally — they are linked back to Globetrotters by absolute URL.
@@ -29,15 +33,21 @@ A rotated key reaches your install on its next refresh (daily by default), so su
 
 One more path is served once a bundle is cached: **`/ai-sitemap.xml`** (`application/xml; charset=utf-8`), a sitemaps.org `<urlset>` over your homepage plus every artefact this install is actually serving, in the URL space of the request it arrives on. It is generated locally rather than fetched, so it can never advertise a URL your site does not answer, and it needs no configuration to know your domain. `robots.txt` declares it, so crawlers discover it the standard way.
 
-**Not `/sitemap.xml`, deliberately.** That path is yours — served by your app, a static file, or redirected onto an SEO bundle's index — and the bundle never claims it. A six-URL artefact listing is not a substitute for your site's sitemap, and robots.txt takes a *list* of `Sitemap:` directives, so this one is additive to whatever you already declare.
+**Not `/sitemap.xml`, deliberately.** That path is yours — served by your app, a static file, or redirected onto an SEO bundle's index — and the bundle never claims it. An artefact listing is not a substitute for your site's sitemap, and robots.txt takes a *list* of `Sitemap:` directives, so this one is additive to whatever you already declare.
 
 The response carries `nosniff` and both `no-store` headers — the document is rendered from the cache and from this request's own host, so a shared TTL could keep advertising a URL a later refresh dropped, or hand a host alias another host's URLs — and no `Access-Control-Allow-Origin`, matching the IndexNow key: a sitemap is fetched server-side by a crawler. Requests for it are not counted in Presence Analytics; a crawler scheduling a fetch is not an agent consuming your presence.
 
 On top of the routes, the bundle:
 
-- **reports agent traffic** to those six paths back to Globetrotters, so an apex install still shows up in Presence Analytics (see [Reporting agent traffic](#reporting-agent-traffic));
+- **reports agent traffic** to those paths back to Globetrotters, so an apex install still shows up in Presence Analytics (see [Reporting agent traffic](#reporting-agent-traffic));
 - optionally **counts human page views per page** of your site, first-party and cookie-free, so Presence Analytics can set agent traffic against it — **off by default** (see [Counting human page views](#counting-human-page-views-optional));
 - injects a **server-rendered, breakout-safe JSON-LD** `<script>` (built from the cached `schema.json`) into your homepage HTML, so crawlers see it in the raw markup without executing JavaScript;
+- adds a homepage **`Link` header** naming the MCP card, the agent card and the AI catalog, the HTTP twin of the `<link>` tags below: on a `200` HTML response for `homepage_path` only, added next to any `Link` header your app already sends, never replacing it:
+
+  ```
+  Link: </.well-known/mcp.json>; rel="mcp", </.well-known/agent-card.json>; rel="agent-card", </.well-known/ai-catalog.json>; rel="ai-catalog"
+  ```
+
 - decorates `/robots.txt` with the AI-crawler registry plus a `Sitemap:` directive naming **your own host's** `/ai-sitemap.xml` (or serves a generated `robots.txt` when your app has none) — **without changing what any crawler may fetch** unless you opt in (see [robots.txt](#robotstxt));
 - **stale-serves**: the cached bundle is only ever replaced by a fully successful pull — every file fetched, and every JSON artefact a well-formed JSON document — so an unreachable Globetrotters, or a proxy answering a maintenance page with `200`, leaves the last known good version serving.
 
@@ -131,7 +141,7 @@ Runs missed while the worker was stopped are collapsed into one on Symfony 7.1+.
 
 ## robots.txt
 
-The bundle appends one block to your `/robots.txt` — or serves it as the whole file when your app has none — naming the AI user agents in the Globetrotters registry, with a `Content-Signal` for them and a `Sitemap:` line for `/ai-sitemap.xml` on the host the request arrived on.
+The bundle appends one block to your `/robots.txt` — or serves it as the whole file when your app has none — naming the AI user agents in the Globetrotters registry, with a `Content-Signal` for them, an `Agentmap: /.well-known/ai-catalog.json` line for the catalog this install serves, and a `Sitemap:` line for `/ai-sitemap.xml` on the host the request arrived on.
 
 **Naming an agent is not neutral, so by default the block changes nothing a crawler may fetch.** Under RFC 9309 a crawler obeys only the group(s) naming it, and falls back to `User-agent: *` only when none does. A named group saying `Allow: /` would release that agent from every restriction in your wildcard group — WordPress's `Disallow: /wp-admin/`, a staging site's `Disallow: /` — and one added for an agent you already name would merge with your rules for it and outrank them. So:
 
@@ -169,7 +179,7 @@ The endpoint must be `https://`: it receives the token and every client IP. A li
 
 Both are required; until both are set nothing is captured and nothing is written to disk. What is sent, per served artefact request: a UUID, a UTC timestamp, the canonical path, the User-Agent, the client IP, the referer, the status and the byte size. No cookies, no per-visitor identifiers. The backend uses the IP transiently to verify the agent against published vendor ranges and to resolve a country, then drops it — it is never stored.
 
-That covers **AI agents fetching your six discovery files**, nothing else. Your visitors and your own pages are not reported unless you also turn on the page-view counter below, which is **off by default**; when on, it adds a tiny script that posts to your own site, and keeps counts only — no IP, no cookie, no User-Agent string.
+That covers **AI agents fetching your discovery files**, nothing else. Your visitors and your own pages are not reported unless you also turn on the page-view counter below, which is **off by default**; when on, it adds a tiny script that posts to your own site, and keeps counts only — no IP, no cookie, no User-Agent string.
 
 ### Scheduling the flush
 
@@ -183,7 +193,7 @@ Events are buffered locally and flushed at most every 15 minutes. Three lanes, a
 
 **2. symfony/scheduler.** With `symfony/scheduler` and `symfony/messenger` installed the `gt` schedule asks for a flush every 5 minutes, alongside the artefact refresh, and the shared interval decides — so, like the cron line above, flushes land every 15 to 20 minutes (`bin/console messenger:consume scheduler_gt`).
 
-**3. `kernel.terminate` fallback (on by default, where the runtime allows).** For a shared host with no cron and no worker: a request for one of the six artefacts triggers at most one flush per 15 minutes, after its response has been sent. Your own pages, `robots.txt`, `/ai-sitemap.xml` and the IndexNow key never trigger it.
+**3. `kernel.terminate` fallback (on by default, where the runtime allows).** For a shared host with no cron and no worker: a request for one of the artefacts triggers at most one flush per 15 minutes, after its response has been sent. Your own pages, `robots.txt`, `/ai-sitemap.xml` and the IndexNow key never trigger it.
 
 It only runs where PHP delivers the response before `kernel.terminate`: **PHP-FPM, FrankenPHP and LiteSpeed**. On Apache mod_php, the CLI server and other runtimes the visitor would still be waiting, so the lane stays off there and you need lane 1 or 2. Even where it runs, the visitor has their response but the PHP worker stays busy for the ingest call (up to 20 seconds) and serves no one else meanwhile — on a small worker pool, prefer cron. Set `reporting.opportunistic_flush: false` to disable it.
 
@@ -280,7 +290,7 @@ It injects discovery `<link>` relations into `<head>`, and **nothing else**:
 ```html
 <!-- Globetrotters — AI presence -->
 <link rel="alternate" type="application/ld+json" href="/schema.json">
-<link rel="ai-catalog" href="https://ai.your-domain.example/.well-known/ai-catalog.json">
+<link rel="ai-catalog" href="/.well-known/ai-catalog.json">
 <link rel="mcp" href="/.well-known/mcp.json">
 <link rel="agent-card" href="/.well-known/agent-card.json">
 ```
@@ -297,7 +307,7 @@ That has a real cost, worth stating plainly: a `<link>` is a discovery *pointer*
 
 Set `breadcrumb.anchor_text` to control its wording. It is your markup, in your template, where you can see and style it.
 
-**Each relation points at the canonical copy of its own file.** Anything this install serves itself (the six paths above) is linked root-relative, so agents are sent to *your* domain — the copy carrying your index membership, not the mirror. Only `.well-known/ai-catalog.json` names the Globetrotters host, because the apex bundle does not contain it. The split follows the served set, so a file added there starts resolving locally on its own.
+**Each relation points at the canonical copy of its own file.** Anything this install serves itself (the paths above, which since 0.7.0 include all four) is linked root-relative, so agents are sent to *your* domain — the copy carrying your index membership, not the mirror. A relation names the Globetrotters host only for a file this install does not serve; the split follows the served set, so a file added there starts resolving locally on its own.
 
 ```yaml
 globetrotters_ai_presence:
@@ -312,7 +322,7 @@ globetrotters_ai_presence:
 
 Nothing is injected when no host can be derived: a breadcrumb to nowhere is worse than none.
 
-**The locally served paths are identical on both profiles.** All six stay at your apex either way — the backend's split is an *offload* list, and none of them is on it. This profile changes the breadcrumb, not the footprint.
+**The locally served paths are identical on both profiles.** All of them stay at your apex either way — the backend's split is an *offload* list, and none of them is on it. This profile changes the breadcrumb, not the footprint.
 
 ## Twig alternatives to the automatic injection
 

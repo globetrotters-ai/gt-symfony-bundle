@@ -29,6 +29,10 @@ final class RefreshMessageHandlerTest extends TestCase
         'schema.json' => '{"@context":"https://schema.org"}',
         '.well-known/mcp.json' => '{"m":1}',
         '.well-known/agent-card.json' => '{"c":2}',
+        '.well-known/ai-catalog.json' => '{"specVersion":"1.0"}',
+        '.well-known/agent-skills/index.json' => '{"skills":[]}',
+        'agent.json' => '{"name":"Nantes"}',
+        'AGENTS.md' => "# Nantes\n",
     ];
 
     private ArrayAdapter $pool;

@@ -47,15 +47,15 @@ use Symfony\Component\HttpKernel\KernelEvents;
  * a broader grant; with both, and a site file with no wildcard rules, the
  * output is byte-for-byte the backend registry block.
  *
- * Two things this block deliberately does not emit, both of which the
- * Globetrotters backend does emit in its own lanes:
+ * **No `User-agent: *` group**, though the Globetrotters backend emits one in
+ * its own lanes: the backend owns the whole file; this bundle appends to one
+ * the app may already own, and a second wildcard group would be combined with
+ * the site's and change its rules.
  *
- * - **No `User-agent: *` group.** The backend owns the whole file; this bundle
- *   appends to one the app may already own, and a second wildcard group would
- *   be combined with the site's and change its rules.
- * - **No `Agentmap:` line.** `Agentmap: /.well-known/ai-catalog.json` is
- *   root-relative and this bundle does not serve `ai-catalog.json`, so the line
- *   would advertise a 404 at the customer's own apex.
+ * **`Agentmap: /.well-known/ai-catalog.json`** is emitted while the catalog is
+ * cached, which {@see Router} then serves. It is root-relative, like the
+ * backend's, and left out for a bundle cached before 0.7.0, whose catalog this
+ * install would 404 until its next refresh.
  *
  * **HEAD.** Symfony's ResponseListener (kernel.response, priority 0) empties a
  * HEAD body in ``Response::prepare()`` before the decoration below runs. The
@@ -137,6 +137,9 @@ final class RobotsFilter implements EventSubscriberInterface
      * {@see self::CONTENT_SIGNAL_WITH_TRAINING}).
      */
     private const CONTENT_SIGNAL = 'Content-Signal: search=yes, ai-input=yes';
+
+    /** Root-relative, like the backend's: it resolves against the host that served it. */
+    private const AGENTMAP = 'Agentmap: /'.ContentTypes::AI_CATALOG;
     private const CONTENT_SIGNAL_WITH_TRAINING = 'Content-Signal: search=yes, ai-input=yes, ai-train=yes';
 
     /**
@@ -225,7 +228,7 @@ final class RobotsFilter implements EventSubscriberInterface
                 return;
             }
 
-            $decorated = rtrim($representation, "\n")."\n\n".self::buildBlock($origin, $representation, $this->robots);
+            $decorated = rtrim($representation, "\n")."\n\n".self::buildBlock($origin, $representation, $this->robots, $this->servesCatalog());
             self::rewrite($response, $request, $decorated, $isHead);
 
             return;
@@ -236,7 +239,7 @@ final class RobotsFilter implements EventSubscriberInterface
         if (404 === $status) {
             $response->setStatusCode(200);
             $response->headers->set('Content-Type', 'text/plain; charset=utf-8');
-            self::rewrite($response, $request, self::buildBlock($origin, '', $this->robots), $isHead);
+            self::rewrite($response, $request, self::buildBlock($origin, '', $this->robots, $this->servesCatalog()), $isHead);
         }
     }
 
@@ -262,7 +265,7 @@ final class RobotsFilter implements EventSubscriberInterface
             return;
         }
 
-        $block = self::buildBlock($request->getSchemeAndHttpHost(), '', $this->robots);
+        $block = self::buildBlock($request->getSchemeAndHttpHost(), '', $this->robots, $this->servesCatalog());
         $response = new Response($block, 200, ['Content-Type' => 'text/plain; charset=utf-8']);
         if ('HEAD' === $request->getMethod()) {
             // prepare() is about to drop the body and keep only this length —
@@ -302,8 +305,11 @@ final class RobotsFilter implements EventSubscriberInterface
      * cache — never ``/sitemap.xml``, which is the site's own (see
      * {@see Sitemap}). robots.txt takes a list of ``Sitemap:`` directives, so
      * this one is additive to whatever the application already declares.
+     *
+     * `$agentmap` adds `Agentmap: /.well-known/ai-catalog.json` just before it:
+     * pass it only while this install serves the catalog.
      */
-    public static function buildBlock(string $origin, string $existing = '', RobotsOptions $options = new RobotsOptions()): string
+    public static function buildBlock(string $origin, string $existing = '', RobotsOptions $options = new RobotsOptions(), bool $agentmap = false): string
     {
         $site = RobotsPolicy::parse($existing);
         $agents = array_values(array_filter(
@@ -313,7 +319,8 @@ final class RobotsFilter implements EventSubscriberInterface
 
         $block = self::MARKER."\n"
             .($site->endsInsideAGroup() ? self::SECTION_CLOSER."\n" : '')
-            .self::groups($agents, $site, $options);
+            .self::groups($agents, $site, $options)
+            .($agentmap ? self::AGENTMAP."\n" : '');
 
         if ('' === $origin) {
             return rtrim($block, "\n")."\n";
@@ -453,6 +460,15 @@ final class RobotsFilter implements EventSubscriberInterface
     private static function sitemapDirective(string $origin): string
     {
         return 'Sitemap: '.rtrim($origin, '/').'/'.Sitemap::PATH;
+    }
+
+    /**
+     * Whether the ARD catalog the `Agentmap:` line names is cached, and so
+     * served by {@see Router}.
+     */
+    private function servesCatalog(): bool
+    {
+        return null !== $this->cache->get(ContentTypes::AI_CATALOG);
     }
 
     private function shouldAdvertise(): bool

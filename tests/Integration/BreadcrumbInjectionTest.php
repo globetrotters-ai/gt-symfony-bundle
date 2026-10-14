@@ -43,17 +43,15 @@ final class BreadcrumbInjectionTest extends IntegrationTestCase
         $client->request('GET', '/');
         $content = (string) $client->getResponse()->getContent();
 
-        // Locally-served files resolve to this apex; only ai-catalog.json, which
-        // the apex bundle does not contain, names the Globetrotters host.
+        // Every relation names a file this install serves, so each resolves to
+        // this apex rather than to the Globetrotters host.
         self::assertStringContainsString(
             '<link rel="alternate" type="application/ld+json" href="/schema.json">',
             $content,
         );
         self::assertStringContainsString('<link rel="mcp" href="/.well-known/mcp.json">', $content);
-        self::assertStringContainsString(
-            '<link rel="ai-catalog" href="https://demo.globetrotters.ai/.well-known/ai-catalog.json">',
-            $content,
-        );
+        self::assertStringContainsString('<link rel="ai-catalog" href="/.well-known/ai-catalog.json">', $content);
+        self::assertStringNotContainsString('demo.globetrotters.ai', $content);
         // Head half only. Installing the bundle changes nothing a visitor sees,
         // so no anchor is injected into a layout this bundle does not own.
         self::assertMatchesRegularExpression('~agent-card\.json">\n</head>~', $content);
@@ -101,18 +99,20 @@ final class BreadcrumbInjectionTest extends IntegrationTestCase
      */
     public function testTheOriginFollowsACustomHostnameActivation(): void
     {
-        $client = $this->bootClient();
+        $this->bootClient();
+        $twig = static::getContainer()->get('twig');
+        \assert($twig instanceof Environment);
         $this->refreshWith(self::AI_JSON);
 
-        $client->request('GET', '/');
-        self::assertStringContainsString('https://demo.globetrotters.ai/.well-known/ai-catalog.json', (string) $client->getResponse()->getContent());
+        // Every <link> relation is local since 0.7.0; the footer anchor is
+        // where the derived origin still shows.
+        self::assertStringContainsString('https://demo.globetrotters.ai', $twig->createTemplate('{{ gt_ai_presence_breadcrumb_link() }}')->render());
 
         $this->refreshWith(self::AI_JSON_CUSTOM);
 
-        $client->request('GET', '/');
-        $content = (string) $client->getResponse()->getContent();
-        self::assertStringContainsString('href="https://ai.demo-tourisme.test/.well-known/ai-catalog.json"', $content);
-        self::assertStringNotContainsString('demo.globetrotters.ai', $content);
+        $link = $twig->createTemplate('{{ gt_ai_presence_breadcrumb_link() }}')->render();
+        self::assertStringContainsString('https://ai.demo-tourisme.test', $link);
+        self::assertStringNotContainsString('demo.globetrotters.ai', $link);
     }
 
     /**
