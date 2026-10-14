@@ -105,6 +105,8 @@ curl -I https://your-domain.example/llms.txt
 curl -s https://your-domain.example/.well-known/globetrotters-apex-version.json
 ```
 
+Then click **Check install** in Studio's Deploy step. Studio reads that version marker off your site, checks that it names your organisation's destination and compares it with your latest publish (a newer publish shows as an update that the next refresh, or `gt:refresh --force`, picks up). When your organisation has verified this domain, the same check marks the install verified, which is what lets Studio issue the [reporting](#reporting-agent-traffic) token. No DNS record or extra file is needed. If your site redirects (bare domain to `www.`, say), Studio offers to switch to the address that actually serves.
+
 ## Keeping it fresh
 
 Two supported wirings — pick one.
@@ -155,7 +157,7 @@ The block never adds a `User-agent: *` group, which would be combined with yours
 
 An apex install is **pull-and-cache, not proxy**. A request to `https://your-domain.example/llms.txt` is served by this bundle and terminates inside your application — it never touches a Globetrotters edge, so without this it is invisible and your apex looks like it gets no agent traffic at all.
 
-Turn it on by pasting the two values Studio issues together on the apex install screen (the token is shown **exactly once**):
+Turn it on by pasting the two values Studio issues together on the apex install screen (the token is shown **exactly once**). Studio issues them once **Check install** has verified the install on a domain your organisation has claimed (see [Configure](#configure)):
 
 ```bash
 # .env.local, or better, the Secrets vault: bin/console secrets:set GLOBETROTTERS_INGEST_TOKEN
