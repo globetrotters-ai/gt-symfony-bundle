@@ -10,8 +10,9 @@ namespace Globetrotters\AiPresenceBundle\Serving;
  * Mirrors the backend ``bundle_builder._FILE_CONTENT_TYPES`` and the
  * edge-proxy ``ALLOWED_FILES``/``WELL_KNOWN_FILES`` tables, restricted to the
  * apex discovery set (``deploy_config_renderer.APEX_DISCOVERY_PATHS``) plus
- * the version marker. Every path here is a required artefact of a refresh
- * (see ``ArtefactSync::requiredPaths()``). Heavy files (``llms-full.txt``, ``content.md``) are
+ * the version marker. Every path but the marker is a required artefact of a
+ * refresh (see ``ArtefactSync::requiredPaths()``); the marker is fetched on
+ * its own and synthesized when missing (``resolveVersionMarker()``). Heavy files (``llms-full.txt``, ``content.md``) are
  * intentionally absent — they are linked back to Globetrotters by absolute
  * URL rather than served locally.
  *
