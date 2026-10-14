@@ -63,6 +63,33 @@ final class BreadcrumbInjectionTest extends IntegrationTestCase
      * already served is still there. The two subscribers must not displace
      * each other.
      */
+    /**
+     * A bundle cached by 0.6.x holds no ai-catalog.json until the upgrade's
+     * first successful refresh, and Router 404s it meanwhile: the relation keeps
+     * naming the Globetrotters copy until the local one is cached. Both the
+     * automatic injection and the Twig helper go through the same renderer.
+     */
+    public function testALegacyCacheKeepsTheRemoteCatalog(): void
+    {
+        $client = $this->bootClient();
+        $files = ['ai.json' => self::AI_JSON] + static::BODIES;
+        unset($files['.well-known/ai-catalog.json']);
+        static::getContainer()->get(\Globetrotters\AiPresenceBundle\Cache\ArtefactCache::class)
+            ->store($files, '2026-10-01-000000', time());
+
+        $client->request('GET', '/');
+        $content = (string) $client->getResponse()->getContent();
+        self::assertStringContainsString('<link rel="ai-catalog" href="https://demo.globetrotters.ai/.well-known/ai-catalog.json">', $content);
+        self::assertStringContainsString('<link rel="mcp" href="/.well-known/mcp.json">', $content);
+
+        $twig = static::getContainer()->get('twig');
+        \assert($twig instanceof Environment);
+        self::assertStringContainsString(
+            'href="https://demo.globetrotters.ai/.well-known/ai-catalog.json"',
+            $twig->createTemplate('{{ gt_ai_presence_breadcrumb_head() }}')->render(),
+        );
+    }
+
     public function testJsonLdInjectionStillHappensAlongsideIt(): void
     {
         $client = $this->bootClient();

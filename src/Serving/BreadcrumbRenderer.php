@@ -70,7 +70,11 @@ final class BreadcrumbRenderer
 
         return new RenderedBreadcrumb(
             $origin,
-            Breadcrumb::headBlock($origin, $this->isHomepage($request)),
+            Breadcrumb::headBlock(
+                $origin,
+                $this->isHomepage($request),
+                fn (string $path): bool => null !== $this->cache->get($path),
+            ),
             Breadcrumb::anchor($origin, $text),
         );
     }

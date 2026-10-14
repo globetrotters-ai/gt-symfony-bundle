@@ -307,7 +307,7 @@ That has a real cost, worth stating plainly: a `<link>` is a discovery *pointer*
 
 Set `breadcrumb.anchor_text` to control its wording. It is your markup, in your template, where you can see and style it.
 
-**Each relation points at the canonical copy of its own file.** Anything this install serves itself (the paths above, which since 0.7.0 include all four) is linked root-relative, so agents are sent to *your* domain — the copy carrying your index membership, not the mirror. A relation names the Globetrotters host only for a file this install does not serve; the split follows the served set, so a file added there starts resolving locally on its own.
+**Each relation points at the canonical copy of its own file.** Anything this install serves itself (the paths above, which since 0.7.0 include all four) is linked root-relative, so agents are sent to *your* domain — the copy carrying your index membership, not the mirror. A relation names the Globetrotters host only for a file this install does not serve, or has not cached yet (a bundle cached before 0.7.0 has no `ai-catalog.json` until its next successful refresh); the split follows the served set, so a file added there starts resolving locally on its own.
 
 ```yaml
 globetrotters_ai_presence:

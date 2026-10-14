@@ -148,7 +148,7 @@ final class Breadcrumb
      * These are pointers, not the discovery signal. A crawler follows the
      * anchor; see {@see self::anchor()}.
      */
-    public static function headBlock(string $origin, bool $withAlternate): string
+    public static function headBlock(string $origin, bool $withAlternate, ?\Closure $isCached = null): string
     {
         if ('' === $origin) {
             return '';
@@ -162,16 +162,16 @@ final class Breadcrumb
         if ($withAlternate) {
             $links[] = \sprintf(
                 '<link rel="alternate" type="application/ld+json" href="%s">',
-                self::href('schema.json', $origin),
+                self::href('schema.json', $origin, $isCached),
             );
         }
 
         // Site-scoped: these name where the *site's* agent surfaces live, which
         // is equally true from any page, and an agent that lands on an interior
         // page is exactly the case worth serving.
-        $links[] = \sprintf('<link rel="ai-catalog" href="%s">', self::href('.well-known/ai-catalog.json', $origin));
-        $links[] = \sprintf('<link rel="mcp" href="%s">', self::href('.well-known/mcp.json', $origin));
-        $links[] = \sprintf('<link rel="agent-card" href="%s">', self::href('.well-known/agent-card.json', $origin));
+        $links[] = \sprintf('<link rel="ai-catalog" href="%s">', self::href('.well-known/ai-catalog.json', $origin, $isCached));
+        $links[] = \sprintf('<link rel="mcp" href="%s">', self::href('.well-known/mcp.json', $origin, $isCached));
+        $links[] = \sprintf('<link rel="agent-card" href="%s">', self::href('.well-known/agent-card.json', $origin, $isCached));
 
         return implode("\n", $links)."\n";
     }
@@ -180,12 +180,20 @@ final class Breadcrumb
      * Where one relation should point: this apex when we serve the file, the
      * Globetrotters host when only it has a copy.
      *
-     * @param string $path   apex-relative path, no leading slash
-     * @param string $origin the derived Globetrotters origin
+     * "We serve it" is the served set *and* the cache: a bundle cached by an
+     * earlier version can lack a file the set has since gained (0.7.0's
+     * ``ai-catalog.json``), and {@see Router} answers it only once a refresh
+     * has cached it. ``$isCached`` answers that; ``null`` trusts the set alone.
+     *
+     * @param string                        $path     apex-relative path, no leading slash
+     * @param string                        $origin   the derived Globetrotters origin
+     * @param (\Closure(string): bool)|null $isCached whether the cache holds a path
      */
-    private static function href(string $path, string $origin): string
+    private static function href(string $path, string $origin, ?\Closure $isCached): string
     {
-        return ContentTypes::has($path) ? '/'.$path : self::escape($origin).'/'.$path;
+        $local = ContentTypes::has($path) && (null === $isCached || $isCached($path));
+
+        return $local ? '/'.$path : self::escape($origin).'/'.$path;
     }
 
     /**
