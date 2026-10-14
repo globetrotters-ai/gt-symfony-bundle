@@ -7,12 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
-
-- **README: what Studio's Check install verifies.** Studio validates the install
-  from the version marker the bundle serves and your organisation's verified
-  domain, and that verification is what unlocks the reporting token. Docs only.
-
 ## [0.6.1] - 2026-10-06
 
 ### Fixed
