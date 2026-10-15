@@ -72,11 +72,18 @@ final class GlobetrottersAiPresenceBundleTest extends TestCase
         self::assertTrue($definition->getArgument(2));
     }
 
-    public function testAnUnsetEndpointBuilds(): void
+    /**
+     * With no reporting keys declared, the bundle reads the two variables
+     * Studio's install screen hands over. ``default::`` keeps a missing one
+     * from failing the container and ``string:`` makes it '', so an install
+     * that sets neither still builds and simply does not report.
+     */
+    public function testUndeclaredKeysReadTheIssuedVariables(): void
     {
-        $container = $this->build([]);
+        $definition = $this->build([])->getDefinition(AnalyticsOptions::class);
 
-        self::assertSame('', $container->getDefinition(AnalyticsOptions::class)->getArgument(1));
+        self::assertSame('%env(string:default::GLOBETROTTERS_INGEST_ENDPOINT)%', $definition->getArgument(1));
+        self::assertSame('%env(string:default::GLOBETROTTERS_INGEST_TOKEN)%', $definition->getArgument(2));
     }
 
     /**
@@ -101,25 +108,6 @@ final class GlobetrottersAiPresenceBundleTest extends TestCase
         $container = $this->build(['reporting' => ['endpoint' => '%env(GLOBETROTTERS_INGEST_ENDPOINT)%']]);
 
         self::assertTrue($container->hasDefinition(AnalyticsOptions::class));
-    }
-
-    /**
-     * gt:status tells "not declared in the YAML" from "declared, env var
-     * empty" by what the build sees: an env-bound key is its placeholder, so
-     * it counts as declared whatever the variable holds at runtime.
-     */
-    public function testEnvBoundKeysCountAsDeclared(): void
-    {
-        $bound = $this->build(['reporting' => [
-            'endpoint' => '%env(GLOBETROTTERS_INGEST_ENDPOINT)%',
-            'ingest_token' => '%env(GLOBETROTTERS_INGEST_TOKEN)%',
-        ]])->getDefinition(AnalyticsOptions::class);
-        self::assertTrue($bound->getArgument(5));
-        self::assertTrue($bound->getArgument(6));
-
-        $unbound = $this->build([])->getDefinition(AnalyticsOptions::class);
-        self::assertFalse($unbound->getArgument(5));
-        self::assertFalse($unbound->getArgument(6));
     }
 
     /**

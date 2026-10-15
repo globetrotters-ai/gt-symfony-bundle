@@ -67,24 +67,6 @@ final class AnalyticsOptionsTest extends TestCase
         self::assertFalse(self::options('   ')->hasRefusedEndpoint());
     }
 
-    /**
-     * Only the bundle config binds the env vars, so "not set" has two causes
-     * an operator fixes in different places: a key the YAML never declares,
-     * and a declared one whose env var is empty in this process.
-     */
-    public function testTellsAnUnboundKeyFromAnEmptyOne(): void
-    {
-        $unbound = new AnalyticsOptions(true, '', '', true, false, false, false);
-        self::assertSame(['endpoint', 'ingest_token'], $unbound->keysMissingFromConfig());
-
-        $partly = new AnalyticsOptions(true, '', '', true, false, true, false);
-        self::assertSame(['ingest_token'], $partly->keysMissingFromConfig());
-
-        $emptyEnv = new AnalyticsOptions(true, '', '', true, false, true, true);
-        self::assertSame([], $emptyEnv->keysMissingFromConfig());
-        self::assertFalse($emptyEnv->isConfigured());
-    }
-
     private static function options(string $endpoint): AnalyticsOptions
     {
         return new AnalyticsOptions(true, $endpoint, 'token', true, false);

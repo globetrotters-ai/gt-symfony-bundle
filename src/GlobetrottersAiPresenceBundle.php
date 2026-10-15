@@ -22,7 +22,7 @@ use function Symfony\Component\DependencyInjection\Loader\Configurator\service;
  */
 final class GlobetrottersAiPresenceBundle extends AbstractBundle
 {
-    public const VERSION = '0.7.0';
+    public const VERSION = '0.7.1';
 
     public function getPath(): string
     {
@@ -95,8 +95,12 @@ final class GlobetrottersAiPresenceBundle extends AbstractBundle
                             ->defaultTrue()
                         ->end()
                         ->scalarNode('endpoint')
-                            ->info('Ingest endpoint URL, issued with the token on the Studio apex install screen. Must be https://: it receives the token and every captured client IP. Bind to an env var.')
-                            ->defaultValue('')
+                            ->info('Ingest endpoint URL, issued with the token on the Studio apex install screen. Must be https://: it receives the token and every captured client IP. Read from GLOBETROTTERS_INGEST_ENDPOINT unless set here.')
+                            // The variable Studio's install screen hands over is
+                            // read with no YAML at all: `default::` makes a
+                            // missing one null instead of a container error, and
+                            // `string:` turns that null into '' (reporting off).
+                            ->defaultValue('%env(string:default::GLOBETROTTERS_INGEST_ENDPOINT)%')
                             // Catches a literal value (or an env() default) at
                             // build. An env-bound value is only resolved at
                             // runtime, where AnalyticsOptions::endpoint() reads a
@@ -107,8 +111,8 @@ final class GlobetrottersAiPresenceBundle extends AbstractBundle
                             ->end()
                         ->end()
                         ->scalarNode('ingest_token')
-                            ->info('Per-install ingest token, shown exactly once. Bind to an env var (%env(GLOBETROTTERS_INGEST_TOKEN)%) so it can live in the Secrets vault.')
-                            ->defaultValue('')
+                            ->info('Per-install ingest token, shown exactly once. Read from GLOBETROTTERS_INGEST_TOKEN (an env var or the Secrets vault) unless set here.')
+                            ->defaultValue('%env(string:default::GLOBETROTTERS_INGEST_TOKEN)%')
                         ->end()
                         ->scalarNode('buffer_dir')
                             ->info('Directory for the local event buffer, its drop counter and the flush lock. Must be writable by both the web user and whoever runs the flush.')
@@ -198,10 +202,6 @@ final class GlobetrottersAiPresenceBundle extends AbstractBundle
                 $config['reporting']['ingest_token'],
                 $config['reporting']['opportunistic_flush'],
                 $config['reporting']['trust_cloudflare_header'],
-                // Whether each key is declared at all, for gt:status: an
-                // env-bound value is still its non-empty placeholder here.
-                '' !== trim($config['reporting']['endpoint']),
-                '' !== trim($config['reporting']['ingest_token']),
             ]);
 
         $container->services()

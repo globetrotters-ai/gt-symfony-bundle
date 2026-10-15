@@ -102,7 +102,7 @@ globetrotters_ai_presence:
         ai_train: false
 
     reporting:                                         # optional: see "Reporting agent traffic"
-        endpoint: '%env(GLOBETROTTERS_INGEST_ENDPOINT)%'
+        endpoint: '%env(GLOBETROTTERS_INGEST_ENDPOINT)%'     # the default since 0.7.1; declare only to read another variable
         ingest_token: '%env(GLOBETROTTERS_INGEST_TOKEN)%'
 ```
 
@@ -167,19 +167,7 @@ The block never adds a `User-agent: *` group, which would be combined with yours
 
 An apex install is **pull-and-cache, not proxy**. A request to `https://your-domain.example/llms.txt` is served by this bundle and terminates inside your application — it never touches a Globetrotters edge, so without this it is invisible and your apex looks like it gets no agent traffic at all.
 
-Turn it on with the two values Studio issues together on the apex install screen (the token is shown **exactly once**). Studio issues them once **Check install** has verified the install on a domain your organisation has claimed (see [Configure](#configure)). It takes two steps, and the first one is easy to miss.
-
-**1. Bind them in the bundle config.** The bundle reads the two environment variables only through these keys. Setting the variables without this block changes nothing, and `gt:status` reports both as `not in config`:
-
-```yaml
-# config/packages/globetrotters_ai_presence.yaml
-globetrotters_ai_presence:
-    reporting:
-        endpoint: '%env(GLOBETROTTERS_INGEST_ENDPOINT)%'
-        ingest_token: '%env(GLOBETROTTERS_INGEST_TOKEN)%'
-```
-
-**2. Set the values:**
+Turn it on by setting the two values Studio issues together on the apex install screen (the token is shown **exactly once**). Studio issues them once **Check install** has verified the install on a domain your organisation has claimed (see [Configure](#configure)):
 
 ```bash
 # .env.local, or better, the Secrets vault: bin/console secrets:set GLOBETROTTERS_INGEST_TOKEN
@@ -187,9 +175,11 @@ GLOBETROTTERS_INGEST_ENDPOINT=https://api.globetrotters.ai/presence/analytics/se
 GLOBETROTTERS_INGEST_TOKEN=…
 ```
 
-Then run `bin/console cache:clear` (a config change is picked up in `prod` only after it) and check with `bin/console gt:status`: it shows the endpoint and the last four characters of the token. If it reports them `empty`, the config is bound but the variables are empty in that process: set them for that environment and user. If `.env.local.php` exists (`composer dump-env prod`), `.env.local` is ignored until you run `composer dump-env prod` again.
+That is all: since 0.7.1 the bundle reads these two variables with no config of its own. Check with `bin/console gt:status`, which shows the endpoint and the last four characters of the token, or names the variable it cannot see. If `.env.local.php` exists (`composer dump-env prod`), `.env.local` is ignored until you run `composer dump-env prod` again.
 
-The endpoint must be `https://`: it receives the token and every client IP. A literal `http://` value fails the container build; an env-bound one reads as unset at runtime, so reporting stays off and `gt:status` says why.
+Declaring `reporting.endpoint` / `reporting.ingest_token` in the bundle config is only needed to read other variables (or literal values); a declared key replaces the default. Installs that already declare the documented `%env(GLOBETROTTERS_INGEST_*)%` bindings behave exactly as before.
+
+The endpoint must be `https://`: it receives the token and every client IP. A literal `http://` value fails the container build; one read from a variable reads as unset at runtime, so reporting stays off and `gt:status` says why.
 
 Both are required; until both are set nothing is captured and nothing is written to disk. What is sent, per served artefact request: a UUID, a UTC timestamp, the canonical path, the User-Agent, the client IP, the referer, the status and the byte size. No cookies, no per-visitor identifiers. The backend uses the IP transiently to verify the agent against published vendor ranges and to resolve a country, then drops it — it is never stored.
 

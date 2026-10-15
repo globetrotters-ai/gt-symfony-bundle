@@ -7,15 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-10-15
+
 ### Changed
 
-- **`gt:status` says why reporting is off.** An unset endpoint or token used
-  to read `not set` whatever the cause. It now reads `not in config` when
-  `config/packages/globetrotters_ai_presence.yaml` never declares the key (the
-  `GLOBETROTTERS_INGEST_*` variables are then not read at all) and names the
-  lines to add, and `empty` when the key is bound but its variable is empty in
-  that process. The README's reporting section now shows the config block next
-  to the variables.
+- **Reporting reads `GLOBETROTTERS_INGEST_ENDPOINT` and
+  `GLOBETROTTERS_INGEST_TOKEN` by default.** Setting the two values Studio's
+  install screen hands over is now enough: `reporting.endpoint` and
+  `reporting.ingest_token` default to those variables (a missing one reads as
+  unset, never as a container error). Until now they defaulted to `''`, so the
+  variables did nothing unless `config/packages/globetrotters_ai_presence.yaml`
+  also bound them, and the README's reporting section did not say so. A
+  declared key still wins, so installs that bind them already are unchanged.
+  An install that set the variables without the binding starts reporting.
+- **`gt:status` names the variable it cannot see** instead of a bare "both
+  are required".
 
 ## [0.7.0] - 2026-10-14
 
