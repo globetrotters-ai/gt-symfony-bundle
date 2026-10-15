@@ -101,6 +101,26 @@ final class StatusCommand extends Command
         return Command::SUCCESS;
     }
 
+    /**
+     * Names the variables still unset, by the names the bundle reads by
+     * default. An install that binds reporting.* to other variables in its
+     * config is told so too, since the message cannot see that binding.
+     */
+    private function unsetWarning(): string
+    {
+        $unset = array_keys(array_filter([
+            'GLOBETROTTERS_INGEST_ENDPOINT' => '' === $this->analytics->endpoint(),
+            'GLOBETROTTERS_INGEST_TOKEN' => '' === $this->analytics->ingestToken(),
+        ]));
+
+        return \sprintf(
+            'Not reporting: %s %s not set in this process. Studio issues the endpoint and token together on the apex install screen; set %s for this environment and user (or the variables your reporting config binds instead), then run this again. If .env.local.php exists (composer dump-env), .env.local is ignored until you run it again. Nothing is being captured, so agent traffic to this apex is invisible.',
+            implode(' and ', $unset),
+            1 === \count($unset) ? 'is' : 'are',
+            1 === \count($unset) ? 'it' : 'both',
+        );
+    }
+
     private function reportAgentTraffic(SymfonyStyle $io): void
     {
         $io->section('Agent-traffic reporting');
@@ -123,7 +143,7 @@ final class StatusCommand extends Command
             ]);
             $io->warning($refused
                 ? 'Not reporting: the endpoint must be an https:// URL, since it receives the ingest token and every captured client IP. Nothing is being captured, so agent traffic to this apex is invisible.'
-                : 'Not reporting: the endpoint and token are issued together on the Studio apex install screen, and both are required. Nothing is being captured, so agent traffic to this apex is invisible.');
+                : $this->unsetWarning());
 
             return;
         }

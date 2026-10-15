@@ -35,6 +35,7 @@ final class TestKernel extends Kernel
         private readonly bool $withBreadcrumb = false,
         private readonly bool $withSitemapRoute = false,
         private readonly bool $withPageViews = false,
+        private readonly bool $withReportingFromEnv = false,
     ) {
         parent::__construct($environment, $debug);
     }
@@ -88,9 +89,13 @@ final class TestKernel extends Kernel
             'reporting' => [
                 // Capture is gated on both credentials, so the default kernel
                 // exercises the "configured but not reporting" path that most
-                // installs are in.
-                'endpoint' => $this->withReporting ? self::INGEST_ENDPOINT : '',
-                'ingest_token' => $this->withReporting ? self::INGEST_TOKEN : '',
+                // installs are in. The from-env variant declares neither key,
+                // as an install that only sets the GLOBETROTTERS_INGEST_*
+                // variables does.
+                ...($this->withReportingFromEnv ? [] : [
+                    'endpoint' => $this->withReporting ? self::INGEST_ENDPOINT : '',
+                    'ingest_token' => $this->withReporting ? self::INGEST_TOKEN : '',
+                ]),
                 'buffer_dir' => $this->bufferDir(),
                 // Off unless a test is exercising it: the fallback lane fires
                 // on every terminate, so leaving it on would drain the buffer
@@ -158,6 +163,7 @@ final class TestKernel extends Kernel
     {
         return ($this->withRobotsRoute ? '_robots' : '')
             .($this->withReporting ? '_reporting' : '')
+            .($this->withReportingFromEnv ? '_reporting_env' : '')
             .($this->withOpportunisticFlush ? '_terminate' : '')
             .($this->withBreadcrumb ? '_breadcrumb' : '')
             .($this->withSitemapRoute ? '_sitemap' : '')

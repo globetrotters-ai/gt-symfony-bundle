@@ -27,6 +27,7 @@ abstract class IntegrationTestCase extends WebTestCase
     protected static bool $withBreadcrumb = false;
     protected static bool $withSitemapRoute = false;
     protected static bool $withPageViews = false;
+    protected static bool $withReportingFromEnv = false;
 
     protected const BODIES = [
         'llms.txt' => 'llms body',
@@ -42,7 +43,7 @@ abstract class IntegrationTestCase extends WebTestCase
 
     protected static function createKernel(array $options = []): KernelInterface
     {
-        return new TestKernel('test', false, static::$withRobotsRoute, static::$withReporting, static::$withOpportunisticFlush, static::$withBreadcrumb, static::$withSitemapRoute, static::$withPageViews);
+        return new TestKernel('test', false, static::$withRobotsRoute, static::$withReporting, static::$withOpportunisticFlush, static::$withBreadcrumb, static::$withSitemapRoute, static::$withPageViews, static::$withReportingFromEnv);
     }
 
     protected function tearDown(): void
