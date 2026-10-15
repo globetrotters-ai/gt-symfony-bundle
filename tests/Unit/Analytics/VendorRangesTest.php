@@ -122,6 +122,23 @@ final class VendorRangesTest extends TestCase
         self::assertSame(['verified' => null, 'vendor' => null], $ranges->verify('8.8.8.8'));
     }
 
+    public function testResetPicksUpAListAnotherProcessReplaced(): void
+    {
+        $this->transport->willReturnRanges(RangesFetch::http(200, self::LIST));
+        $this->ranges()->refreshIfDue();
+        $worker = $this->ranges();
+        self::assertSame('3f2a9c1e0b7d', $worker->version());
+
+        $this->clock->modify('+1 day');
+        $this->transport->willReturnRanges(RangesFetch::http(200, str_replace('3f2a9c1e0b7d', 'a1b2c3d4e5f6', self::LIST)));
+        self::assertTrue($this->ranges()->refreshIfDue());
+
+        self::assertSame('3f2a9c1e0b7d', $worker->version(), 'held for the request');
+        $worker->reset();
+        self::assertSame('a1b2c3d4e5f6', $worker->version());
+        self::assertSame('2026-10-16T10:00:00Z', $worker->fetchedAtIso());
+    }
+
     public function testNothingIsFetchedWhileReportingIsNotConfigured(): void
     {
         $ranges = new VendorRanges(

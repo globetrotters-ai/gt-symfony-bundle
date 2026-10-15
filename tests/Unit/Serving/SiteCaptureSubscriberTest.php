@@ -74,6 +74,26 @@ final class SiteCaptureSubscriberTest extends TestCase
         self::assertSame(['cf-ray'], $this->state->state()['cdn_markers'], 'a served artefact still feeds the context');
     }
 
+    public function testAnUnconfiguredInstallWritesNoContextState(): void
+    {
+        $directory = new BufferDirectory($this->dir);
+        $options = new AnalyticsOptions(true, '', '', true, false);
+        $ranges = new VendorRanges($directory, new FakeIngestTransport(), $options, $this->state, new MockClock('2026-10-15 10:00:00', 'UTC'));
+        $subscriber = new SiteCaptureSubscriber(
+            new SiteCapture($this->buffer, $options, new ClientIpResolver($options), $ranges, new MockClock('2026-10-15 10:00:00', 'UTC')),
+            new CaptureContext($options, $this->state, $ranges),
+        );
+
+        $served = $this->request();
+        $served->attributes->set(Router::ATTRIBUTE_PATH, '/llms.txt');
+        foreach ([$served, $this->request()] as $request) {
+            $subscriber->onKernelTerminate(new TerminateEvent($this->createStub(HttpKernelInterface::class), $request, $this->html()));
+        }
+
+        self::assertSame(0, $this->buffer->count());
+        self::assertSame([], $this->state->state()['cdn_markers']);
+    }
+
     /**
      * kernel.terminate only ever fires for the main request, so a sub-request
      * (an embedded controller, an ESI fragment) cannot reach the subscriber.

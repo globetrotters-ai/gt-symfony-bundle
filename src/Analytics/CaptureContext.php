@@ -51,9 +51,17 @@ final class CaptureContext
 
     /**
      * Note the markers on one incoming request. Never throws.
+     *
+     * A no-op while reporting is not configured, so an unconfigured install
+     * never writes analytics state (as ``gt-wordpress-plugin`` records markers
+     * only while capturing).
      */
     public function observe(Request $request, ?Response $response = null): void
     {
+        if (!$this->options->isConfigured()) {
+            return;
+        }
+
         try {
             $seen = [];
             foreach (self::CDN_MARKERS as $marker) {
