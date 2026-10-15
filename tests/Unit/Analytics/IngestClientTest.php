@@ -88,4 +88,23 @@ final class IngestClientTest extends TestCase
         yield 'no host' => ['https:api.example.test/ingest'];
         yield 'empty' => [''];
     }
+
+    public function testRangesFetchReadsABoundedBody(): void
+    {
+        $list = '{"version":"v1","ranges":[]}';
+        $ok = (new IngestClient(new MockHttpClient(new MockResponse($list, ['http_code' => 200]))))
+            ->fetchRanges('https://api.example.test/server-log/ranges', 'secret', '');
+        self::assertTrue($ok->isOk());
+        self::assertSame($list, $ok->body());
+
+        $huge = str_repeat('x', 2 * 1024 * 1024 + 1);
+        $refused = (new IngestClient(new MockHttpClient(new MockResponse($huge, ['http_code' => 200]))))
+            ->fetchRanges('https://api.example.test/server-log/ranges', 'secret', '');
+        self::assertFalse($refused->isOk());
+        self::assertStringContainsString('larger than', $refused->errorMessage());
+
+        $notModified = (new IngestClient(new MockHttpClient(new MockResponse('', ['http_code' => 304]))))
+            ->fetchRanges('https://api.example.test/server-log/ranges', 'secret', 'v1');
+        self::assertTrue($notModified->isNotModified());
+    }
 }

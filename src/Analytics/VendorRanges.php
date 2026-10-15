@@ -42,6 +42,11 @@ final class VendorRanges implements ResetInterface
     /** AnalyticsState key: the last fetch error, '' after a success. */
     public const STATE_ERROR = 'ranges_error';
 
+    private const WRITE_ERROR = 'the range list could not be written to reporting.buffer_dir';
+
+    /** The IPv4-mapped IPv6 prefix (::ffff:0:0/96) a dual-stack socket reports IPv4 peers under. */
+    private const IPV4_MAPPED_PREFIX = "\0\0\0\0\0\0\0\0\0\0\xff\xff";
+
     /**
      * Parsed once per process, or per request in a long-running one
      * (kernel.reset), so a list another lane refreshed is picked up.
@@ -126,13 +131,15 @@ final class VendorRanges implements ResetInterface
         $error = '';
         if ($result->isNotModified() && null !== $current) {
             $current['fetched_at'] = $this->now();
-            $this->write($current);
+            if (!$this->write($current)) {
+                $error = self::WRITE_ERROR;
+            }
         } elseif ($result->isOk()) {
             $parsed = self::parse($result->body());
             if (null === $parsed) {
                 $error = 'the range list could not be read';
-            } else {
-                $this->write(['version' => $parsed['version'], 'fetched_at' => $this->now(), 'ranges' => $parsed['ranges']]);
+            } elseif (!$this->write(['version' => $parsed['version'], 'fetched_at' => $this->now(), 'ranges' => $parsed['ranges']])) {
+                $error = self::WRITE_ERROR;
             }
         } else {
             $error = '' !== $result->errorMessage() ? $result->errorMessage() : 'unexpected response';
@@ -158,6 +165,11 @@ final class VendorRanges implements ResetInterface
             // A list we trust, and no address to match against it: not in any
             // range is the honest answer.
             return ['verified' => false, 'vendor' => null];
+        }
+        // A dual-stack listener reports an IPv4 peer as ::ffff:a.b.c.d; the
+        // vendor ranges list it as plain IPv4.
+        if (16 === \strlen($packed) && str_starts_with($packed, self::IPV4_MAPPED_PREFIX)) {
+            $packed = substr($packed, 12);
         }
 
         if (null === $this->packed) {
@@ -248,40 +260,49 @@ final class VendorRanges implements ResetInterface
         if (!\is_array($decoded) || !\is_string($decoded['version'] ?? null) || !\is_int($decoded['fetched_at'] ?? null)) {
             return null;
         }
-        $parsed = self::parseDecoded($decoded);
-        if (null === $parsed) {
+        // Our own file, written only from an already-validated list: a cheap
+        // shape check, no per-range inet_pton (verify() packs, and skips, once).
+        if ('' === $decoded['version'] || !\is_array($decoded['ranges'] ?? null)) {
             return null;
         }
+        $ranges = [];
+        foreach ($decoded['ranges'] as $range) {
+            if (\is_array($range) && \is_string($range['platform'] ?? null) && \is_string($range['start'] ?? null) && \is_string($range['end'] ?? null)) {
+                $ranges[] = ['platform' => $range['platform'], 'start' => $range['start'], 'end' => $range['end']];
+            }
+        }
 
-        return $this->loaded = ['version' => $parsed['version'], 'fetched_at' => $decoded['fetched_at'], 'ranges' => $parsed['ranges']];
+        return $this->loaded = ['version' => $decoded['version'], 'fetched_at' => $decoded['fetched_at'], 'ranges' => $ranges];
     }
 
     /**
      * @param array{version: string, fetched_at: int, ranges: list<array{platform: string, start: string, end: string}>} $list
      */
-    private function write(array $list): void
+    private function write(array $list): bool
     {
         if (!$this->directory->ensure()) {
-            return;
+            return false;
         }
         $json = json_encode($list, \JSON_UNESCAPED_SLASHES);
         if (!\is_string($json)) {
-            return;
+            return false;
         }
 
         $path = $this->directory->path(self::FILE);
         $temp = $path.'.'.bin2hex(random_bytes(4)).'.tmp';
         if (false === @file_put_contents($temp, $json)) {
-            return;
+            return false;
         }
         $this->directory->share($temp);
         if (!@rename($temp, $path)) {
             @unlink($temp);
 
-            return;
+            return false;
         }
         $this->loaded = $list;
         $this->packed = null;
+
+        return true;
     }
 
     /**

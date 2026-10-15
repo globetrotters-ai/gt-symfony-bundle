@@ -139,6 +139,30 @@ final class VendorRangesTest extends TestCase
         self::assertSame('2026-10-16T10:00:00Z', $worker->fetchedAtIso());
     }
 
+    public function testAnIpv4MappedIpv6PeerMatchesItsIpv4Range(): void
+    {
+        $this->transport->willReturnRanges(RangesFetch::http(200, self::LIST));
+        $ranges = $this->ranges();
+        $ranges->refreshIfDue();
+
+        self::assertSame(['verified' => true, 'vendor' => 'chatgpt'], $ranges->verify('::ffff:20.171.206.10'));
+        self::assertSame(['verified' => false, 'vendor' => null], $ranges->verify('::ffff:20.171.207.1'));
+    }
+
+    public function testAListThatCannotBeWrittenIsReportedNotSilentlyDropped(): void
+    {
+        $this->transport->willReturnRanges(RangesFetch::http(200, self::LIST));
+        chmod($this->dir, 0o500);
+        try {
+            $ranges = $this->ranges();
+            self::assertTrue($ranges->refreshIfDue());
+            self::assertNull($ranges->version());
+            self::assertStringContainsString('could not be written', $ranges->lastError());
+        } finally {
+            chmod($this->dir, 0o700);
+        }
+    }
+
     public function testNothingIsFetchedWhileReportingIsNotConfigured(): void
     {
         $ranges = new VendorRanges(
