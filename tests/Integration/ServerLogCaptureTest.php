@@ -101,7 +101,10 @@ final class ServerLogCaptureTest extends IntegrationTestCase
         $client->request('GET', '/');
         self::assertStringContainsString('Homepage', (string) $client->getResponse()->getContent());
 
-        self::assertSame(0, $this->buffer()->count());
+        // The homepage is HTML fetched by a non-browser client, so since 0.8.0
+        // it is a site event; it must never be an artefact event.
+        $artefacts = array_filter($this->buffer()->claim(50), static fn (Event $event): bool => !$event->isSite());
+        self::assertSame([], $artefacts);
     }
 
     public function testCapturesNothingOnAColdCache(): void

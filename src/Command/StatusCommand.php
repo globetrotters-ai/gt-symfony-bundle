@@ -11,6 +11,7 @@ use Globetrotters\AiPresenceBundle\Analytics\EventBuffer;
 use Globetrotters\AiPresenceBundle\Analytics\FlushGate;
 use Globetrotters\AiPresenceBundle\Analytics\PageViewCounter;
 use Globetrotters\AiPresenceBundle\Analytics\PageViewOptions;
+use Globetrotters\AiPresenceBundle\Analytics\VendorRanges;
 use Globetrotters\AiPresenceBundle\Cache\ArtefactCache;
 use Globetrotters\AiPresenceBundle\Settings\Options;
 use Globetrotters\AiPresenceBundle\Sync\ArtefactSync;
@@ -47,6 +48,7 @@ final class StatusCommand extends Command
         private readonly BufferDirectory $bufferDir,
         private readonly ?PageViewOptions $pageViewOptions = null,
         private readonly ?PageViewCounter $pageViews = null,
+        private readonly ?VendorRanges $ranges = null,
     ) {
         parent::__construct();
     }
@@ -142,6 +144,11 @@ final class StatusCommand extends Command
             ['Last flush attempt', $lastAttempt > 0 ? gmdate('Y-m-d H:i:s', $lastAttempt).' UTC' : 'never'],
             ['Last accepted flush', $lastOk > 0 ? gmdate('Y-m-d H:i:s', $lastOk).' UTC' : 'never'],
             ['Accepted batches / events', \sprintf('%d / %d', (int) $state['flush_count'], (int) $state['events_sent'])],
+            ['Site bot capture', $this->analytics->siteCapture()
+                ? 'on (pages fetched by bots: user agent, path, status, verified vendor flag; never an IP)'
+                : 'off (reporting.site_capture.enabled: false)'],
+            ['Site events sent', (string) (int) $state['site_events_sent']],
+            ['AI vendor ranges', $this->rangesStatus()],
             ['Page views', $this->pageViewMode()],
             ['Page views pending', $usable && null !== $this->pageViews
                 ? \sprintf('%d record(s) sealed; %d view(s) counted on open days', $this->pageViews->pendingRecords(), $this->pageViews->openViews())
@@ -181,6 +188,32 @@ final class StatusCommand extends Command
         }
 
         $io->writeln('Reporting normally. Note that the endpoint answers 202 to a bad token as well as a good one, so an accepted flush proves hand-off, not that this install is recognised — confirm the numbers in Studio.');
+    }
+
+    private function rangesStatus(): string
+    {
+        if (null === $this->ranges) {
+            return '-';
+        }
+        $error = $this->ranges->lastError();
+        $suffix = '' === $error ? '' : '; last fetch failed: '.$error;
+        $fetched = $this->ranges->fetchedAt();
+        if (null === $fetched) {
+            return 'not fetched yet, so bot visits are reported unverified (gt:refresh or the Scheduler fetches them daily)'.$suffix;
+        }
+
+        $days = intdiv(max(0, time() - $fetched), 86400);
+
+        return \sprintf(
+            '%s, version %s, %d ranges, fetched %s UTC (%d day%s ago)%s',
+            $this->ranges->isStale() ? 'STALE, so bot visits are reported unverified' : 'fresh',
+            $this->ranges->version() ?? '-',
+            $this->ranges->count(),
+            gmdate('Y-m-d H:i:s', $fetched),
+            $days,
+            1 === $days ? '' : 's',
+            $suffix,
+        );
     }
 
     private function pageViewMode(): string

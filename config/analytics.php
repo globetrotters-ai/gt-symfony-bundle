@@ -7,6 +7,7 @@ namespace Symfony\Component\DependencyInjection\Loader\Configurator;
 use Globetrotters\AiPresenceBundle\Analytics\AnalyticsOptions;
 use Globetrotters\AiPresenceBundle\Analytics\AnalyticsState;
 use Globetrotters\AiPresenceBundle\Analytics\BufferDirectory;
+use Globetrotters\AiPresenceBundle\Analytics\CaptureContext;
 use Globetrotters\AiPresenceBundle\Analytics\ClientIpResolver;
 use Globetrotters\AiPresenceBundle\Analytics\DroppedCounter;
 use Globetrotters\AiPresenceBundle\Analytics\EventBuffer;
@@ -19,6 +20,8 @@ use Globetrotters\AiPresenceBundle\Analytics\IngestTransportInterface;
 use Globetrotters\AiPresenceBundle\Analytics\NdjsonEventStore;
 use Globetrotters\AiPresenceBundle\Analytics\PageViewCounter;
 use Globetrotters\AiPresenceBundle\Analytics\PageViewOptions;
+use Globetrotters\AiPresenceBundle\Analytics\SiteCapture;
+use Globetrotters\AiPresenceBundle\Analytics\VendorRanges;
 use Globetrotters\AiPresenceBundle\Command\PresenceFlushCommand;
 use Globetrotters\AiPresenceBundle\Serving\ArtefactCaptureSubscriber;
 use Globetrotters\AiPresenceBundle\Serving\ArtefactHeaderSubscriber;
@@ -27,6 +30,7 @@ use Globetrotters\AiPresenceBundle\Serving\PageViewBeacon;
 use Globetrotters\AiPresenceBundle\Serving\PageViewBeaconInjector;
 use Globetrotters\AiPresenceBundle\Serving\PageViewEndpoint;
 use Globetrotters\AiPresenceBundle\Serving\ResponseFinalization;
+use Globetrotters\AiPresenceBundle\Serving\SiteCaptureSubscriber;
 
 /*
  * Server-log reporting lane, and the first-party page-view counter that
@@ -78,6 +82,37 @@ return static function (ContainerConfigurator $container): void {
 
     $services->alias(IngestTransportInterface::class, IngestClient::class);
 
+    $services->set(VendorRanges::class)
+        ->args([
+            service(BufferDirectory::class),
+            service(IngestTransportInterface::class),
+            service(AnalyticsOptions::class),
+            service(AnalyticsState::class),
+            service('globetrotters_ai_presence.clock'),
+        ]);
+
+    $services->set(CaptureContext::class)
+        ->args([
+            service(AnalyticsOptions::class),
+            service(AnalyticsState::class),
+            service(VendorRanges::class),
+        ]);
+
+    $services->set(SiteCapture::class)
+        ->args([
+            service(EventBuffer::class),
+            service(AnalyticsOptions::class),
+            service(ClientIpResolver::class),
+            service(VendorRanges::class),
+            service('globetrotters_ai_presence.clock'),
+        ]);
+
+    // Site bot capture (design B). Registered unconditionally and gated at
+    // runtime on AnalyticsOptions, like the rest of the lane.
+    $services->set(SiteCaptureSubscriber::class)
+        ->args([service(SiteCapture::class), service(CaptureContext::class)])
+        ->tag('kernel.event_subscriber');
+
     $services->set(FlushGate::class)
         ->args([service(BufferDirectory::class), service('globetrotters_ai_presence.clock')]);
 
@@ -91,6 +126,7 @@ return static function (ContainerConfigurator $container): void {
             service('globetrotters_ai_presence.clock'),
             service(PageViewCounter::class),
             service(PageViewOptions::class),
+            service(CaptureContext::class),
         ]);
 
     $services->set(ArtefactHeaderSubscriber::class)

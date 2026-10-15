@@ -59,6 +59,7 @@ final class Flusher
         private readonly ClockInterface $clock,
         private readonly ?PageViewCounter $pageViews = null,
         private readonly ?PageViewOptions $pageViewOptions = null,
+        private readonly ?CaptureContext $context = null,
     ) {
     }
 
@@ -150,9 +151,10 @@ final class Flusher
                 $this->options->ingestToken(),
                 $json,
             );
-            $this->recordAttempt($result, $lane, 0, 0);
+            $this->recordAttempt($result, $lane, [], 0);
             if ($result->isAccepted()) {
                 $this->buffer->settleDropped($dropped);
+                $this->context?->settle();
             }
 
             return $result->isAccepted();
@@ -177,7 +179,7 @@ final class Flusher
             $batch['json'],
         );
 
-        $this->recordAttempt($result, $lane, \count($batch['events']), \count($batch['pageViews']));
+        $this->recordAttempt($result, $lane, $batch['events'], \count($batch['pageViews']));
 
         if (!$result->isAccepted()) {
             // Leave every claimed event and page-view record in place: the next
@@ -189,6 +191,7 @@ final class Flusher
         $this->buffer->release(array_map(static fn (Event $event): string => $event->id(), $batch['events']));
         $this->pageViews?->remove(array_column($batch['pageViews'], 'id'));
         $this->buffer->settleDropped($dropped);
+        $this->context?->settle();
 
         return true;
     }
@@ -311,6 +314,18 @@ final class Flusher
      */
     private function encode(array $events, int $dropped, array $pageViews): string
     {
+        // Artefact and site events share the buffer (and its caps) but go out
+        // under their own keys; a site event never carries an ip.
+        $artefacts = [];
+        $site = [];
+        foreach ($events as $event) {
+            if ($event->isSite()) {
+                $site[] = $event->toPayload();
+            } else {
+                $artefacts[] = $event->toPayload();
+            }
+        }
+
         $envelope = [
             'producer' => 'symfony-bundle/'.GlobetrottersAiPresenceBundle::VERSION,
             // Local sampling is the escape hatch for a very high-traffic apex;
@@ -318,10 +333,17 @@ final class Flusher
             // everything it captured, so it stays at 1.0.
             'sampleRate' => 1.0,
             'dropped' => $dropped,
-            'events' => array_map(static fn (Event $event): array => $event->toPayload(), $events),
+            'events' => $artefacts,
         ];
         if ([] !== $pageViews) {
             $envelope['pageViews'] = $pageViews;
+        }
+        if ([] !== $site) {
+            $envelope['siteEvents'] = $site;
+        }
+        if (null !== $this->context) {
+            // On every envelope, heartbeat included.
+            $envelope['captureContext'] = $this->context->toArray();
         }
 
         $json = json_encode($envelope, Event::JSON_FLAGS);
@@ -329,7 +351,10 @@ final class Flusher
         return \is_string($json) ? $json : '';
     }
 
-    private function recordAttempt(IngestResult $result, string $lane, int $events, int $pageViews): void
+    /**
+     * @param list<Event> $events
+     */
+    private function recordAttempt(IngestResult $result, string $lane, array $events, int $pageViews): void
     {
         $now = $this->now();
         $state = $this->state->state();
@@ -345,7 +370,9 @@ final class Flusher
         if ($result->isAccepted()) {
             $update['last_flush_ok'] = $now;
             $update['flush_count'] = (int) $state['flush_count'] + 1;
-            $update['events_sent'] = (int) $state['events_sent'] + $events;
+            $site = \count(array_filter($events, static fn (Event $event): bool => $event->isSite()));
+            $update['events_sent'] = (int) $state['events_sent'] + \count($events) - $site;
+            $update['site_events_sent'] = (int) $state['site_events_sent'] + $site;
             $update['page_views_sent'] = (int) $state['page_views_sent'] + $pageViews;
         }
 

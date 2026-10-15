@@ -55,4 +55,13 @@ interface IngestTransportInterface
      * The backend cap that applies to the wire form this transport produces.
      */
     public function wireCap(): int;
+
+    /**
+     * GET the vendor range list (``<endpoint>/ranges``) with the same bearer
+     * token, conditionally on the version already held.
+     *
+     * @param string $url     the ranges URL, derived from the ingest endpoint
+     * @param string $version the cached list's version, '' for none: sent as If-None-Match
+     */
+    public function fetchRanges(string $url, string $token, string $version): RangesFetch;
 }

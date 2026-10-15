@@ -4,6 +4,11 @@ declare(strict_types=1);
 
 namespace Globetrotters\AiPresenceBundle\Tests\Unit\Scheduler;
 
+use Globetrotters\AiPresenceBundle\Analytics\AnalyticsOptions;
+use Globetrotters\AiPresenceBundle\Analytics\AnalyticsState;
+use Globetrotters\AiPresenceBundle\Analytics\BufferDirectory;
+use Globetrotters\AiPresenceBundle\Analytics\RangesFetch;
+use Globetrotters\AiPresenceBundle\Analytics\VendorRanges;
 use Globetrotters\AiPresenceBundle\Cache\ArtefactCache;
 use Globetrotters\AiPresenceBundle\Client\FetchResult;
 use Globetrotters\AiPresenceBundle\Scheduler\RefreshMessage;
@@ -11,6 +16,9 @@ use Globetrotters\AiPresenceBundle\Scheduler\RefreshMessageHandler;
 use Globetrotters\AiPresenceBundle\Settings\Options;
 use Globetrotters\AiPresenceBundle\Sync\ArtefactSync;
 use Globetrotters\AiPresenceBundle\Tests\Support\FakeFetcher;
+use Globetrotters\AiPresenceBundle\Tests\Support\FakeIngestTransport;
+use Globetrotters\AiPresenceBundle\Tests\Support\TempDirectory;
+use Globetrotters\AiPresenceBundle\Tests\Unit\Analytics\VendorRangesTest;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Cache\Adapter\ArrayAdapter;
 use Symfony\Component\Clock\MockClock;
@@ -124,6 +132,43 @@ final class RefreshMessageHandlerTest extends TestCase
         ($this->handler)(new RefreshMessage());
 
         self::assertSame('hello', $this->cache()->get('llms.txt'));
+    }
+
+    /**
+     * The vendor ranges ride the hourly poll on their own daily due-check,
+     * whether or not the artefact refresh is due or succeeds.
+     */
+    public function testTheVendorRangesAreCheckedDailyIndependentlyOfTheSync(): void
+    {
+        $dir = TempDirectory::make();
+        try {
+            $this->fetcher = (new FakeFetcher())->fallback(FetchResult::http(503, ''));
+            $transport = (new FakeIngestTransport())->willReturnRanges(RangesFetch::http(200, VendorRangesTest::LIST));
+            $options = new Options($this->pool, self::BASE_URL, 'daily', '/');
+            $ranges = new VendorRanges(
+                new BufferDirectory($dir),
+                $transport,
+                new AnalyticsOptions(true, VendorRangesTest::ENDPOINT, VendorRangesTest::TOKEN, true, false),
+                new AnalyticsState($this->pool),
+                $this->clock,
+            );
+            $handler = new RefreshMessageHandler(new ArtefactSync($this->fetcher, new ArtefactCache($this->pool, self::BASE_URL), $options, $this->clock), $ranges);
+
+            $handler(new RefreshMessage());
+            self::assertCount(1, $transport->rangeRequests);
+            self::assertSame('3f2a9c1e0b7d', $ranges->version(), 'fetched though the artefact pull failed');
+
+            $this->clock->sleep(3600);
+            $handler(new RefreshMessage());
+            self::assertCount(1, $transport->rangeRequests, 'at most once a day');
+
+            $this->clock->sleep(86400);
+            $transport->willReturnRanges(RangesFetch::http(304));
+            $handler(new RefreshMessage());
+            self::assertCount(2, $transport->rangeRequests);
+        } finally {
+            TempDirectory::remove($dir);
+        }
     }
 
     private function upstream(): FakeFetcher

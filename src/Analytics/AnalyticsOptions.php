@@ -25,6 +25,7 @@ final class AnalyticsOptions
         private readonly string $ingestToken,
         private readonly bool $opportunisticFlush,
         private readonly bool $trustCloudflareHeader,
+        private readonly bool $siteCapture = true,
     ) {
     }
 
@@ -90,6 +91,23 @@ final class AnalyticsOptions
     public function opportunisticFlush(): bool
     {
         return $this->opportunisticFlush;
+    }
+
+    /**
+     * Whether the site bot capture toggle is on (it is by default).
+     */
+    public function siteCapture(): bool
+    {
+        return $this->siteCapture;
+    }
+
+    /**
+     * Whether site pages fetched by bots are actually captured: the toggle,
+     * and reporting configured.
+     */
+    public function isSiteCaptureEnabled(): bool
+    {
+        return $this->siteCapture && $this->isConfigured();
     }
 
     public function trustCloudflareHeader(): bool

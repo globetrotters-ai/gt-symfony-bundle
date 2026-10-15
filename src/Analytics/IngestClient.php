@@ -86,6 +86,37 @@ final class IngestClient implements IngestTransportInterface
         }
     }
 
+    public function fetchRanges(string $url, string $token, string $version): RangesFetch
+    {
+        $url = trim($url);
+        if (!AnalyticsOptions::isHttpsUrl($url)) {
+            return RangesFetch::error('the ranges URL must be an https:// URL');
+        }
+
+        $headers = [
+            'Authorization' => 'Bearer '.$token,
+            'Accept' => 'application/json',
+            'User-Agent' => 'GlobetrottersAiPresence/'.GlobetrottersAiPresenceBundle::VERSION,
+        ];
+        if ('' !== $version) {
+            $headers['If-None-Match'] = '"'.$version.'"';
+        }
+
+        try {
+            $response = $this->client->request('GET', $url, [
+                'timeout' => self::TIMEOUT_SECONDS,
+                'max_duration' => self::MAX_DURATION_SECONDS,
+                'max_redirects' => 0,
+                'headers' => $headers,
+            ]);
+            $status = $response->getStatusCode();
+
+            return RangesFetch::http($status, 200 === $status ? $response->getContent(false) : '');
+        } catch (\Throwable $e) {
+            return RangesFetch::error($e->getMessage());
+        }
+    }
+
     public function wireSize(string $json): int
     {
         return \strlen(self::toWire($json));

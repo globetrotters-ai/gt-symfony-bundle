@@ -36,11 +36,27 @@ final class Event
      * ``sampleRate`` on the wire as ``1.0`` rather than ``1``, matching the
      * float the contract types it as.
      */
+    /**
+     * The ``kind`` marker a site event carries in the buffer. Never sent: the
+     * envelope separates the two kinds into ``events`` and ``siteEvents``.
+     */
+    public const KIND_SITE = 'site';
+
     public const JSON_FLAGS = \JSON_INVALID_UTF8_SUBSTITUTE | \JSON_PRESERVE_ZERO_FRACTION | \JSON_UNESCAPED_SLASHES;
 
     private readonly string $ua;
     private readonly string $ip;
     private readonly string $referer;
+
+    /**
+     * Site events (design B) share the buffer with artefact events so both
+     * live under one set of caps, but are a distinct line kind: no IP, no
+     * referer, a nullable byte count and the client-computed verification.
+     */
+    private bool $site = false;
+    private ?int $siteBytes = null;
+    private ?bool $verified = null;
+    private ?string $vendor = null;
 
     public function __construct(
         private readonly string $id,
@@ -58,12 +74,44 @@ final class Event
     }
 
     /**
+     * One site page fetched by a probable bot. Carries no IP by construction:
+     * there is no parameter to pass one through.
+     */
+    public static function site(string $id, string $ts, string $path, string $ua, int $status, ?int $bytes, ?bool $verified, ?string $vendor): self
+    {
+        $event = new self($id, $ts, $path, $ua, '', '', $status, $bytes ?? 0);
+        $event->site = true;
+        $event->siteBytes = $bytes;
+        $event->verified = $verified;
+        $event->vendor = true === $verified && null !== $vendor && '' !== $vendor ? self::clip($vendor) : null;
+
+        return $event;
+    }
+
+    /**
      * Rebuild an event from a decoded buffer line.
      *
      * @param array<string, mixed> $row
      */
     public static function fromArray(array $row): self
     {
+        if (self::KIND_SITE === ($row['kind'] ?? null)) {
+            $bytes = $row['bytes'] ?? null;
+            $verified = $row['verified'] ?? null;
+            $vendor = $row['vendor'] ?? null;
+
+            return self::site(
+                self::str($row, 'id'),
+                self::str($row, 'ts'),
+                self::str($row, 'path'),
+                self::str($row, 'ua'),
+                (int) ($row['status'] ?? 0),
+                \is_int($bytes) ? $bytes : null,
+                \is_bool($verified) ? $verified : null,
+                \is_string($vendor) ? $vendor : null,
+            );
+        }
+
         return new self(
             self::str($row, 'id'),
             self::str($row, 'ts'),
@@ -86,6 +134,19 @@ final class Event
      */
     public function toPayload(): array
     {
+        if ($this->site) {
+            return [
+                'id' => $this->id,
+                'ts' => $this->ts,
+                'path' => $this->path,
+                'ua' => '' === $this->ua ? null : $this->ua,
+                'status' => $this->status,
+                'bytes' => $this->siteBytes,
+                'verified' => $this->verified,
+                'vendor' => $this->vendor,
+            ];
+        }
+
         return [
             'id' => $this->id,
             'ts' => $this->ts,
@@ -104,9 +165,28 @@ final class Event
      */
     public function toLine(): string
     {
-        $json = json_encode($this->toPayload(), self::JSON_FLAGS);
+        $row = $this->toPayload();
+        if ($this->site) {
+            $row['kind'] = self::KIND_SITE;
+        }
+        $json = json_encode($row, self::JSON_FLAGS);
 
         return \is_string($json) ? $json : '';
+    }
+
+    public function isSite(): bool
+    {
+        return $this->site;
+    }
+
+    public function verified(): ?bool
+    {
+        return $this->verified;
+    }
+
+    public function vendor(): ?string
+    {
+        return $this->vendor;
     }
 
     public function id(): string
