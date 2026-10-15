@@ -35,6 +35,14 @@ final class AnalyticsState implements ResetInterface
         'flush_count' => 0,
         'events_sent' => 0,
         'page_views_sent' => 0,
+        'site_events_sent' => 0,
+        // The capture context's sticky observations (design E), cleared after
+        // each accepted flush. See CaptureContext.
+        'cdn_markers' => [],
+        'page_cache' => null,
+        // Vendor range sync attempts. See VendorRanges.
+        'ranges_checked_at' => 0,
+        'ranges_error' => '',
         // Whether a captured request has ever been observed, and whether the
         // client IP on those requests could be resolved past a proxy.
         'ip_observed' => false,

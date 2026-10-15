@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Globetrotters\AiPresenceBundle\Command;
 
+use Globetrotters\AiPresenceBundle\Analytics\VendorRanges;
 use Globetrotters\AiPresenceBundle\Settings\Options;
 use Globetrotters\AiPresenceBundle\Sync\ArtefactSync;
 use Symfony\Component\Console\Attribute\AsCommand;
@@ -26,6 +27,7 @@ final class RefreshCommand extends Command
     public function __construct(
         private readonly ArtefactSync $sync,
         private readonly Options $options,
+        private readonly ?VendorRanges $ranges = null,
     ) {
         parent::__construct();
     }
@@ -38,6 +40,16 @@ final class RefreshCommand extends Command
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $io = new SymfonyStyle($input, $output);
+
+        // Before anything that can return early: the vendor range list needs
+        // only the reporting credentials, never a website_url or a published
+        // bundle, and is checked at most once a day whatever --force says.
+        if (null !== $this->ranges && $this->ranges->refreshIfDue()) {
+            $error = $this->ranges->lastError();
+            $io->writeln('' === $error
+                ? \sprintf('AI vendor ranges checked (version %s, %d ranges).', $this->ranges->version() ?? '-', $this->ranges->count())
+                : 'AI vendor ranges could not be fetched; the previous list is kept. '.$error);
+        }
 
         if (!$this->options->isConnected()) {
             $io->warning('No website_url configured — nothing to refresh.');

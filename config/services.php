@@ -11,6 +11,7 @@ use Globetrotters\AiPresenceBundle\Analytics\EventBuffer;
 use Globetrotters\AiPresenceBundle\Analytics\FlushGate;
 use Globetrotters\AiPresenceBundle\Analytics\PageViewCounter;
 use Globetrotters\AiPresenceBundle\Analytics\PageViewOptions;
+use Globetrotters\AiPresenceBundle\Analytics\VendorRanges;
 use Globetrotters\AiPresenceBundle\Cache\ArtefactCache;
 use Globetrotters\AiPresenceBundle\Client\FetcherInterface;
 use Globetrotters\AiPresenceBundle\Client\GtClient;
@@ -122,6 +123,7 @@ return static function (ContainerConfigurator $container): void {
         ->args([
             service(ArtefactSync::class),
             service(Options::class),
+            service(VendorRanges::class),
         ])
         ->tag('console.command');
 
@@ -137,6 +139,7 @@ return static function (ContainerConfigurator $container): void {
             service(BufferDirectory::class),
             service(PageViewOptions::class),
             service(PageViewCounter::class),
+            service(VendorRanges::class),
         ])
         ->tag('console.command');
 };

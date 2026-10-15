@@ -37,6 +37,9 @@ final class IngestClient implements IngestTransportInterface
     private const TIMEOUT_SECONDS = 20;
     private const MAX_DURATION_SECONDS = 30;
 
+    /** Upper bound on the vendor range list body. */
+    private const MAX_RANGES_BYTES = 2 * 1024 * 1024;
+
     public function __construct(private readonly HttpClientInterface $client)
     {
     }
@@ -83,6 +86,58 @@ final class IngestClient implements IngestTransportInterface
             return IngestResult::http($status);
         } catch (TransportExceptionInterface $e) {
             return IngestResult::error($e->getMessage());
+        }
+    }
+
+    public function fetchRanges(string $url, string $token, string $version): RangesFetch
+    {
+        $url = trim($url);
+        if (!AnalyticsOptions::isHttpsUrl($url)) {
+            return RangesFetch::error('the ranges URL must be an https:// URL');
+        }
+
+        $headers = [
+            'Authorization' => 'Bearer '.$token,
+            'Accept' => 'application/json',
+            'User-Agent' => 'GlobetrottersAiPresence/'.GlobetrottersAiPresenceBundle::VERSION,
+        ];
+        if ('' !== $version) {
+            $headers['If-None-Match'] = '"'.$version.'"';
+        }
+
+        try {
+            $response = $this->client->request('GET', $url, [
+                'timeout' => self::TIMEOUT_SECONDS,
+                'max_duration' => self::MAX_DURATION_SECONDS,
+                'max_redirects' => 0,
+                'headers' => $headers,
+            ]);
+            $status = $response->getStatusCode();
+            if (200 !== $status) {
+                return RangesFetch::http($status);
+            }
+
+            // Bounded like the artefact fetch: the list is ~100 KB today, so a
+            // body past the cap is a broken endpoint, never a list to load.
+            $length = $response->getHeaders(false)['content-length'][0] ?? null;
+            if (null !== $length && (int) $length > self::MAX_RANGES_BYTES) {
+                $response->cancel();
+
+                return RangesFetch::error('the range list is larger than '.self::MAX_RANGES_BYTES.' bytes');
+            }
+            $body = '';
+            foreach ($this->client->stream($response) as $chunk) {
+                $body .= $chunk->getContent();
+                if (\strlen($body) > self::MAX_RANGES_BYTES) {
+                    $response->cancel();
+
+                    return RangesFetch::error('the range list is larger than '.self::MAX_RANGES_BYTES.' bytes');
+                }
+            }
+
+            return RangesFetch::http($status, $body);
+        } catch (\Throwable $e) {
+            return RangesFetch::error($e->getMessage());
         }
     }
 

@@ -183,7 +183,27 @@ The endpoint must be `https://`: it receives the token and every client IP. A li
 
 Both are required; until both are set nothing is captured and nothing is written to disk. What is sent, per served artefact request: a UUID, a UTC timestamp, the canonical path, the User-Agent, the client IP, the referer, the status and the byte size. No cookies, no per-visitor identifiers. The backend uses the IP transiently to verify the agent against published vendor ranges and to resolve a country, then drops it — it is never stored.
 
-That covers **AI agents fetching your discovery files**, nothing else. Your visitors and your own pages are not reported unless you also turn on the page-view counter below, which is **off by default**; when on, it adds a tiny script that posts to your own site, and keeps counts only — no IP, no cookie, no User-Agent string.
+That covers **AI agents fetching your discovery files**. Since 0.8.0 it also covers **bots fetching the pages of your site** (below), on by default. Your human visitors are never reported unless you also turn on the page-view counter below, which is **off by default**; when on, it adds a tiny script that posts to your own site, and keeps counts only: no IP, no cookie, no User-Agent string.
+
+### Pages fetched by AI agents and other bots
+
+Once reporting is configured, the bundle also reports which HTML pages of your application are fetched by AI agents and other bots, so Presence Analytics can show the pages AI agents actually read. It is **on by default**, and switched off with:
+
+```yaml
+globetrotters_ai_presence:
+    reporting:
+        site_capture:
+            enabled: false
+```
+
+What is sent, per page fetched by a probable bot: the User-Agent, the page path (never the query string), the response status and size, and whether the visit came from a verified AI vendor address. **Never an IP address, and nothing about human visitors.**
+
+- Only main `GET`/`HEAD` requests answered with `Content-Type: text/html` are considered. The profiler (`/_profiler`, `/_wdt`), static assets, the page-view counter endpoint and the files this bundle serves itself are skipped.
+- A request is kept only when its User-Agent looks automated: it names a bot, crawler, fetcher or AI agent (`bot`, `crawl`, `spider`, `GPT`, `Claude`, `Perplexity`, `curl`, `python`, `HeadlessChrome` and similar), or it lacks the `Mozilla/` token every browser sends. A browser request is never written anywhere. Finer classification happens at Globetrotters, so a new crawler needs no bundle release.
+- **Verification without storing the IP.** The bundle fetches the AI vendors' published crawler address ranges from Globetrotters (`<endpoint>/ranges`, with the ingest token) at most once a day, from `gt:refresh` or the Scheduler's hourly refresh poll, whether or not your presence is published yet. On a captured request it resolves the client IP with the same trusted-proxy rules as artefact events (see [Behind a proxy or CDN](#behind-a-proxy-or-cdn)), checks it against those ranges in memory, and keeps only the yes or no and the vendor. The list lives in `buffer_dir/vendor-ranges.json`, so a `cache:clear` does not lose it; a failed fetch keeps the previous list, and a list older than 14 days (or none yet) reports visits as unverified.
+- Site events share the event buffer and its bounds, and go out with the regular flush. An ordinary page never triggers the `kernel.terminate` flush, so your own traffic never waits on reporting.
+
+Bot counts are a floor: a request answered by a page cache or CDN in front of the application never reaches it. Each flush therefore carries a small `captureContext`: whether site capture is on, `symfony-http-cache` when the kernel runs behind Symfony's `HttpCache`, which CDN or proxy headers (`CF-Ray`, `X-Varnish`, `Via`, `X-Cache` and similar) were seen on recent requests, and the version and date of the vendor range list. Studio shows the bot numbers as "at least" when something sits in front.
 
 ### Scheduling the flush
 
@@ -201,7 +221,7 @@ Events are buffered locally and flushed at most every 15 minutes. Three lanes, a
 
 It only runs where PHP delivers the response before `kernel.terminate`: **PHP-FPM, FrankenPHP and LiteSpeed**. On Apache mod_php, the CLI server and other runtimes the visitor would still be waiting, so the lane stays off there and you need lane 1 or 2. Even where it runs, the visitor has their response but the PHP worker stays busy for the ingest call (up to 20 seconds) and serves no one else meanwhile — on a small worker pool, prefer cron. Set `reporting.opportunistic_flush: false` to disable it.
 
-`bin/console gt:status` reports which lane last flushed, how many events are buffered, how many were dropped, and whether client-IP resolution looks trustworthy.
+`bin/console gt:status` reports which lane last flushed, how many events are buffered, how many were dropped, whether client-IP resolution looks trustworthy, whether site bot capture is on, and how old the vendor range list is.
 
 ### Counting human page views (optional)
 
@@ -271,6 +291,8 @@ globetrotters_ai_presence:
         buffer_dir: '%kernel.project_dir%/var/globetrotters-ai-presence'
         opportunistic_flush: true                            # the kernel.terminate lane (PHP-FPM, FrankenPHP, LiteSpeed)
         trust_cloudflare_header: false                       # read CF-Connecting-IP
+        site_capture:
+            enabled: true                                    # pages fetched by bots (no IP, nothing about humans)
         page_views:
             enabled: false                                   # first-party human page-view counter, off by default
             auto_inject: false                               # insert the script before </body> for you

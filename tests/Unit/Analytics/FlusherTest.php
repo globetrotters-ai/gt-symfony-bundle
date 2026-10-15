@@ -16,6 +16,7 @@ use Globetrotters\AiPresenceBundle\Analytics\FlushOutcome;
 use Globetrotters\AiPresenceBundle\Analytics\IngestResult;
 use Globetrotters\AiPresenceBundle\Analytics\IngestTransportInterface;
 use Globetrotters\AiPresenceBundle\Analytics\NdjsonEventStore;
+use Globetrotters\AiPresenceBundle\Analytics\RangesFetch;
 use Globetrotters\AiPresenceBundle\GlobetrottersAiPresenceBundle;
 use Globetrotters\AiPresenceBundle\Tests\Support\FakeIngestTransport;
 use Globetrotters\AiPresenceBundle\Tests\Support\TempDirectory;
@@ -366,6 +367,11 @@ final class FlusherTest extends TestCase
             public function wireCap(): int
             {
                 return self::MAX_BODY_BYTES;
+            }
+
+            public function fetchRanges(string $url, string $token, string $version): RangesFetch
+            {
+                return RangesFetch::error('unused');
             }
         });
         $this->fill(2);

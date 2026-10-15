@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-15
+
+### Added
+
+- **Site bot capture** (`reporting.site_capture.enabled`, on by default once
+  reporting is configured). HTML pages of your application fetched by a
+  probable bot are reported under a new `siteEvents` key of the flush
+  envelope: user agent, page path (no query string), final status, size when
+  known, and whether the visit came from a verified AI vendor address. Never an
+  IP address, and nothing about human visitors: a request whose User-Agent
+  looks like a browser is never written. Only `GET`/`HEAD` main requests with a
+  `text/html` response are considered; the profiler, static assets, the
+  page-view counter and the files this bundle serves itself are skipped. Site
+  events share the event buffer and its bounds. They never trigger the
+  opportunistic flush, so your own traffic does not pay for one.
+- **AI vendor ranges**: the published crawler address ranges are fetched from
+  `<reporting.endpoint>/ranges` with the ingest token at most once a day, from
+  `gt:refresh` and the Scheduler's hourly refresh poll, whether or not a bundle
+  is published, with `If-None-Match`. They are kept in
+  `reporting.buffer_dir/vendor-ranges.json` (which survives `cache:clear`), and a
+  failed fetch keeps the previous list. A list older than 14 days, or none,
+  reports bot visits as unverified.
+- **`captureContext` on every flush envelope**, heartbeat included: whether
+  site capture is on, `symfony-http-cache` when the kernel runs behind
+  `HttpCache`, the CDN or proxy markers seen on recent requests, and the vendor
+  range list version and fetch date. Globetrotters derives the "complete" or
+  "at least" confidence of the bot counts from it.
+- `gt:status` shows the site capture state, site events sent, and the age of
+  the vendor range list.
+
 ## [0.7.1] - 2026-10-15
 
 ### Changed

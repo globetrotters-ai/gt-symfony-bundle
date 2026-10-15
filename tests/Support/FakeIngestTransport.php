@@ -6,6 +6,7 @@ namespace Globetrotters\AiPresenceBundle\Tests\Support;
 
 use Globetrotters\AiPresenceBundle\Analytics\IngestResult;
 use Globetrotters\AiPresenceBundle\Analytics\IngestTransportInterface;
+use Globetrotters\AiPresenceBundle\Analytics\RangesFetch;
 
 /**
  * Canned ingest transport, so the flusher's batching, retry and drop
@@ -23,6 +24,12 @@ final class FakeIngestTransport implements IngestTransportInterface
     private IngestResult $fallback;
 
     private ?int $wireCap = null;
+
+    /** @var list<array{url: string, token: string, version: string}> */
+    public array $rangeRequests = [];
+
+    /** @var list<RangesFetch> */
+    private array $rangesQueued = [];
 
     /**
      * Compression ratio applied by {@see wireSize()}; 1 means "no gzip".
@@ -61,6 +68,20 @@ final class FakeIngestTransport implements IngestTransportInterface
         $this->sent[] = ['url' => $url, 'token' => $token, 'json' => $json];
 
         return array_shift($this->queued) ?? $this->fallback;
+    }
+
+    public function willReturnRanges(RangesFetch ...$results): self
+    {
+        $this->rangesQueued = array_values($results);
+
+        return $this;
+    }
+
+    public function fetchRanges(string $url, string $token, string $version): RangesFetch
+    {
+        $this->rangeRequests[] = ['url' => $url, 'token' => $token, 'version' => $version];
+
+        return array_shift($this->rangesQueued) ?? RangesFetch::error('no canned ranges response');
     }
 
     public function wireSize(string $json): int

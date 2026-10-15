@@ -22,7 +22,7 @@ use function Symfony\Component\DependencyInjection\Loader\Configurator\service;
  */
 final class GlobetrottersAiPresenceBundle extends AbstractBundle
 {
-    public const VERSION = '0.7.1';
+    public const VERSION = '0.8.0';
 
     public function getPath(): string
     {
@@ -126,6 +126,16 @@ final class GlobetrottersAiPresenceBundle extends AbstractBundle
                             ->info('Resolve the client IP from CF-Connecting-IP. Only honoured for requests arriving from a framework.trusted_proxies entry, since the header is otherwise forgeable.')
                             ->defaultFalse()
                         ->end()
+                        ->arrayNode('site_capture')
+                            ->info('Reports which pages of your site AI agents and other bots fetch, through the same lane. On by default once reporting is configured. Only requests whose User-Agent looks automated are kept, and for each one only the user agent, the page path (no query string), the response status and size, and whether the visit came from a verified AI vendor address are sent. Never an IP address, and nothing about human visitors.')
+                            ->addDefaultsIfNotSet()
+                            ->children()
+                                ->booleanNode('enabled')
+                                    ->info('Capture HTML pages fetched by bots. Set false to report only the served artefacts.')
+                                    ->defaultTrue()
+                                ->end()
+                            ->end()
+                        ->end()
                         ->arrayNode('page_views')
                             ->info('First-party human page-view counts per page, reported through the same lane. Off by default. When on: a tiny inline script posts the page path to your own site (/.well-known/globetrotters/pv); only a count per UTC day, path and coarse browser bucket is kept — no IP, no cookie, no User-Agent string. Needs reporting configured.')
                             ->addDefaultsIfNotSet()
@@ -166,6 +176,9 @@ final class GlobetrottersAiPresenceBundle extends AbstractBundle
      *         buffer_dir: string,
      *         opportunistic_flush: bool,
      *         trust_cloudflare_header: bool,
+     *         site_capture: array{
+     *             enabled: bool,
+     *         },
      *         page_views: array{
      *             enabled: bool,
      *             auto_inject: bool,
@@ -202,6 +215,7 @@ final class GlobetrottersAiPresenceBundle extends AbstractBundle
                 $config['reporting']['ingest_token'],
                 $config['reporting']['opportunistic_flush'],
                 $config['reporting']['trust_cloudflare_header'],
+                $config['reporting']['site_capture']['enabled'],
             ]);
 
         $container->services()

@@ -55,6 +55,14 @@ final class GlobetrottersAiPresenceBundleTest extends TestCase
         );
     }
 
+    public function testSiteCaptureIsOnByDefaultAndCanBeTurnedOff(): void
+    {
+        self::assertTrue($this->build([])->getDefinition(AnalyticsOptions::class)->getArgument(5));
+
+        BaseNode::resetPlaceholders();
+        self::assertFalse($this->build(['reporting' => ['site_capture' => ['enabled' => false]]])->getDefinition(AnalyticsOptions::class)->getArgument(5));
+    }
+
     public function testPageViewsAreOffByDefault(): void
     {
         $definition = $this->build([])->getDefinition(PageViewOptions::class);
