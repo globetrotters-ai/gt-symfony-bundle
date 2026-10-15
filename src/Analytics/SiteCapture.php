@@ -32,8 +32,8 @@ final class SiteCapture
      */
     public const UA_PATTERN = '/bot|crawl|spider|slurp|fetch|compatible;|gpt|claude|perplexity|python|curl|wget|go-http|headlesschrome|phantomjs/i';
 
-    /** Path prefixes that are never site pages: the Symfony profiler and toolbar. */
-    public const SKIPPED_PREFIXES = ['/_profiler', '/_wdt'];
+    /** Path prefixes that are never site pages: the Symfony profiler and toolbar, and well-known files (parity with the WordPress plugin). */
+    public const SKIPPED_PREFIXES = ['/_profiler', '/_wdt', '/.well-known'];
 
     /** Static asset extensions, never site pages whatever they are served as. */
     public const ASSET_EXTENSIONS = [

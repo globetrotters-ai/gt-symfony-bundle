@@ -87,6 +87,7 @@ final class SiteCaptureTest extends TestCase
         yield 'no content type' => ['GET', '/visiter', '', false];
         yield 'profiler' => ['GET', '/_profiler/abc123', 'text/html', false];
         yield 'toolbar' => ['GET', '/_wdt/abc123', 'text/html', false];
+        yield 'well-known' => ['GET', '/.well-known/security.txt', 'text/html', false];
         yield 'static asset as html' => ['GET', '/assets/app.css', 'text/html', false];
         yield 'image' => ['GET', '/img/logo.PNG', 'text/html', false];
     }
