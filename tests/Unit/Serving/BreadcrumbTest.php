@@ -129,8 +129,28 @@ final class BreadcrumbTest extends TestCase
             .'<link rel="alternate" type="application/ld+json" href="/schema.json">'."\n"
             .'<link rel="ai-catalog" href="/.well-known/ai-catalog.json">'."\n"
             .'<link rel="mcp" href="/.well-known/mcp.json">'."\n"
-            .'<link rel="agent-card" href="/.well-known/agent-card.json">'."\n",
+            .'<link rel="agent-card" href="/.well-known/agent-card.json">'."\n"
+            .'<link rel="related" href="https://ai.nantes.fr/">'."\n",
             Breadcrumb::headBlock('https://ai.nantes.fr', true),
+        );
+    }
+
+    /**
+     * Once every discovery file resolves to the apex, the relations above no
+     * longer name the presence host at all, so the profile's pointer to it is a
+     * relation of its own: on every page, whatever the cache holds.
+     */
+    public function testThePresenceHostIsAlwaysNamed(): void
+    {
+        foreach ([true, false] as $withAlternate) {
+            self::assertStringContainsString(
+                '<link rel="related" href="https://ai.nantes.fr/">',
+                Breadcrumb::headBlock('https://ai.nantes.fr', $withAlternate),
+            );
+        }
+        self::assertStringContainsString(
+            'href="https://ai.nantes.fr/">',
+            Breadcrumb::headBlock('https://ai.nantes.fr', true, static fn (string $path): bool => false),
         );
     }
 

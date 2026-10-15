@@ -319,9 +319,10 @@ It injects discovery `<link>` relations into `<head>`, and **nothing else**:
 <link rel="ai-catalog" href="/.well-known/ai-catalog.json">
 <link rel="mcp" href="/.well-known/mcp.json">
 <link rel="agent-card" href="/.well-known/agent-card.json">
+<link rel="related" href="https://ai.your-domain.example/">
 ```
 
-`rel="alternate"` appears on `homepage_path` only — it points at a document describing the destination, so claiming it as an interior page's alternate would assert something untrue about that page. The three agent-discovery relations name where your *site's* surfaces live, which is equally true from every page, so they are emitted on **every HTML page**: an agent that arrives on a deep page is exactly the case that needs a pointer.
+`rel="alternate"` appears on `homepage_path` only — it points at a document describing the destination, so claiming it as an interior page's alternate would assert something untrue about that page. The three agent-discovery relations name where your *site's* surfaces live, which is equally true from every page, so they are emitted on **every HTML page**: an agent that arrives on a deep page is exactly the case that needs a pointer. `rel="related"` names the presence host itself, on every page too: once your install serves all the discovery files, it is the one relation that still points there.
 
 **Installing this bundle is transparent to your visitors.** It never injects anything visible: it does not know your layout, and has no safe position to put an element into a design it does not own. Head markup only.
 
