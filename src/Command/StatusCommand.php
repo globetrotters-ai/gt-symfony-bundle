@@ -113,17 +113,28 @@ final class StatusCommand extends Command
 
         if (!$this->analytics->isConfigured()) {
             $refused = $this->analytics->hasRefusedEndpoint();
+            $missing = $this->analytics->keysMissingFromConfig();
+            // "not set" has two causes fixed in two places: a key the bundle
+            // config never declares (the env vars are then not read at all),
+            // and a declared one whose env var is empty in this process.
+            $unset = static fn (string $key): string => \in_array($key, $missing, true) ? 'not in config' : 'empty';
             $io->table([], [
                 ['Endpoint', match (true) {
                     $refused => 'refused (not an https:// URL)',
                     '' !== $this->analytics->endpoint() => $this->analytics->endpoint(),
-                    default => 'not set',
+                    default => $unset('endpoint'),
                 }],
-                ['Ingest token', '' !== $this->analytics->tokenHint() ? 'set ('.$this->analytics->tokenHint().')' : 'not set'],
+                ['Ingest token', '' !== $this->analytics->tokenHint() ? 'set ('.$this->analytics->tokenHint().')' : $unset('ingest_token')],
             ]);
-            $io->warning($refused
-                ? 'Not reporting: the endpoint must be an https:// URL, since it receives the ingest token and every captured client IP. Nothing is being captured, so agent traffic to this apex is invisible.'
-                : 'Not reporting: the endpoint and token are issued together on the Studio apex install screen, and both are required. Nothing is being captured, so agent traffic to this apex is invisible.');
+            $io->warning(match (true) {
+                $refused => 'Not reporting: the endpoint must be an https:// URL, since it receives the ingest token and every captured client IP. Nothing is being captured, so agent traffic to this apex is invisible.',
+                [] !== $missing => \sprintf(
+                    'Not reporting: reporting.%s %s not declared in config/packages/globetrotters_ai_presence.yaml. The environment variables are only read once the config binds them: add endpoint: \'%%env(GLOBETROTTERS_INGEST_ENDPOINT)%%\' and ingest_token: \'%%env(GLOBETROTTERS_INGEST_TOKEN)%%\' under globetrotters_ai_presence.reporting, then run bin/console cache:clear. Nothing is being captured, so agent traffic to this apex is invisible.',
+                    implode(' and reporting.', $missing),
+                    1 === \count($missing) ? 'is' : 'are',
+                ),
+                default => 'Not reporting: the config binds the endpoint and token, but they are empty in this process. Set GLOBETROTTERS_INGEST_ENDPOINT and GLOBETROTTERS_INGEST_TOKEN for this environment and user; if .env.local.php exists (composer dump-env), .env.local is ignored until you run it again. Nothing is being captured, so agent traffic to this apex is invisible.',
+            });
 
             return;
         }

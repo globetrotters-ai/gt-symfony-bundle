@@ -25,6 +25,8 @@ final class AnalyticsOptions
         private readonly string $ingestToken,
         private readonly bool $opportunisticFlush,
         private readonly bool $trustCloudflareHeader,
+        private readonly bool $endpointInConfig = true,
+        private readonly bool $tokenInConfig = true,
     ) {
     }
 
@@ -72,6 +74,30 @@ final class AnalyticsOptions
             && isset($parts['scheme'], $parts['host'])
             && 'https' === strtolower($parts['scheme'])
             && '' !== $parts['host'];
+    }
+
+    /**
+     * The reporting keys the bundle config leaves unset, as config key names.
+     *
+     * Decided at container build, where an env-bound value is still its
+     * non-empty ``%env()%`` placeholder: so a key listed here was never
+     * declared in the YAML, and the ``GLOBETROTTERS_INGEST_*`` variables are
+     * not being read at all. A key bound but resolving empty is not listed —
+     * that is the env var, not the config.
+     *
+     * @return list<string>
+     */
+    public function keysMissingFromConfig(): array
+    {
+        $missing = [];
+        if (!$this->endpointInConfig) {
+            $missing[] = 'endpoint';
+        }
+        if (!$this->tokenInConfig) {
+            $missing[] = 'ingest_token';
+        }
+
+        return $missing;
     }
 
     public function ingestToken(): string

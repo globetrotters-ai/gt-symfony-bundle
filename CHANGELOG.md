@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`gt:status` says why reporting is off.** An unset endpoint or token used
+  to read `not set` whatever the cause. It now reads `not in config` when
+  `config/packages/globetrotters_ai_presence.yaml` never declares the key (the
+  `GLOBETROTTERS_INGEST_*` variables are then not read at all) and names the
+  lines to add, and `empty` when the key is bound but its variable is empty in
+  that process. The README's reporting section now shows the config block next
+  to the variables.
+
 ## [0.7.0] - 2026-10-14
 
 ### Added

@@ -198,6 +198,10 @@ final class GlobetrottersAiPresenceBundle extends AbstractBundle
                 $config['reporting']['ingest_token'],
                 $config['reporting']['opportunistic_flush'],
                 $config['reporting']['trust_cloudflare_header'],
+                // Whether each key is declared at all, for gt:status: an
+                // env-bound value is still its non-empty placeholder here.
+                '' !== trim($config['reporting']['endpoint']),
+                '' !== trim($config['reporting']['ingest_token']),
             ]);
 
         $container->services()
