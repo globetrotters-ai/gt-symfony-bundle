@@ -145,6 +145,12 @@ final class Breadcrumb
      * stays correct across http/https and www/non-www — and would survive the
      * block being emitted anywhere other than the homepage.
      *
+     * **``rel="related"`` names the presence host itself**, root URL, on every
+     * page. Since 0.7.0 the discovery relations all resolve to the apex once
+     * cached, so without it the profile would no longer point at the subdomain
+     * from ``<head>`` at all. Matches ``Breadcrumbs::inject_head()`` in
+     * gt-wordpress-plugin.
+     *
      * These are pointers, not the discovery signal. A crawler follows the
      * anchor; see {@see self::anchor()}.
      */
@@ -172,6 +178,11 @@ final class Breadcrumb
         $links[] = \sprintf('<link rel="ai-catalog" href="%s">', self::href('.well-known/ai-catalog.json', $origin, $isCached));
         $links[] = \sprintf('<link rel="mcp" href="%s">', self::href('.well-known/mcp.json', $origin, $isCached));
         $links[] = \sprintf('<link rel="agent-card" href="%s">', self::href('.well-known/agent-card.json', $origin, $isCached));
+
+        // The profile's pointer to the presence host itself. Once every file
+        // above is cached here, none of them names that host any more, so it
+        // gets a relation of its own, on every page (0.8.1).
+        $links[] = \sprintf('<link rel="related" href="%s/">', self::escape($origin));
 
         return implode("\n", $links)."\n";
     }

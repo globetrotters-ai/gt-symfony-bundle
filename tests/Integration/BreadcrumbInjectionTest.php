@@ -43,7 +43,7 @@ final class BreadcrumbInjectionTest extends IntegrationTestCase
         $client->request('GET', '/');
         $content = (string) $client->getResponse()->getContent();
 
-        // Every relation names a file this install serves, so each resolves to
+        // Every discovery relation names a file this install serves, so each resolves to
         // this apex rather than to the Globetrotters host.
         self::assertStringContainsString(
             '<link rel="alternate" type="application/ld+json" href="/schema.json">',
@@ -51,10 +51,12 @@ final class BreadcrumbInjectionTest extends IntegrationTestCase
         );
         self::assertStringContainsString('<link rel="mcp" href="/.well-known/mcp.json">', $content);
         self::assertStringContainsString('<link rel="ai-catalog" href="/.well-known/ai-catalog.json">', $content);
-        self::assertStringNotContainsString('demo.globetrotters.ai', $content);
+        // The presence host is named once, by the profile's own relation.
+        self::assertSame(1, substr_count($content, 'demo.globetrotters.ai'));
+        self::assertStringContainsString('<link rel="related" href="https://demo.globetrotters.ai/">', $content);
         // Head half only. Installing the bundle changes nothing a visitor sees,
         // so no anchor is injected into a layout this bundle does not own.
-        self::assertMatchesRegularExpression('~agent-card\.json">\n</head>~', $content);
+        self::assertMatchesRegularExpression('~rel="related" href="https://[^"]+/">\n</head>~', $content);
         self::assertStringNotContainsString('<a href=', $content);
     }
 

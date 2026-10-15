@@ -83,7 +83,7 @@ final class BreadcrumbInjectorTest extends TestCase
         self::assertStringContainsString('<link rel="alternate" type="application/ld+json" href="/schema.json">', $content);
         self::assertStringContainsString('<link rel="agent-card" href="/.well-known/agent-card.json">', $content);
         self::assertStringContainsString('<link rel="ai-catalog" href="/.well-known/ai-catalog.json">', $content);
-        self::assertMatchesRegularExpression('~agent-card\.json">\n</head>~', $content);
+        self::assertMatchesRegularExpression('~rel="related" href="https://[^"]+/">\n</head>~', $content);
     }
 
     /**

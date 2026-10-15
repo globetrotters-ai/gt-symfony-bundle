@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-10-15
+
+### Added
+
+- **`subdomain_breadcrumb` names the presence host again.** Since 0.7.0 the
+  `ai-catalog`, `mcp` and `agent-card` relations all resolve to the apex once
+  cached, so the profile no longer pointed at the Globetrotters host from
+  `<head>`. It now adds `<link rel="related" href="https://<presence host>/">`
+  on every page.
+
 ## [0.8.0] - 2026-10-15
 
 ### Added
