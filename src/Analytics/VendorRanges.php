@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Globetrotters\AiPresenceBundle\Analytics;
 
 use Symfony\Component\Clock\ClockInterface;
+use Symfony\Contracts\Service\ResetInterface;
 
 /**
  * The AI vendors' published crawler address ranges, synced from Globetrotters
@@ -27,7 +28,7 @@ use Symfony\Component\Clock\ClockInterface;
  * A list older than {@see STALE_AFTER_SECONDS} (or none) answers ``null``:
  * stale data degrades verification, never capture.
  */
-final class VendorRanges
+final class VendorRanges implements ResetInterface
 {
     public const FILE = 'vendor-ranges.json';
 
@@ -42,7 +43,8 @@ final class VendorRanges
     public const STATE_ERROR = 'ranges_error';
 
     /**
-     * Parsed once per process.
+     * Parsed once per process, or per request in a long-running one
+     * (kernel.reset), so a list another lane refreshed is picked up.
      *
      * @var array{version: string, fetched_at: int, ranges: list<array{platform: string, start: string, end: string}>}|null
      */
@@ -62,6 +64,12 @@ final class VendorRanges
         private readonly AnalyticsState $state,
         private readonly ClockInterface $clock,
     ) {
+    }
+
+    public function reset(): void
+    {
+        $this->loaded = null;
+        $this->packed = null;
     }
 
     /**
@@ -240,7 +248,7 @@ final class VendorRanges
         if (!\is_array($decoded) || !\is_string($decoded['version'] ?? null) || !\is_int($decoded['fetched_at'] ?? null)) {
             return null;
         }
-        $parsed = self::parse($raw);
+        $parsed = self::parseDecoded($decoded);
         if (null === $parsed) {
             return null;
         }
@@ -284,7 +292,18 @@ final class VendorRanges
     private static function parse(string $json): ?array
     {
         $decoded = json_decode($json, true);
-        if (!\is_array($decoded) || !\is_string($decoded['version'] ?? null) || '' === $decoded['version'] || !\is_array($decoded['ranges'] ?? null)) {
+
+        return \is_array($decoded) ? self::parseDecoded($decoded) : null;
+    }
+
+    /**
+     * @param array<mixed> $decoded
+     *
+     * @return array{version: string, ranges: list<array{platform: string, start: string, end: string}>}|null
+     */
+    private static function parseDecoded(array $decoded): ?array
+    {
+        if (!\is_string($decoded['version'] ?? null) || '' === $decoded['version'] || !\is_array($decoded['ranges'] ?? null)) {
             return null;
         }
 

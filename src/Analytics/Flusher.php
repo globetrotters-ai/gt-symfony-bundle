@@ -64,6 +64,17 @@ final class Flusher
     }
 
     /**
+     * The capture context this run reports, taken once under the lock so every
+     * batch of a multi-batch drain carries the same block, and settled once
+     * after the run (as ``gt-wordpress-plugin``'s ``Flusher`` does): settling
+     * per batch would send later batches an emptied block, and the backend
+     * reads confidence from the latest one.
+     *
+     * @var array<string, mixed>|null
+     */
+    private ?array $contextBlock = null;
+
+    /**
      * Run one flush and report what happened.
      *
      * The interval is checked *inside* the exclusive lock, for every lane. A
@@ -94,6 +105,7 @@ final class Flusher
 
             try {
                 $this->sealPageViews();
+                $this->contextBlock = $this->context?->toArray();
 
                 $sent = false;
                 for ($batch = 0; $batch < $maxBatches; ++$batch) {
@@ -104,6 +116,9 @@ final class Flusher
                     if (0 === $this->buffer->count() && [] === $this->pendingPageViews(1)) {
                         break;
                     }
+                }
+                if ($sent && null !== $this->contextBlock) {
+                    $this->context?->settle($this->contextBlock);
                 }
 
                 return $sent ? FlushOutcome::Accepted : FlushOutcome::Rejected;
@@ -154,7 +169,6 @@ final class Flusher
             $this->recordAttempt($result, $lane, [], 0);
             if ($result->isAccepted()) {
                 $this->buffer->settleDropped($dropped);
-                $this->context?->settle();
             }
 
             return $result->isAccepted();
@@ -191,7 +205,6 @@ final class Flusher
         $this->buffer->release(array_map(static fn (Event $event): string => $event->id(), $batch['events']));
         $this->pageViews?->remove(array_column($batch['pageViews'], 'id'));
         $this->buffer->settleDropped($dropped);
-        $this->context?->settle();
 
         return true;
     }
@@ -341,9 +354,9 @@ final class Flusher
         if ([] !== $site) {
             $envelope['siteEvents'] = $site;
         }
-        if (null !== $this->context) {
+        if (null !== $this->contextBlock) {
             // On every envelope, heartbeat included.
-            $envelope['captureContext'] = $this->context->toArray();
+            $envelope['captureContext'] = $this->contextBlock;
         }
 
         $json = json_encode($envelope, Event::JSON_FLAGS);

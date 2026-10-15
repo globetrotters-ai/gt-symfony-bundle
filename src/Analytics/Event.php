@@ -26,6 +26,12 @@ final class Event
     public const MAX_FIELD_CHARS = 512;
 
     /**
+     * The ``kind`` marker a site event carries in the buffer. Never sent: the
+     * envelope separates the two kinds into ``events`` and ``siteEvents``.
+     */
+    public const KIND_SITE = 'site';
+
+    /**
      * Encoding flags shared by the buffered line and the flush envelope.
      *
      * A User-Agent is recorded verbatim — it is evidence about what the agent
@@ -36,12 +42,6 @@ final class Event
      * ``sampleRate`` on the wire as ``1.0`` rather than ``1``, matching the
      * float the contract types it as.
      */
-    /**
-     * The ``kind`` marker a site event carries in the buffer. Never sent: the
-     * envelope separates the two kinds into ``events`` and ``siteEvents``.
-     */
-    public const KIND_SITE = 'site';
-
     public const JSON_FLAGS = \JSON_INVALID_UTF8_SUBSTITUTE | \JSON_PRESERVE_ZERO_FRACTION | \JSON_UNESCAPED_SLASHES;
 
     private readonly string $ua;

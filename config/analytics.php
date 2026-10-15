@@ -89,7 +89,8 @@ return static function (ContainerConfigurator $container): void {
             service(AnalyticsOptions::class),
             service(AnalyticsState::class),
             service('globetrotters_ai_presence.clock'),
-        ]);
+        ])
+        ->tag('kernel.reset', ['method' => 'reset']);
 
     $services->set(CaptureContext::class)
         ->args([

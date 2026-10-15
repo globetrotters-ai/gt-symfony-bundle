@@ -103,14 +103,29 @@ final class CaptureContext
 
     /**
      * After an accepted flush: start a fresh observation window.
+     *
+     * Given the block that was sent, clears only what it reported, so a
+     * marker first seen by a request while the flush was in flight survives
+     * to the next envelope instead of being wiped unsent.
+     *
+     * @param array<string, mixed>|null $reported the block the accepted envelope carried
      */
-    public function settle(): void
+    public function settle(?array $reported = null): void
     {
         $state = $this->state->state();
-        if ([] === ($state['cdn_markers'] ?? []) && null === ($state['page_cache'] ?? null)) {
+        $markers = self::markers($state['cdn_markers'] ?? []);
+        $pageCache = \is_string($state['page_cache'] ?? null) ? $state['page_cache'] : null;
+        if ([] === $markers && null === $pageCache) {
             return;
         }
-        $this->state->update(['cdn_markers' => [], 'page_cache' => null]);
+
+        $sentMarkers = null === $reported ? $markers : self::markers($reported['cdnMarkers'] ?? []);
+        $sentCache = null === $reported ? $pageCache : ($reported['pageCache'] ?? null);
+
+        $this->state->update([
+            'cdn_markers' => array_values(array_diff($markers, $sentMarkers)),
+            'page_cache' => $pageCache === $sentCache ? null : $pageCache,
+        ]);
     }
 
     public static function detectPageCache(Request $request, ?Response $response): ?string

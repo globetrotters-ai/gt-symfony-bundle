@@ -15,6 +15,7 @@ use Globetrotters\AiPresenceBundle\Analytics\Flusher;
 use Globetrotters\AiPresenceBundle\Analytics\FlushGate;
 use Globetrotters\AiPresenceBundle\Analytics\FlushOutcome;
 use Globetrotters\AiPresenceBundle\Analytics\IngestResult;
+use Globetrotters\AiPresenceBundle\Analytics\IngestTransportInterface;
 use Globetrotters\AiPresenceBundle\Analytics\NdjsonEventStore;
 use Globetrotters\AiPresenceBundle\Analytics\RangesFetch;
 use Globetrotters\AiPresenceBundle\Analytics\VendorRanges;
@@ -132,6 +133,33 @@ final class FlusherSiteEventsTest extends TestCase
         $this->flusher->run(AnalyticsState::LANE_COMMAND);
 
         self::assertSame(['x-varnish'], $this->transport->envelopes()[1]['captureContext']['cdnMarkers']);
+    }
+
+    public function testEveryBatchOfAMultiBatchRunCarriesTheSameContext(): void
+    {
+        $this->context->observe(Request::create('/', server: ['HTTP_CF_RAY' => '8c1']));
+        for ($i = 0; $i <= IngestTransportInterface::MAX_EVENTS_PER_BATCH; ++$i) {
+            $this->buffer->append(Event::site('s'.$i, '2026-10-15T09:59:30Z', '/', 'GPTBot', 200, null, null, null));
+        }
+
+        self::assertSame(FlushOutcome::Accepted, $this->flusher->run(AnalyticsState::LANE_COMMAND));
+
+        $envelopes = $this->transport->envelopes();
+        self::assertCount(2, $envelopes);
+        self::assertSame(['cf-ray'], $envelopes[0]['captureContext']['cdnMarkers']);
+        self::assertSame(['cf-ray'], $envelopes[1]['captureContext']['cdnMarkers']);
+        self::assertSame([], $this->context->toArray()['cdnMarkers'], 'settled once, after the run');
+    }
+
+    public function testSettleKeepsAMarkerSeenAfterTheBlockWasTaken(): void
+    {
+        $this->context->observe(Request::create('/', server: ['HTTP_CF_RAY' => '8c1']));
+        $sent = $this->context->toArray();
+        $this->context->observe(Request::create('/', server: ['HTTP_X_VARNISH' => '1']));
+
+        $this->context->settle($sent);
+
+        self::assertSame(['x-varnish'], $this->context->toArray()['cdnMarkers']);
     }
 
     public function testNoRangesAndSiteCaptureOff(): void

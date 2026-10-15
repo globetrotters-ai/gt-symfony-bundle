@@ -61,10 +61,6 @@ final class SiteCaptureSubscriber implements EventSubscriberInterface
                     return;
                 }
             }
-            if (PageViewBeacon::PATH === $request->getPathInfo()) {
-                return;
-            }
-
             if ($this->capture->capture($request, $event->getResponse())) {
                 $this->context->observe($request, $event->getResponse());
             }
