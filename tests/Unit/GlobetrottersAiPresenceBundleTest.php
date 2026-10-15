@@ -104,6 +104,25 @@ final class GlobetrottersAiPresenceBundleTest extends TestCase
     }
 
     /**
+     * gt:status tells "not declared in the YAML" from "declared, env var
+     * empty" by what the build sees: an env-bound key is its placeholder, so
+     * it counts as declared whatever the variable holds at runtime.
+     */
+    public function testEnvBoundKeysCountAsDeclared(): void
+    {
+        $bound = $this->build(['reporting' => [
+            'endpoint' => '%env(GLOBETROTTERS_INGEST_ENDPOINT)%',
+            'ingest_token' => '%env(GLOBETROTTERS_INGEST_TOKEN)%',
+        ]])->getDefinition(AnalyticsOptions::class);
+        self::assertTrue($bound->getArgument(5));
+        self::assertTrue($bound->getArgument(6));
+
+        $unbound = $this->build([])->getDefinition(AnalyticsOptions::class);
+        self::assertFalse($unbound->getArgument(5));
+        self::assertFalse($unbound->getArgument(6));
+    }
+
+    /**
      * An env() default is known at build, so it is held to the same rule.
      */
     public function testACleartextEnvDefaultFailsTheBuild(): void

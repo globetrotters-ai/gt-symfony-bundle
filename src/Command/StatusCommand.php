@@ -36,6 +36,15 @@ use Symfony\Component\HttpFoundation\Request;
 #[AsCommand(name: 'gt:status', description: 'Show the Globetrotters AI presence sync and reporting status')]
 final class StatusCommand extends Command
 {
+    /**
+     * Each reporting key: its documented binding, quoted when the bundle
+     * config leaves it out, and the env var it reads.
+     */
+    private const BINDINGS = [
+        'endpoint' => ["endpoint: '%env(GLOBETROTTERS_INGEST_ENDPOINT)%'", 'GLOBETROTTERS_INGEST_ENDPOINT'],
+        'ingest_token' => ["ingest_token: '%env(GLOBETROTTERS_INGEST_TOKEN)%'", 'GLOBETROTTERS_INGEST_TOKEN'],
+    ];
+
     public function __construct(
         private readonly Options $options,
         private readonly ArtefactCache $cache,
@@ -101,6 +110,22 @@ final class StatusCommand extends Command
         return Command::SUCCESS;
     }
 
+    /**
+     * The warning for keys the config binds but that are empty at runtime,
+     * naming only the ones that are.
+     *
+     * @param list<string> $keys
+     */
+    private static function emptyWarning(array $keys): string
+    {
+        return \sprintf(
+            'Not reporting: reporting.%s %s bound in the config but empty in this process. Set %s for this environment and user; if .env.local.php exists (composer dump-env), .env.local is ignored until you run it again. Nothing is being captured, so agent traffic to this apex is invisible.',
+            implode(' and reporting.', $keys),
+            1 === \count($keys) ? 'is' : 'are',
+            implode(' and ', array_map(static fn (string $key): string => self::BINDINGS[$key][1], $keys)),
+        );
+    }
+
     private function reportAgentTraffic(SymfonyStyle $io): void
     {
         $io->section('Agent-traffic reporting');
@@ -129,11 +154,15 @@ final class StatusCommand extends Command
             $io->warning(match (true) {
                 $refused => 'Not reporting: the endpoint must be an https:// URL, since it receives the ingest token and every captured client IP. Nothing is being captured, so agent traffic to this apex is invisible.',
                 [] !== $missing => \sprintf(
-                    'Not reporting: reporting.%s %s not declared in config/packages/globetrotters_ai_presence.yaml. The environment variables are only read once the config binds them: add endpoint: \'%%env(GLOBETROTTERS_INGEST_ENDPOINT)%%\' and ingest_token: \'%%env(GLOBETROTTERS_INGEST_TOKEN)%%\' under globetrotters_ai_presence.reporting, then run bin/console cache:clear. Nothing is being captured, so agent traffic to this apex is invisible.',
+                    'Not reporting: reporting.%s %s not declared in config/packages/globetrotters_ai_presence.yaml. The environment variables are only read once the config binds them: add %s under globetrotters_ai_presence.reporting, then run bin/console cache:clear. Nothing is being captured, so agent traffic to this apex is invisible.',
                     implode(' and reporting.', $missing),
                     1 === \count($missing) ? 'is' : 'are',
+                    implode(' and ', array_map(static fn (string $key): string => self::BINDINGS[$key][0], $missing)),
                 ),
-                default => 'Not reporting: the config binds the endpoint and token, but they are empty in this process. Set GLOBETROTTERS_INGEST_ENDPOINT and GLOBETROTTERS_INGEST_TOKEN for this environment and user; if .env.local.php exists (composer dump-env), .env.local is ignored until you run it again. Nothing is being captured, so agent traffic to this apex is invisible.',
+                default => self::emptyWarning(array_values(array_filter(
+                    array_keys(self::BINDINGS),
+                    fn (string $key): bool => '' === ('endpoint' === $key ? $this->analytics->endpoint() : $this->analytics->ingestToken()),
+                ))),
             });
 
             return;
