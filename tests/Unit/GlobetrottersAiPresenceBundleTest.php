@@ -80,11 +80,18 @@ final class GlobetrottersAiPresenceBundleTest extends TestCase
         self::assertTrue($definition->getArgument(2));
     }
 
-    public function testAnUnsetEndpointBuilds(): void
+    /**
+     * With no reporting keys declared, the bundle reads the two variables
+     * Studio's install screen hands over. ``default::`` keeps a missing one
+     * from failing the container and ``string:`` makes it '', so an install
+     * that sets neither still builds and simply does not report.
+     */
+    public function testUndeclaredKeysReadTheIssuedVariables(): void
     {
-        $container = $this->build([]);
+        $definition = $this->build([])->getDefinition(AnalyticsOptions::class);
 
-        self::assertSame('', $container->getDefinition(AnalyticsOptions::class)->getArgument(1));
+        self::assertSame('%env(string:default::GLOBETROTTERS_INGEST_ENDPOINT)%', $definition->getArgument(1));
+        self::assertSame('%env(string:default::GLOBETROTTERS_INGEST_TOKEN)%', $definition->getArgument(2));
     }
 
     /**
