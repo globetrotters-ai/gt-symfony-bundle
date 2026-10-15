@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Globetrotters\AiPresenceBundle\Tests\Unit\Serving;
 
 use Globetrotters\AiPresenceBundle\Cache\ArtefactCache;
+use Globetrotters\AiPresenceBundle\Serving\ApiCatalog;
 use Globetrotters\AiPresenceBundle\Serving\ContentTypes;
 use Globetrotters\AiPresenceBundle\Serving\Router;
 use Globetrotters\AiPresenceBundle\Serving\Sitemap;
@@ -36,7 +37,7 @@ final class RouterTest extends TestCase
             '.well-known/mcp.json' => '{"m":1}',
         ], 'v1', 0);
         $this->options = new Options($pool, 'https://nantes.globetrotters.ai', 'daily', '/');
-        $this->router = new Router($this->cache, $this->options, new Sitemap($this->options, $this->cache));
+        $this->router = new Router($this->cache, $this->options, new Sitemap($this->options, $this->cache, new ApiCatalog($this->cache)), new ApiCatalog($this->cache));
     }
 
     private function storeKey(string $key): void
@@ -163,7 +164,7 @@ final class RouterTest extends TestCase
     public function testColdCacheFallsThrough(): void
     {
         $cold = new ArtefactCache(new ArrayAdapter(), 'https://nantes.globetrotters.ai');
-        $router = new Router($cold, $this->options, new Sitemap($this->options, $cold));
+        $router = new Router($cold, $this->options, new Sitemap($this->options, $cold, new ApiCatalog($cold)), new ApiCatalog($cold));
         $event = $this->event('/llms.txt');
         $router->onKernelRequest($event);
 
@@ -237,7 +238,7 @@ final class RouterTest extends TestCase
     public function testTheSitemapIsNotServedOnAColdCache(): void
     {
         $cold = new ArtefactCache(new ArrayAdapter(), 'https://nantes.globetrotters.ai');
-        $router = new Router($cold, $this->options, new Sitemap($this->options, $cold));
+        $router = new Router($cold, $this->options, new Sitemap($this->options, $cold, new ApiCatalog($cold)), new ApiCatalog($cold));
         $event = $this->event('/'.Sitemap::PATH);
         $router->onKernelRequest($event);
 
@@ -256,7 +257,7 @@ final class RouterTest extends TestCase
         $cache->store([ContentTypes::VERSION_MARKER => '{}'], 'v1', 0);
         $options = new Options($pool, 'https://nantes.globetrotters.ai', 'daily', '/');
         $event = $this->event('/'.Sitemap::PATH);
-        (new Router($cache, $options, new Sitemap($options, $cache)))->onKernelRequest($event);
+        (new Router($cache, $options, new Sitemap($options, $cache, new ApiCatalog($cache)), new ApiCatalog($cache)))->onKernelRequest($event);
 
         self::assertNull($event->getResponse());
     }
@@ -273,7 +274,7 @@ final class RouterTest extends TestCase
         $options = new Options($pool, 'https://lyon.globetrotters.ai', 'daily', '/');
         $options->updateState(['indexnow_key' => self::INDEXNOW_KEY]);
         $cache = new ArtefactCache($pool, 'https://lyon.globetrotters.ai');
-        $router = new Router($cache, $options, new Sitemap($options, $cache));
+        $router = new Router($cache, $options, new Sitemap($options, $cache, new ApiCatalog($cache)), new ApiCatalog($cache));
 
         foreach (['/llms.txt', '/'.self::INDEXNOW_KEY.'.txt', '/ai-sitemap.xml'] as $uri) {
             $event = $this->event($uri);
@@ -358,7 +359,7 @@ final class RouterTest extends TestCase
         $options->updateState(['indexnow_key' => self::INDEXNOW_KEY]);
 
         $event = $this->event('/'.$path);
-        (new Router($cache, $options, new Sitemap($options, $cache)))->onKernelRequest($event);
+        (new Router($cache, $options, new Sitemap($options, $cache, new ApiCatalog($cache)), new ApiCatalog($cache)))->onKernelRequest($event);
 
         self::assertNotNull($event->getResponse());
         self::assertSame('artefact body', $event->getResponse()->getContent());

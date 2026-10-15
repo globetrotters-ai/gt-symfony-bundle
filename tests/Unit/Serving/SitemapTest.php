@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Globetrotters\AiPresenceBundle\Tests\Unit\Serving;
 
 use Globetrotters\AiPresenceBundle\Cache\ArtefactCache;
+use Globetrotters\AiPresenceBundle\Serving\ApiCatalog;
 use Globetrotters\AiPresenceBundle\Serving\ContentTypes;
 use Globetrotters\AiPresenceBundle\Serving\Sitemap;
 use Globetrotters\AiPresenceBundle\Settings\Options;
@@ -28,7 +29,7 @@ final class SitemapTest extends TestCase
         $options = new Options($pool, self::BASE_URL, 'daily', $homepagePath);
         $options->updateState(['content_changed_at' => $changedAt, 'last_refresh' => $refreshedAt]);
 
-        return new Sitemap($options, $cache);
+        return new Sitemap($options, $cache, new ApiCatalog($cache));
     }
 
     /**
@@ -57,7 +58,18 @@ final class SitemapTest extends TestCase
             '/.well-known/agent-skills/index.json',
             '/agent.json',
             '/AGENTS.md',
+            '/.well-known/api-catalog',
         ], $this->sitemap($this->fullSet())->paths());
+    }
+
+    /**
+     * The API catalog is generated rather than cached, so it is listed when it
+     * would be answered: once any of its targets is cached.
+     */
+    public function testListsTheApiCatalogOnlyWhenItIsServed(): void
+    {
+        self::assertContains('/.well-known/api-catalog', $this->sitemap(['.well-known/mcp.json' => '{}'])->paths());
+        self::assertNotContains('/.well-known/api-catalog', $this->sitemap(['schema.json' => '{}'])->paths());
     }
 
     /**
@@ -76,9 +88,9 @@ final class SitemapTest extends TestCase
      */
     public function testOmitsArtefactsThatAreNotCached(): void
     {
-        $paths = $this->sitemap(['llms.txt' => 'body'])->paths();
+        $paths = $this->sitemap(['schema.json' => '{}'])->paths();
 
-        self::assertSame(['/', '/llms.txt'], $paths);
+        self::assertSame(['/', '/schema.json'], $paths);
     }
 
     public function testUsesTheConfiguredHomepagePath(): void
@@ -95,6 +107,7 @@ final class SitemapTest extends TestCase
             .'<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'."\n"
             ."  <url>\n    <loc>https://apex.example/</loc>\n  </url>\n"
             ."  <url>\n    <loc>https://apex.example/llms.txt</loc>\n    <lastmod>2025-09-09</lastmod>\n  </url>\n"
+            ."  <url>\n    <loc>https://apex.example/.well-known/api-catalog</loc>\n    <lastmod>2025-09-09</lastmod>\n  </url>\n"
             .'</urlset>'."\n",
             $xml,
         );

@@ -22,6 +22,7 @@ What your apex serves once installed:
 | `/agent.json` | `application/json; charset=utf-8` (since 0.7.0) |
 | `/AGENTS.md` | `text/markdown; charset=utf-8` (since 0.7.0) |
 | `/.well-known/globetrotters-apex-version.json` | `application/json; charset=utf-8` (version/drift marker) |
+| `/.well-known/api-catalog` | `application/linkset+json` (since 0.8.2, generated locally, see below) |
 
 Every artefact response carries `X-Content-Type-Options: nosniff`, `Cache-Control: no-store, private`, `Surrogate-Control: no-store` and `Access-Control-Allow-Origin: *` (every artefact is public, unauthenticated, read-only metadata, so it's readable cross-origin by browser-context agent clients). Heavy files (`llms-full.txt`, `content.md`) are intentionally not served locally — they are linked back to Globetrotters by absolute URL.
 
@@ -30,6 +31,8 @@ One further path is served when Globetrotters has issued your environment an **I
 Nothing to configure: the key arrives on the version marker with your normal refresh, is stored in the bundle's runtime state, and is withdrawn on the first refresh whose marker no longer carries it. When there is no key the path is not served at all — your application answers its own 404, never a 200 with an empty body. The key response carries the same `nosniff` and `no-store` headers as the artefacts, and the bundle does **not** add `Access-Control-Allow-Origin` to it: the key is fetched server-side by a search engine, so the cross-origin grant stays scoped to the discovery documents that need it. If your app adds CORS headers to every response, they are left in place rather than stripped — the key is public by construction, so nothing is disclosed by that. Requests for it are not counted in Presence Analytics, which stays a measure of AI agents fetching your discovery files.
 
 A rotated key reaches your install on its next refresh (daily by default), so submissions for your host can fail verification during that window.
+
+**`/.well-known/api-catalog`** is an [RFC 9727](https://www.rfc-editor.org/rfc/rfc9727) API catalog: a linkset anchored on your homepage that points agents at `/llms.txt` (`service-doc`) and at the MCP card, the agent card and the AI catalog (`service-desc`). Like the sitemap below it is generated from the cache on every request, in the URL space of the request it arrives on, and lists only what this install serves; with no bundle cached the path is left to your application. It carries the artefacts' headers, `Access-Control-Allow-Origin: *` included, and agent requests for it are counted in Presence Analytics.
 
 One more path is served once a bundle is cached: **`/ai-sitemap.xml`** (`application/xml; charset=utf-8`), a sitemaps.org `<urlset>` over your homepage plus every artefact this install is actually serving, in the URL space of the request it arrives on. It is generated locally rather than fetched, so it can never advertise a URL your site does not answer, and it needs no configuration to know your domain. `robots.txt` declares it, so crawlers discover it the standard way.
 
@@ -42,10 +45,10 @@ On top of the routes, the bundle:
 - **reports agent traffic** to those paths back to Globetrotters, so an apex install still shows up in Presence Analytics (see [Reporting agent traffic](#reporting-agent-traffic));
 - optionally **counts human page views per page** of your site, first-party and cookie-free, so Presence Analytics can set agent traffic against it — **off by default** (see [Counting human page views](#counting-human-page-views-optional));
 - injects a **server-rendered, breakout-safe JSON-LD** `<script>` (built from the cached `schema.json`) into your homepage HTML, so crawlers see it in the raw markup without executing JavaScript;
-- adds a homepage **`Link` header** naming the MCP card, the agent card and the AI catalog, the HTTP twin of the `<link>` tags below: on a `200` HTML response for `homepage_path` only, added next to any `Link` header your app already sends, never replacing it:
+- adds a homepage **`Link` header** naming the API catalog and `llms.txt` under the IANA-registered `api-catalog` and `service-doc` relations validators look for, then the MCP card, the agent card and the AI catalog, the HTTP twin of the `<link>` tags below: on a `200` HTML response for `homepage_path` only, added next to any `Link` header your app already sends, never replacing it:
 
   ```
-  Link: </.well-known/mcp.json>; rel="mcp", </.well-known/agent-card.json>; rel="agent-card", </.well-known/ai-catalog.json>; rel="ai-catalog"
+  Link: </.well-known/api-catalog>; rel="api-catalog", </llms.txt>; rel="service-doc", </.well-known/mcp.json>; rel="mcp", </.well-known/agent-card.json>; rel="agent-card", </.well-known/ai-catalog.json>; rel="ai-catalog"
   ```
 
 - decorates `/robots.txt` with the AI-crawler registry plus a `Sitemap:` directive naming **your own host's** `/ai-sitemap.xml` (or serves a generated `robots.txt` when your app has none) — **without changing what any crawler may fetch** unless you opt in (see [robots.txt](#robotstxt));

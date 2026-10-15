@@ -53,6 +53,7 @@ final class Sitemap
     public function __construct(
         private readonly Options $options,
         private readonly ArtefactCache $cache,
+        private readonly ApiCatalog $apiCatalog,
     ) {
     }
 
@@ -61,7 +62,8 @@ final class Sitemap
      *
      * The homepage first — it is the presence's landing page, the one URL the
      * host is certain to answer, and the page this bundle injects JSON-LD into
-     * — then every cached artefact, in {@see ContentTypes} order.
+     * — then every cached artefact, in {@see ContentTypes} order, then the
+     * {@see ApiCatalog} whenever it has something to list.
      *
      * Two deliberate omissions:
      *
@@ -137,6 +139,11 @@ final class Sitemap
                 $paths[] = '/'.$path;
             }
         }
+        // Rendered from the same cache, so it is served exactly when one of the
+        // artefacts above is cached, and is dated by the same change.
+        if ($this->apiCatalog->isServed()) {
+            $paths[] = '/'.ApiCatalog::PATH;
+        }
 
         return $paths;
     }
@@ -161,7 +168,8 @@ final class Sitemap
      * when the content hash does. ``0`` omits ``<lastmod>``, which is valid,
      * and resolves itself on the next real change. ``check_sitemap`` credits
      * ``<lastmod>`` only on a sitemap of ten or more URLs, which this one
-     * reaches since 0.7.0 (the homepage and nine artefacts), so an install
+     * reaches since 0.7.0 (the homepage and nine artefacts; the API catalog
+     * makes eleven since 0.8.2), so an install
      * that has not seen a change since then forgoes that credit until it does.
      */
     private function lastModified(): string

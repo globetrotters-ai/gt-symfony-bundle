@@ -17,6 +17,7 @@ use Globetrotters\AiPresenceBundle\Client\FetcherInterface;
 use Globetrotters\AiPresenceBundle\Client\GtClient;
 use Globetrotters\AiPresenceBundle\Command\RefreshCommand;
 use Globetrotters\AiPresenceBundle\Command\StatusCommand;
+use Globetrotters\AiPresenceBundle\Serving\ApiCatalog;
 use Globetrotters\AiPresenceBundle\Serving\BreadcrumbInjector;
 use Globetrotters\AiPresenceBundle\Serving\BreadcrumbRenderer;
 use Globetrotters\AiPresenceBundle\Serving\ConditionalGetSubscriber;
@@ -73,11 +74,14 @@ return static function (ContainerConfigurator $container): void {
             service('globetrotters_ai_presence.clock'),
         ]);
 
+    $services->set(ApiCatalog::class)
+        ->args([service(ArtefactCache::class)]);
+
     $services->set(Sitemap::class)
-        ->args([service(Options::class), service(ArtefactCache::class)]);
+        ->args([service(Options::class), service(ArtefactCache::class), service(ApiCatalog::class)]);
 
     $services->set(Router::class)
-        ->args([service(ArtefactCache::class), service(Options::class), service(Sitemap::class)])
+        ->args([service(ArtefactCache::class), service(Options::class), service(Sitemap::class), service(ApiCatalog::class)])
         ->tag('kernel.event_subscriber');
 
     $services->set(HeadInjector::class)
@@ -85,7 +89,7 @@ return static function (ContainerConfigurator $container): void {
         ->tag('kernel.event_subscriber');
 
     $services->set(LinkHeader::class)
-        ->args([service(ArtefactCache::class), service(Options::class)])
+        ->args([service(ArtefactCache::class), service(Options::class), service(ApiCatalog::class)])
         ->tag('kernel.event_subscriber');
 
     $services->set(BreadcrumbOptions::class)
