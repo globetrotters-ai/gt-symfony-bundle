@@ -8,13 +8,14 @@ use Globetrotters\AiPresenceBundle\Serving\LinkHeader;
 use Globetrotters\AiPresenceBundle\Tests\Fixtures\AntagonistController;
 
 /**
- * The homepage ``Link`` header: the HTTP twin of the injected
+ * The homepage ``Link`` header: the registered ``api-catalog`` and
+ * ``service-doc`` relations, then the HTTP twin of the injected
  * ``<link rel="mcp|agent-card|ai-catalog">`` tags, on a 200 HTML response for
  * the homepage only, added to any ``Link`` header the application sends.
  */
 final class HomepageLinkHeaderTest extends IntegrationTestCase
 {
-    private const LINK = '</.well-known/mcp.json>; rel="mcp", </.well-known/agent-card.json>; rel="agent-card", </.well-known/ai-catalog.json>; rel="ai-catalog"';
+    private const LINK = '</.well-known/api-catalog>; rel="api-catalog", </llms.txt>; rel="service-doc", </.well-known/mcp.json>; rel="mcp", </.well-known/agent-card.json>; rel="agent-card", </.well-known/ai-catalog.json>; rel="ai-catalog"';
 
     public function testTheHomepageCarriesTheHeader(): void
     {
@@ -76,15 +77,18 @@ final class HomepageLinkHeaderTest extends IntegrationTestCase
         $client->request('GET', '/');
 
         self::assertSame(
-            ['</.well-known/mcp.json>; rel="mcp", </.well-known/agent-card.json>; rel="agent-card"'],
+            ['</.well-known/api-catalog>; rel="api-catalog", </llms.txt>; rel="service-doc", </.well-known/mcp.json>; rel="mcp", </.well-known/agent-card.json>; rel="agent-card"'],
             $client->getResponse()->headers->all('link'),
         );
     }
 
     public function testTheValueMatchesTheBackend(): void
     {
-        // gt-backend deploy_config_renderer.APEX_HOMEPAGE_LINK_RELS, in order.
+        // gt-backend deploy_config_renderer.APEX_HOMEPAGE_LINK_RELS, in order:
+        // the registered relations validators read first, ours after.
         self::assertSame([
+            '.well-known/api-catalog' => 'api-catalog',
+            'llms.txt' => 'service-doc',
             '.well-known/mcp.json' => 'mcp',
             '.well-known/agent-card.json' => 'agent-card',
             '.well-known/ai-catalog.json' => 'ai-catalog',

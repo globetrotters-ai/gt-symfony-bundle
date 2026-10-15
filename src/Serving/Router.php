@@ -24,12 +24,13 @@ use Symfony\Component\HttpKernel\KernelEvents;
  * A path miss or cold cache returns without touching the response, letting the
  * app handle the request normally.
  *
- * Alongside the artefact set it answers two paths that are deliberately not
- * {@see ContentTypes} entries, because neither is fetched: the generated
- * sitemap at ``/ai-sitemap.xml`` (rendered from the cache — putting it in the
- * map would make {@see \Globetrotters\AiPresenceBundle\Sync\ArtefactSync}
- * try to pull it), and the IndexNow key file at ``/<key>.txt``, whose name is
- * only known at runtime. See {@see Sitemap} and {@see IndexNowKey}.
+ * Alongside the artefact set it answers three paths that are deliberately not
+ * {@see ContentTypes} entries, because none is fetched: the generated API
+ * catalog at ``/.well-known/api-catalog`` and sitemap at ``/ai-sitemap.xml``
+ * (both rendered from the cache — putting them in the map would make
+ * {@see \Globetrotters\AiPresenceBundle\Sync\ArtefactSync} try to pull them),
+ * and the IndexNow key file at ``/<key>.txt``, whose name is only known at
+ * runtime. See {@see ApiCatalog}, {@see Sitemap} and {@see IndexNowKey}.
  *
  * This is also the only point at which agent traffic to an apex install is
  * observable at all — the request terminates here and never touches a
@@ -131,6 +132,7 @@ final class Router implements EventSubscriberInterface
         private readonly ArtefactCache $cache,
         private readonly Options $options,
         private readonly Sitemap $sitemap,
+        private readonly ApiCatalog $apiCatalog,
     ) {
     }
 
@@ -170,7 +172,8 @@ final class Router implements EventSubscriberInterface
             // is itself a well-formed key filename (a ten-character
             // ``[A-Za-z0-9-]`` stem), so an install whose key happened to be
             // ``ai-sitemap`` would otherwise shadow it.
-            if (!$this->serveSitemap($event, $request, $path)) {
+            if (!$this->serveApiCatalog($event, $request, $path)
+                && !$this->serveSitemap($event, $request, $path)) {
                 $this->serveIndexNowKey($event, $request, $path);
             }
 
@@ -192,6 +195,34 @@ final class Router implements EventSubscriberInterface
         $request->attributes->set(self::ATTRIBUTE_BYTES, \strlen($body));
 
         $event->setResponse(new Response($body, 200, self::headers($type)));
+    }
+
+    /**
+     * Serve the generated API catalog, or return false so the caller keeps
+     * looking.
+     *
+     * Marked with {@see self::ATTRIBUTE_PATH}, unlike the sitemap and the key:
+     * an agent reading the catalog is asking for the presence by name, which is
+     * the demand Presence Analytics counts. It gets the artefacts' headers for
+     * the same reasons, the CORS grant included — it is a discovery document a
+     * browser-context agent reads, listing documents it may already read.
+     */
+    private function serveApiCatalog(RequestEvent $event, Request $request, string $path): bool
+    {
+        if (ApiCatalog::PATH !== $path) {
+            return false;
+        }
+
+        $body = $this->apiCatalog->render($request->getSchemeAndHttpHost());
+        if ('' === $body) {
+            return false;
+        }
+
+        $request->attributes->set(self::ATTRIBUTE_PATH, '/'.ApiCatalog::PATH);
+        $request->attributes->set(self::ATTRIBUTE_BYTES, \strlen($body));
+        $event->setResponse(new Response($body, 200, self::headers(ApiCatalog::CONTENT_TYPE)));
+
+        return true;
     }
 
     /**

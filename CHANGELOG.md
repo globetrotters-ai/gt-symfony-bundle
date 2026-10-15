@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.2] - 2026-10-15
+
+### Added
+
+- **`/.well-known/api-catalog`**, an RFC 9727 API catalog
+  (`application/linkset+json`): one linkset entry anchored on your homepage,
+  with `/llms.txt` as `service-doc` and the MCP card, the agent card and the AI
+  catalog as `service-desc`. Generated from the cache on every request in the
+  request's own URL space, never fetched, and listing only what this install
+  serves; left to your application while no bundle is cached. It carries the
+  artefacts' `nosniff`, `no-store` and `Access-Control-Allow-Origin: *`
+  headers, is listed in `/ai-sitemap.xml`, and agent requests for it are
+  reported to Presence Analytics.
+
+### Changed
+
+- **The homepage `Link` header leads with registered relations.** It now
+  starts with `</.well-known/api-catalog>; rel="api-catalog"` and
+  `</llms.txt>; rel="service-doc"`, which agent-readiness validators look for,
+  followed by the `mcp`, `agent-card` and `ai-catalog` relations as before.
+
+### Notes
+
+- Upgrading is `composer update globetrotters-ai/symfony-bundle`: a `^0.8`
+  constraint picks this release up, and no configuration change is needed.
+
 ## [0.8.1] - 2026-10-15
 
 ### Added

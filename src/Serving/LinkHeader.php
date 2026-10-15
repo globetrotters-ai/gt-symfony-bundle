@@ -11,15 +11,18 @@ use Symfony\Component\HttpKernel\Event\ResponseEvent;
 use Symfony\Component\HttpKernel\KernelEvents;
 
 /**
- * Adds the homepage ``Link`` header (RFC 8288), the HTTP twin of the
- * ``<link rel="mcp|agent-card|ai-catalog">`` tags {@see Breadcrumb} injects:
+ * Adds the homepage ``Link`` header (RFC 8288): the IANA-registered
+ * ``api-catalog`` (RFC 9727) and ``service-doc`` relations validators look for,
+ * then the HTTP twin of the ``<link rel="mcp|agent-card|ai-catalog">`` tags
+ * {@see Breadcrumb} injects:
  *
- *     Link: </.well-known/mcp.json>; rel="mcp", </.well-known/agent-card.json>; rel="agent-card", </.well-known/ai-catalog.json>; rel="ai-catalog"
+ *     Link: </.well-known/api-catalog>; rel="api-catalog", </llms.txt>; rel="service-doc", </.well-known/mcp.json>; rel="mcp", </.well-known/agent-card.json>; rel="agent-card", </.well-known/ai-catalog.json>; rel="ai-catalog"
  *
  * readiness' ``check_link_headers`` reads it off the homepage response, so it
  * goes on a ``200`` HTML response for the configured homepage only — the same
- * gate as {@see HeadInjector}. It names only the targets the cache holds, which
- * {@see Router} serves at these root-relative paths.
+ * gate as {@see HeadInjector}. It names only the targets {@see Router} would
+ * answer at these root-relative paths: a cached artefact, or the
+ * {@see ApiCatalog} once it has something to list.
  *
  * Added as a header line of its own, never by replacing: a ``Link`` header the
  * application sends (WebLink's preloads, say) stays, and HTTP reads repeated
@@ -28,12 +31,15 @@ use Symfony\Component\HttpKernel\KernelEvents;
 final class LinkHeader implements EventSubscriberInterface
 {
     /**
-     * Apex path → relation, in served order. Mirrors gt-backend
+     * Apex path → relation, in served order: registered relations first (what
+     * validators read), ours after. Mirrors gt-backend
      * ``deploy_config_renderer.APEX_HOMEPAGE_LINK_RELS`` and gt-wordpress-plugin.
      *
      * @var array<string, string>
      */
     public const RELS = [
+        ApiCatalog::PATH => 'api-catalog',
+        'llms.txt' => 'service-doc',
         '.well-known/mcp.json' => 'mcp',
         '.well-known/agent-card.json' => 'agent-card',
         ContentTypes::AI_CATALOG => 'ai-catalog',
@@ -79,13 +85,24 @@ final class LinkHeader implements EventSubscriberInterface
     }
 
     /**
-     * The header value for what the cache holds, '' when it holds none of it.
+     * The header value for what this install serves, '' when it serves none of
+     * it.
      */
     public function value(): string
     {
+        // Each cached target is read once: the catalog is served exactly when
+        // one of its targets is, and every one of them is also named here.
+        $cached = [];
+        foreach (array_keys(self::RELS + ApiCatalog::RELS) as $path) {
+            if (ApiCatalog::PATH !== $path) {
+                $cached[$path] = null !== $this->cache->get($path);
+            }
+        }
+        $cached[ApiCatalog::PATH] = [] !== array_filter(array_intersect_key($cached, ApiCatalog::RELS));
+
         $parts = [];
         foreach (self::RELS as $path => $rel) {
-            if (null !== $this->cache->get($path)) {
+            if ($cached[$path]) {
                 $parts[] = \sprintf('</%s>; rel="%s"', $path, $rel);
             }
         }

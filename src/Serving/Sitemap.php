@@ -61,7 +61,8 @@ final class Sitemap
      *
      * The homepage first — it is the presence's landing page, the one URL the
      * host is certain to answer, and the page this bundle injects JSON-LD into
-     * — then every cached artefact, in {@see ContentTypes} order.
+     * — then every cached artefact, in {@see ContentTypes} order, then the
+     * {@see ApiCatalog} whenever it has something to list.
      *
      * Two deliberate omissions:
      *
@@ -137,6 +138,15 @@ final class Sitemap
                 $paths[] = '/'.$path;
             }
         }
+        // Rendered from the same cache, so it is served exactly when one of its
+        // targets is among the artefacts above (see ApiCatalog::RELS), and is
+        // dated by the same change.
+        foreach (array_keys(ApiCatalog::RELS) as $target) {
+            if (\in_array('/'.$target, $paths, true)) {
+                $paths[] = '/'.ApiCatalog::PATH;
+                break;
+            }
+        }
 
         return $paths;
     }
@@ -161,7 +171,8 @@ final class Sitemap
      * when the content hash does. ``0`` omits ``<lastmod>``, which is valid,
      * and resolves itself on the next real change. ``check_sitemap`` credits
      * ``<lastmod>`` only on a sitemap of ten or more URLs, which this one
-     * reaches since 0.7.0 (the homepage and nine artefacts), so an install
+     * reaches since 0.7.0 (the homepage and nine artefacts; the API catalog
+     * makes eleven since 0.8.2), so an install
      * that has not seen a change since then forgoes that credit until it does.
      */
     private function lastModified(): string
