@@ -60,12 +60,14 @@ final class ApiCatalogServingTest extends IntegrationTestCase
         $this->refresh();
 
         $client->request('GET', 'http://apex.example/.well-known/api-catalog');
-        preg_match_all('#"href": "http://apex\.example(/[^"]*)"#', (string) $client->getResponse()->getContent(), $matches);
+        $linkset = json_decode((string) $client->getResponse()->getContent(), true, 512, \JSON_THROW_ON_ERROR);
+        self::assertIsArray($linkset);
+        $hrefs = array_column([...$linkset['linkset'][0]['service-doc'], ...$linkset['linkset'][0]['service-desc']], 'href');
 
-        self::assertCount(4, $matches[1]);
-        foreach ($matches[1] as $path) {
-            $client->request('GET', 'http://apex.example'.$path);
-            self::assertSame(200, $client->getResponse()->getStatusCode(), $path.' is listed but not served');
+        self::assertCount(4, $hrefs);
+        foreach ($hrefs as $href) {
+            $client->request('GET', $href);
+            self::assertSame(200, $client->getResponse()->getStatusCode(), $href.' is listed but not served');
         }
     }
 

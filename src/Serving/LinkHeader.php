@@ -48,7 +48,6 @@ final class LinkHeader implements EventSubscriberInterface
     public function __construct(
         private readonly ArtefactCache $cache,
         private readonly Options $options,
-        private readonly ApiCatalog $apiCatalog,
     ) {
     }
 
@@ -91,10 +90,19 @@ final class LinkHeader implements EventSubscriberInterface
      */
     public function value(): string
     {
+        // Each cached target is read once: the catalog is served exactly when
+        // one of its targets is, and every one of them is also named here.
+        $cached = [];
+        foreach (array_keys(self::RELS + ApiCatalog::RELS) as $path) {
+            if (ApiCatalog::PATH !== $path) {
+                $cached[$path] = null !== $this->cache->get($path);
+            }
+        }
+        $cached[ApiCatalog::PATH] = [] !== array_filter(array_intersect_key($cached, ApiCatalog::RELS));
+
         $parts = [];
         foreach (self::RELS as $path => $rel) {
-            $served = ApiCatalog::PATH === $path ? $this->apiCatalog->isServed() : null !== $this->cache->get($path);
-            if ($served) {
+            if ($cached[$path]) {
                 $parts[] = \sprintf('</%s>; rel="%s"', $path, $rel);
             }
         }

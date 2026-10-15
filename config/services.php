@@ -89,7 +89,7 @@ return static function (ContainerConfigurator $container): void {
         ->tag('kernel.event_subscriber');
 
     $services->set(LinkHeader::class)
-        ->args([service(ArtefactCache::class), service(Options::class), service(ApiCatalog::class)])
+        ->args([service(ArtefactCache::class), service(Options::class)])
         ->tag('kernel.event_subscriber');
 
     $services->set(BreadcrumbOptions::class)
