@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Globetrotters\AiPresenceBundle\Tests\Unit\Serving;
 
 use Globetrotters\AiPresenceBundle\Cache\ArtefactCache;
-use Globetrotters\AiPresenceBundle\Serving\ApiCatalog;
 use Globetrotters\AiPresenceBundle\Serving\ContentTypes;
 use Globetrotters\AiPresenceBundle\Serving\Sitemap;
 use Globetrotters\AiPresenceBundle\Settings\Options;
@@ -29,7 +28,7 @@ final class SitemapTest extends TestCase
         $options = new Options($pool, self::BASE_URL, 'daily', $homepagePath);
         $options->updateState(['content_changed_at' => $changedAt, 'last_refresh' => $refreshedAt]);
 
-        return new Sitemap($options, $cache, new ApiCatalog($cache));
+        return new Sitemap($options, $cache);
     }
 
     /**

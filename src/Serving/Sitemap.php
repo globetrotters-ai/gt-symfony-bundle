@@ -53,7 +53,6 @@ final class Sitemap
     public function __construct(
         private readonly Options $options,
         private readonly ArtefactCache $cache,
-        private readonly ApiCatalog $apiCatalog,
     ) {
     }
 
@@ -139,10 +138,14 @@ final class Sitemap
                 $paths[] = '/'.$path;
             }
         }
-        // Rendered from the same cache, so it is served exactly when one of the
-        // artefacts above is cached, and is dated by the same change.
-        if ($this->apiCatalog->isServed()) {
-            $paths[] = '/'.ApiCatalog::PATH;
+        // Rendered from the same cache, so it is served exactly when one of its
+        // targets is among the artefacts above (see ApiCatalog::RELS), and is
+        // dated by the same change.
+        foreach (array_keys(ApiCatalog::RELS) as $target) {
+            if (\in_array('/'.$target, $paths, true)) {
+                $paths[] = '/'.ApiCatalog::PATH;
+                break;
+            }
         }
 
         return $paths;

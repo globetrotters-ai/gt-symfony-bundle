@@ -78,7 +78,7 @@ return static function (ContainerConfigurator $container): void {
         ->args([service(ArtefactCache::class)]);
 
     $services->set(Sitemap::class)
-        ->args([service(Options::class), service(ArtefactCache::class), service(ApiCatalog::class)]);
+        ->args([service(Options::class), service(ArtefactCache::class)]);
 
     $services->set(Router::class)
         ->args([service(ArtefactCache::class), service(Options::class), service(Sitemap::class), service(ApiCatalog::class)])

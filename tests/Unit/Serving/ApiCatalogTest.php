@@ -105,16 +105,14 @@ final class ApiCatalogTest extends TestCase
     public function testNothingIsRenderedWithoutATarget(): void
     {
         self::assertSame('', $this->catalog()->render('https://apex.example'));
-        self::assertFalse($this->catalog()->isServed());
         // Artefacts the catalog does not name do not make it servable.
         self::assertSame('', $this->catalog(['schema.json' => '{}'])->render('https://apex.example'));
-        self::assertFalse($this->catalog(['schema.json' => '{}'])->isServed());
     }
 
-    public function testIsServedOnceAnyTargetIsCached(): void
+    public function testAnyOneTargetMakesItServable(): void
     {
-        self::assertTrue($this->catalog(['llms.txt' => 'llms'])->isServed());
-        self::assertTrue($this->catalog(['.well-known/mcp.json' => '{}'])->isServed());
+        self::assertNotSame('', $this->catalog(['llms.txt' => 'llms'])->render('https://apex.example'));
+        self::assertNotSame('', $this->catalog(['.well-known/mcp.json' => '{}'])->render('https://apex.example'));
     }
 
     public function testEveryTargetIsAnArtefactThisBundleServes(): void

@@ -34,6 +34,10 @@ final class ApiCatalog
      * Apex path → [relation, target media type], in served order. Mirrors the
      * edge proxy's ``_serve_api_catalog``.
      *
+     * The catalog is answered exactly when one of these is cached.
+     * {@see LinkHeader} and {@see Sitemap} apply that rule to the cache reads
+     * they already make, so neither advertises a catalog that would 404.
+     *
      * @var array<string, array{string, string}>
      */
     public const RELS = [
@@ -46,22 +50,6 @@ final class ApiCatalog
     public function __construct(
         private readonly ArtefactCache $cache,
     ) {
-    }
-
-    /**
-     * Whether a request for the catalog would be answered: at least one of its
-     * targets is cached. Read by {@see LinkHeader} and {@see Sitemap}, so
-     * neither advertises a catalog that would 404.
-     */
-    public function isServed(): bool
-    {
-        foreach (array_keys(self::RELS) as $path) {
-            if (null !== $this->cache->get($path)) {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     /**

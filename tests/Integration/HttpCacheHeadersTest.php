@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Globetrotters\AiPresenceBundle\Tests\Integration;
 
+use Globetrotters\AiPresenceBundle\Serving\ApiCatalog;
 use Globetrotters\AiPresenceBundle\Serving\ContentTypes;
 use Globetrotters\AiPresenceBundle\Tests\Support\TempDirectory;
 use Symfony\Component\HttpFoundation\Request;
@@ -49,6 +50,16 @@ final class HttpCacheHeadersTest extends IntegrationTestCase
             self::assertSame('*', $response->headers->get('Access-Control-Allow-Origin'), $path);
             self::assertSame(ContentTypes::forPath($path), $response->headers->get('Content-Type'), $path);
         }
+
+        // The generated catalog is counted as agent traffic too, so it needs
+        // the same guarantee.
+        $response = $cache->handle(Request::create('/'.ApiCatalog::PATH), HttpKernelInterface::MAIN_REQUEST, false);
+        self::assertSame(200, $response->getStatusCode());
+        self::assertSame('no-store, private', $response->headers->get('Cache-Control'));
+        self::assertSame('no-store', $response->headers->get('Surrogate-Control'));
+        self::assertSame('nosniff', $response->headers->get('X-Content-Type-Options'));
+        self::assertSame('*', $response->headers->get('Access-Control-Allow-Origin'));
+        self::assertSame(ApiCatalog::CONTENT_TYPE, $response->headers->get('Content-Type'));
     }
 
     public function testTheProxyStoresNothingSoTheApplicationAlwaysRuns(): void
