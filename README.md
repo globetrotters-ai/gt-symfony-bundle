@@ -397,6 +397,18 @@ make ci        # php-cs-fixer + phpstan + phpunit (unit + integration)
 
 The integration suite boots a real `HttpKernel` with a catch-all "antagonist" controller and a network-free fake fetcher, proving route pre-emption, robots decoration, raw-HTML JSON-LD, and stale-serve end to end. It also covers the reporting lane: capture through a live kernel, the console and `kernel.terminate` flush lanes, the buffer under forked concurrent writers, and the no-store headers surviving Symfony's own `HttpCache`.
 
+## Releasing
+
+1. Bump the version in its three places: `GlobetrottersAiPresenceBundle::VERSION`, the `extra.branch-alias.dev-main` constraint in `composer.json`, and `CHANGELOG.md`, where the `[Unreleased]` notes move under a new `## [x.y.z] - YYYY-MM-DD` heading.
+2. Merge to `main`.
+3. On an up-to-date `main`, tag and push:
+
+```bash
+make release VERSION=x.y.z
+```
+
+The `Release` workflow then checks that the tag, `VERSION`, the branch alias and the `CHANGELOG.md` section agree, runs the full CI matrix, and publishes a GitHub Release with that section as its notes. Packagist picks up the tag on its own.
+
 ## License
 
 Released under the [MIT License](LICENSE). © 2026 Globetrotters.ai

@@ -13,9 +13,10 @@ make stan               # phpstan, level 8, src/ only
 make cs                 # php-cs-fixer check --diff
 make cs-fix             # php-cs-fixer fix
 make ci                 # cs + stan + test, the same gates CI runs
+make release VERSION=x.y.z  # tag vX.Y.Z and push it (needs a ## [x.y.z] CHANGELOG section)
 ```
 
-CI (`.github/workflows/ci.yml`) has a `lint` job (php-cs-fixer + phpstan on PHP 8.3) and a `tests` matrix of PHP 8.2/8.3/8.4 crossed with Symfony 6.4.*/7.4.*, pinned via `SYMFONY_REQUIRE` and flex. A change that only passes on one Symfony major will fail the matrix, so check both branches when touching anything version-sensitive.
+CI (`.github/workflows/ci.yml`, also called by `release.yml`) has a `lint` job (php-cs-fixer + phpstan on PHP 8.3) and a `tests` matrix of PHP 8.2/8.3/8.4 crossed with Symfony 6.4.*/7.4.*, pinned via `SYMFONY_REQUIRE` and flex. A change that only passes on one Symfony major will fail the matrix, so check both branches when touching anything version-sensitive.
 
 Style is `@Symfony` + `@Symfony:risky` + `declare_strict_types`, applied to `src/`, `config/` and `tests/`. Run `make cs-fix` before committing rather than hand-formatting.
 
@@ -104,7 +105,7 @@ Rotation carries a lag this lane cannot avoid: a rotated key reaches an install 
 
 ## Releasing
 
-The version lives in three places that must move together: `GlobetrottersAiPresenceBundle::VERSION`, the `CHANGELOG.md` heading, and the `extra.branch-alias.dev-main` constraint in `composer.json`. Packagist publishes from the git tag, so tag only after all three agree. CHANGELOG follows Keep a Changelog and the project is on semver (currently 0.9.0, first public release 2026-08-25). The number is kept in step with `gt-wordpress-plugin` so the same behaviour ships under the same version on both.
+The version lives in three places that must move together: `GlobetrottersAiPresenceBundle::VERSION`, the `CHANGELOG.md` heading, and the `extra.branch-alias.dev-main` constraint in `composer.json`. Packagist publishes from the git tag, so tag only after all three agree. Tagging is `make release VERSION=x.y.z` on an up-to-date `main` once the bump is merged: it refuses without a `## [x.y.z]` CHANGELOG section or when the tag exists, then pushes `vX.Y.Z`. The tag triggers `.github/workflows/release.yml`, which fails on version drift (tag vs `VERSION` vs branch alias) or a missing section, runs `ci.yml` as a reusable workflow (`workflow_call`, so the matrix is defined once), and publishes a GitHub Release whose notes are that CHANGELOG section. CHANGELOG follows Keep a Changelog and the project is on semver (currently 0.9.0, first public release 2026-08-25). The number is kept in step with `gt-wordpress-plugin` so the same behaviour ships under the same version on both.
 
 ## Local testing against a real app
 
