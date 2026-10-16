@@ -4,14 +4,17 @@ declare(strict_types=1);
 
 namespace Globetrotters\AiPresenceBundle\Tests\Unit\Serving;
 
+use Globetrotters\AiPresenceBundle\Analytics\AiReferrers;
 use Globetrotters\AiPresenceBundle\Analytics\AnalyticsOptions;
 use Globetrotters\AiPresenceBundle\Analytics\BufferDirectory;
 use Globetrotters\AiPresenceBundle\Analytics\PageViewCounter;
 use Globetrotters\AiPresenceBundle\Analytics\PageViewOptions;
+use Globetrotters\AiPresenceBundle\Analytics\VendorRanges;
 use Globetrotters\AiPresenceBundle\Serving\PageViewBeacon;
 use Globetrotters\AiPresenceBundle\Serving\PageViewEndpoint;
 use Globetrotters\AiPresenceBundle\Serving\Router;
 use Globetrotters\AiPresenceBundle\Tests\Support\IpTrapRequest;
+use Globetrotters\AiPresenceBundle\Tests\Support\OpenRecordingStream;
 use Globetrotters\AiPresenceBundle\Tests\Support\TempDirectory;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
@@ -29,15 +32,20 @@ final class PageViewEndpointTest extends TestCase
 
     private string $dir;
     private PageViewCounter $counter;
+    private AiReferrers $referrers;
+    private MockClock $clock;
 
     protected function setUp(): void
     {
         $this->dir = TempDirectory::make();
+        $this->clock = new MockClock(self::TODAY.' 10:00:00', 'UTC');
         $this->counter = new PageViewCounter(new BufferDirectory($this->dir));
+        $this->referrers = new AiReferrers(new BufferDirectory($this->dir), $this->clock);
     }
 
     protected function tearDown(): void
     {
+        OpenRecordingStream::unregister();
         TempDirectory::remove($this->dir);
     }
 
@@ -256,6 +264,148 @@ final class PageViewEndpointTest extends TestCase
         self::assertSame(204, $event->getResponse()?->getStatusCode());
     }
 
+    public function testCountsAViewReferredByAnAiAnswerUnderItsPlatform(): void
+    {
+        $this->storeReferrers();
+
+        $this->handle($this->beacon(body: '{"p":"/x","r":"chatgpt.com"}'));
+        $this->handle($this->beacon(body: '{"p":"/x","u":"perplexity"}'));
+        $this->handle($this->beacon(body: '{"p":"/x","r":"claude.ai","u":"perplexity"}'));
+        $this->handle($this->beacon(body: '{"p":"/x","r":"news.example","u":"newsletter"}'));
+
+        self::assertSame([
+            "browser@chatgpt\t/x" => 1,
+            "browser@perplexity\t/x" => 1,
+            "browser@claude\t/x" => 1,
+            "browser\t/x" => 1,
+        ], $this->counter->counts(self::TODAY));
+    }
+
+    /**
+     * AC5: the referrer host and the utm_source are matched in memory and
+     * forgotten. Only the platform reaches disk — open day and sealed day alike.
+     */
+    public function testNeverStoresTheReferrerOrTheUtmSource(): void
+    {
+        $this->storeReferrers();
+
+        $this->handle($this->beacon(body: '{"p":"/x","r":"chatgpt.com"}'));
+        $this->handle($this->beacon(body: '{"p":"/x","u":"chatgpt.com"}'));
+        $this->handle($this->beacon(body: '{"p":"/x"}'));
+        $this->handle($this->beacon(body: '{"p":"/x","r":"unlisted.example","u":"utm_source"}'));
+
+        self::assertSame(["browser@chatgpt\t/x" => 2, "browser\t/x" => 2], $this->counter->counts(self::TODAY));
+        $open = (string) file_get_contents($this->dir.'/pageviews-'.self::TODAY.'.json');
+
+        $this->counter->seal('2026-09-28');
+        $sealed = (string) file_get_contents($this->dir.'/pageviews-sealed-'.self::TODAY.'.json');
+
+        foreach (['open' => $open, 'sealed' => $sealed] as $kind => $contents) {
+            foreach (['chatgpt.com', 'utm_source', 'unlisted.example'] as $needle) {
+                self::assertStringNotContainsString($needle, $contents, $kind);
+            }
+        }
+        self::assertSame(['chatgpt', 'none'], array_column($this->counter->pending(10), 'platform'));
+        foreach (glob($this->dir.'/pageviews-*') ?: [] as $file) {
+            self::assertStringNotContainsString('chatgpt.com', (string) file_get_contents($file), basename($file));
+        }
+    }
+
+    /**
+     * An AI browser's view already says where it came from: it stays in its
+     * own bucket as ``none``, and its referrer is not even looked up.
+     */
+    public function testAnAiBrowserViewIsNeverAttributed(): void
+    {
+        $this->storeReferrers();
+        OpenRecordingStream::register();
+        $this->referrers = new AiReferrers(new BufferDirectory(OpenRecordingStream::url($this->dir)), $this->clock);
+
+        $this->handle($this->beacon(userAgent: self::CHROME.' ChatGPT-Agent/1.0', body: '{"p":"/x","r":"chatgpt.com","u":"chatgpt.com"}'));
+
+        self::assertSame(["ai_browser\t/x" => 1], $this->counter->counts(self::TODAY));
+        self::assertNotContains(AiReferrers::FILE, OpenRecordingStream::touched());
+    }
+
+    /**
+     * @return iterable<string, array{string}>
+     */
+    public static function nonStringReferrers(): iterable
+    {
+        yield 'r a number' => ['{"p":"/x","r":42}'];
+        yield 'r a list' => ['{"p":"/x","r":["chatgpt.com"]}'];
+        yield 'r an object' => ['{"p":"/x","r":{"host":"chatgpt.com"}}'];
+        yield 'u a list' => ['{"p":"/x","u":["chatgpt.com"]}'];
+        yield 'both null' => ['{"p":"/x","r":null,"u":null}'];
+        yield 'u true' => ['{"p":"/x","u":true}'];
+    }
+
+    #[DataProvider('nonStringReferrers')]
+    public function testIgnoresAReferrerOrUtmSourceThatIsNotAString(string $body): void
+    {
+        $this->storeReferrers();
+
+        $this->handle($this->beacon(body: $body));
+
+        self::assertSame(["browser\t/x" => 1], $this->counter->counts(self::TODAY), 'still counted, as none');
+    }
+
+    /**
+     * AC7: with the synced list gone, the view is still counted — as ``none``.
+     */
+    public function testWithoutTheListAReferredViewCountsAsNone(): void
+    {
+        $this->handle($this->beacon(body: '{"p":"/x","r":"chatgpt.com"}'));
+
+        self::assertSame(["browser\t/x" => 1], $this->counter->counts(self::TODAY));
+    }
+
+    /**
+     * AC12, on the whole endpoint over a recorded buffer_dir holding both
+     * synced lists: a plain view reads neither, a referred view reads the
+     * small AI list only, and nothing ever opens the vendor ranges.
+     */
+    public function testReadsTheAiListOnlyWhenThereIsSomethingToMatchAndNeverTheVendorRanges(): void
+    {
+        $this->storeReferrers();
+        file_put_contents($this->dir.'/'.VendorRanges::FILE, '{"version":"3f2a9c1e0b7d","fetched_at":'.$this->clock->now()->getTimestamp().',"ranges":[]}');
+        OpenRecordingStream::register();
+        $recorded = new BufferDirectory(OpenRecordingStream::url($this->dir));
+        $this->counter = new PageViewCounter($recorded);
+        $this->referrers = new AiReferrers($recorded, $this->clock);
+
+        $this->handle($this->beacon(body: '{"p":"/x"}'));
+        $this->handle($this->beacon(body: '{"p":"/x","r":"","u":""}'));
+
+        self::assertNotSame([], OpenRecordingStream::$opened, 'the control: the counter file was opened through the recorder');
+        self::assertNotContains(AiReferrers::FILE, OpenRecordingStream::touched());
+        self::assertNotContains(VendorRanges::FILE, OpenRecordingStream::touched());
+
+        $this->handle($this->beacon(body: '{"p":"/x","r":"chatgpt.com"}'));
+
+        self::assertContains(AiReferrers::FILE, OpenRecordingStream::$opened);
+        self::assertNotContains(VendorRanges::FILE, OpenRecordingStream::touched());
+        self::assertSame(["browser\t/x" => 2, "browser@chatgpt\t/x" => 1], (new PageViewCounter(new BufferDirectory($this->dir)))->counts(self::TODAY));
+    }
+
+    /**
+     * And structurally: the endpoint cannot reach the vendor ranges at all.
+     */
+    public function testTheEndpointHasNoWayToTheVendorRanges(): void
+    {
+        $constructor = (new \ReflectionClass(PageViewEndpoint::class))->getConstructor();
+        self::assertNotNull($constructor);
+        foreach ($constructor->getParameters() as $parameter) {
+            self::assertNotSame(VendorRanges::class, (string) $parameter->getType(), $parameter->getName());
+            self::assertNotSame('?'.VendorRanges::class, (string) $parameter->getType(), $parameter->getName());
+        }
+    }
+
+    private function storeReferrers(): void
+    {
+        $this->referrers->store('3f2a9c1e0b7d', ['chatgpt.com' => 'chatgpt', 'claude.ai' => 'claude'], ['chatgpt.com' => 'chatgpt', 'perplexity' => 'perplexity']);
+    }
+
     /**
      * @param class-string<Request> $class
      */
@@ -292,7 +442,8 @@ final class PageViewEndpointTest extends TestCase
                 false,
             ),
             $this->counter,
-            new MockClock(self::TODAY.' 10:00:00', 'UTC'),
+            $this->clock,
+            $this->referrers,
         );
         $event = new RequestEvent(
             $this->createStub(HttpKernelInterface::class),

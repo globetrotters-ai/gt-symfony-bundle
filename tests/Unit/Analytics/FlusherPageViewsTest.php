@@ -81,7 +81,8 @@ final class FlusherPageViewsTest extends TestCase
         self::assertSame(['ai_browser', 'browser'], array_column($records, 'bucket'));
         self::assertSame([1, 3], array_column($records, 'count'));
         self::assertSame(['2026-09-26', '2026-09-26'], array_column($records, 'day'));
-        self::assertSame(['id', 'day', 'path', 'bucket', 'count'], array_keys($records[0]));
+        self::assertSame(['id', 'day', 'path', 'bucket', 'platform', 'count'], array_keys($records[0]));
+        self::assertSame(['none', 'none'], array_column($records, 'platform'));
         self::assertSame([], $this->pageViews->pending(10), 'accepted records are deleted');
     }
 
@@ -284,10 +285,30 @@ final class FlusherPageViewsTest extends TestCase
         self::assertCount(1, $this->transport->envelopes()[0]['pageViews']);
     }
 
-    private function view(string $day, string $path, int $times, string $bucket = PageViewRules::BUCKET_BROWSER): void
+    /**
+     * The wire record names the platform the visitor came from, and a path's
+     * platform rows go out as separate records that add up to its views.
+     */
+    public function testSendsThePlatformOfEachRecord(): void
+    {
+        $this->view('2026-09-26', '/x', 2, platform: 'chatgpt');
+        $this->view('2026-09-26', '/x', 1);
+        $this->view('2026-09-26', '/x', 1, PageViewRules::BUCKET_AI_BROWSER);
+
+        $this->flusher->run(AnalyticsState::LANE_COMMAND);
+
+        $records = $this->transport->envelopes()[0]['pageViews'];
+        self::assertSame(
+            [['browser', 'chatgpt', 2], ['browser', 'none', 1], ['ai_browser', 'none', 1]],
+            array_map(static fn (array $record): array => [$record['bucket'], $record['platform'], $record['count']], $records),
+        );
+        self::assertSame(4, array_sum(array_column($records, 'count')), 'the total a 0.8.x producer would report');
+    }
+
+    private function view(string $day, string $path, int $times, string $bucket = PageViewRules::BUCKET_BROWSER, string $platform = PageViewRules::PLATFORM_NONE): void
     {
         for ($i = 0; $i < $times; ++$i) {
-            $this->pageViews->increment($day, $path, $bucket);
+            $this->pageViews->increment($day, $path, $bucket, $platform);
         }
     }
 

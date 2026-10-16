@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Symfony\Component\DependencyInjection\Loader\Configurator;
 
+use Globetrotters\AiPresenceBundle\Analytics\AiReferrers;
 use Globetrotters\AiPresenceBundle\Analytics\AnalyticsOptions;
 use Globetrotters\AiPresenceBundle\Analytics\AnalyticsState;
 use Globetrotters\AiPresenceBundle\Analytics\BufferDirectory;
@@ -144,6 +145,7 @@ return static function (ContainerConfigurator $container): void {
             service(PageViewOptions::class),
             service(PageViewCounter::class),
             service(VendorRanges::class),
+            service(AiReferrers::class),
         ])
         ->tag('console.command');
 };

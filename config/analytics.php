@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Symfony\Component\DependencyInjection\Loader\Configurator;
 
+use Globetrotters\AiPresenceBundle\Analytics\AiReferrers;
 use Globetrotters\AiPresenceBundle\Analytics\AnalyticsOptions;
 use Globetrotters\AiPresenceBundle\Analytics\AnalyticsState;
 use Globetrotters\AiPresenceBundle\Analytics\BufferDirectory;
@@ -82,6 +83,13 @@ return static function (ContainerConfigurator $container): void {
 
     $services->alias(IngestTransportInterface::class, IngestClient::class);
 
+    // The AI referrer list the page-view counter matches against. Written by
+    // VendorRanges' fetch, but its own service and file: the beacon endpoint
+    // depends on this one only, so it can never load the vendor ranges.
+    $services->set(AiReferrers::class)
+        ->args([service(BufferDirectory::class), service('globetrotters_ai_presence.clock')])
+        ->tag('kernel.reset', ['method' => 'reset']);
+
     $services->set(VendorRanges::class)
         ->args([
             service(BufferDirectory::class),
@@ -89,6 +97,7 @@ return static function (ContainerConfigurator $container): void {
             service(AnalyticsOptions::class),
             service(AnalyticsState::class),
             service('globetrotters_ai_presence.clock'),
+            service(AiReferrers::class),
         ])
         ->tag('kernel.reset', ['method' => 'reset']);
 
@@ -165,6 +174,7 @@ return static function (ContainerConfigurator $container): void {
             service(PageViewOptions::class),
             service(PageViewCounter::class),
             service('globetrotters_ai_presence.clock'),
+            service(AiReferrers::class),
         ])
         ->tag('kernel.event_subscriber');
 

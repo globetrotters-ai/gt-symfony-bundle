@@ -11,12 +11,17 @@ use PHPUnit\Framework\TestCase;
 
 final class PageViewBeaconTest extends TestCase
 {
+    /**
+     * The literal shared with gt-wordpress-plugin, which pins the same string:
+     * the two producers must count the same page the same way. Change both
+     * together, and the README's copy with them.
+     */
+    public const SCRIPT_BODY = "(function(){var n=navigator,d=document,l=location;function s(){try{var b={p:l.pathname},r,u;try{r=new URL(d.referrer).host}catch(e){}if(r&&r!==l.host)b.r=r;try{u=new URLSearchParams(l.search).get('utm_source')}catch(e){}if(u)b.u=u.slice(0,100);n.sendBeacon('/.well-known/globetrotters/pv',new Blob([JSON.stringify(b)],{type:'text/plain'}))}catch(e){}}try{if(!n.sendBeacon)return;if(d.prerendering){d.addEventListener('prerenderingchange',s,{once:true})}else{s()}}catch(e){}})();";
+
     public function testIsTheDocumentedScript(): void
     {
-        self::assertSame(
-            "<script>(function(){var n=navigator,d=document;function s(){try{n.sendBeacon('/.well-known/globetrotters/pv',new Blob([JSON.stringify({p:location.pathname})],{type:'text/plain'}))}catch(e){}}try{if(!n.sendBeacon)return;if(d.prerendering){d.addEventListener('prerenderingchange',s,{once:true})}else{s()}}catch(e){}})();</script>",
-            PageViewBeacon::SCRIPT,
-        );
+        self::assertSame(self::SCRIPT_BODY, PageViewBeacon::SCRIPT_BODY);
+        self::assertSame('<script>'.self::SCRIPT_BODY.'</script>', PageViewBeacon::SCRIPT);
         self::assertSame('<script>'.PageViewBeacon::SCRIPT_BODY.'</script>', PageViewBeacon::SCRIPT);
         self::assertSame('/.well-known/globetrotters/pv', PageViewBeacon::PATH);
     }
@@ -39,6 +44,26 @@ final class PageViewBeaconTest extends TestCase
         self::assertSame([PageViewBeacon::PATH], $targets[1]);
         self::assertStringStartsWith('/', $targets[1][0]);
         self::assertStringStartsNotWith('//', $targets[1][0]);
+    }
+
+    /**
+     * AC2: the body carries ``p``, ``r`` and ``u`` and nothing else — no
+     * full referrer URL, no query string beyond the one parameter, no title.
+     */
+    public function testPostsThePathTheReferrerHostAndTheUtmSourceOnly(): void
+    {
+        $script = PageViewBeacon::SCRIPT_BODY;
+
+        self::assertSame(2, preg_match_all('/\bb\.([a-z]+)=/', $script, $keys));
+        self::assertSame(['r', 'u'], array_values(array_unique($keys[1])));
+        self::assertStringContainsString('var b={p:l.pathname}', $script, 'p always, and only the pathname');
+        self::assertStringContainsString('JSON.stringify(b)', $script);
+        self::assertStringContainsString('new URL(d.referrer).host', $script, 'the host only, never the referrer URL');
+        self::assertStringContainsString('if(r&&r!==l.host)b.r=r', $script, 'never the page\'s own host');
+        self::assertStringContainsString(".get('utm_source')", $script, 'one parameter, not the query string');
+        self::assertStringContainsString('if(u)b.u=u.slice(0,100)', $script, 'capped well under the 1 KB body');
+        self::assertStringNotContainsString('location.search', $script);
+        self::assertStringNotContainsString('d.referrer)', str_replace('new URL(d.referrer)', '', $script), 'the referrer is only ever parsed');
     }
 
     /**
