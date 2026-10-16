@@ -1,0 +1,85 @@
+name: Release
+
+# Tag-triggered release. Checks that CHANGELOG.md has a section for the tag and
+# that the version agrees with the code, runs the full CI matrix, and cuts a
+# GitHub Release with that CHANGELOG section as its notes. Packagist publishes
+# from the tag itself, so this workflow does not touch it: the Release is for
+# provenance and readable notes. `make release VERSION=x.y.z` pushes the tag.
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  changelog:
+    name: Check version & extract notes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Verify version consistency
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "::error::Tag $GITHUB_REF_NAME is not vX.Y.Z."
+            exit 1
+          fi
+          CONST=$(grep -oE "const VERSION = '[^']+'" src/GlobetrottersAiPresenceBundle.php | grep -oE "[0-9][^']*")
+          ALIAS=$(grep -oE '"dev-main": "[^"]+"' composer.json | grep -oE '[0-9]+\.[0-9]+')
+          echo "tag=$VERSION const=$CONST branch-alias=$ALIAS.x-dev"
+          if [ "$VERSION" != "$CONST" ] || [ "${VERSION%.*}" != "$ALIAS" ]; then
+            echo "::error::Version drift — tag=$VERSION const=$CONST branch-alias=$ALIAS.x-dev must agree."
+            exit 1
+          fi
+
+      - name: Extract CHANGELOG section
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          if ! grep -q "^## \[$(echo "$VERSION" | sed 's/\./\\./g')\]" CHANGELOG.md; then
+            echo "::error::CHANGELOG.md has no '## [$VERSION]' section."
+            exit 1
+          fi
+          # The lines after the heading, up to the next '## [' heading, without
+          # leading or trailing blank lines or link reference definitions.
+          awk -v h="## [$VERSION]" '
+            index($0, h) == 1 { on = 1; next }
+            on && /^## \[/ { exit }
+            on && /^\[[^]]+\]: / { next }
+            on && /^[[:space:]]*$/ { if (started) blanks++; next }
+            on { while (blanks > 0) { print ""; blanks-- } print; started = 1 }
+          ' CHANGELOG.md > release-notes.md
+          if [ ! -s release-notes.md ]; then
+            echo "::error::CHANGELOG.md section '## [$VERSION]' is empty."
+            exit 1
+          fi
+          cat release-notes.md
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-notes
+          path: release-notes.md
+
+  ci:
+    name: CI
+    needs: changelog
+    uses: ./.github/workflows/ci.yml
+
+  release:
+    name: Publish GitHub Release
+    needs: [changelog, ci]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: release-notes
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          name: ${{ github.ref_name }}
+          body_path: release-notes.md
+          make_latest: 'true'
