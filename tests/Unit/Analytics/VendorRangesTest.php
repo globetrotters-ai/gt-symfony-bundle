@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Globetrotters\AiPresenceBundle\Tests\Unit\Analytics;
 
+use Globetrotters\AiPresenceBundle\Analytics\AiReferrers;
 use Globetrotters\AiPresenceBundle\Analytics\AnalyticsOptions;
 use Globetrotters\AiPresenceBundle\Analytics\AnalyticsState;
 use Globetrotters\AiPresenceBundle\Analytics\BufferDirectory;
@@ -24,6 +25,11 @@ final class VendorRangesTest extends TestCase
         .'{"platform":"chatgpt","start":"20.171.206.0","end":"20.171.206.255"},'
         .'{"platform":"claude","start":"2600:1f28:365:80b0::","end":"2600:1f28:365:80b0:ffff:ffff:ffff:ffff"},'
         .'{"platform":"broken","start":"not-an-ip","end":"1.2.3.4"}]}';
+
+    /** The same document as gt-backend serves it since the AI referrer list joined it. */
+    public const LIST_WITH_REFERRERS = '{"version":"3f2a9c1e0b7d","generatedAt":"2026-10-14T03:00:00Z","ranges":['
+        .'{"platform":"chatgpt","start":"20.171.206.0","end":"20.171.206.255"}],'
+        .'"aiReferrers":{"hosts":{"chatgpt.com":"chatgpt","claude.ai":"claude"},"utmSources":{"perplexity":"perplexity"}}}';
 
     private string $dir;
     private FakeIngestTransport $transport;
@@ -177,7 +183,139 @@ final class VendorRangesTest extends TestCase
         self::assertSame([], $this->transport->rangeRequests);
     }
 
-    private function ranges(): VendorRanges
+    /**
+     * One fetch, two files: the ranges for site capture, the referrer list for
+     * the page-view counter, each read on its own path.
+     */
+    public function testA200WritesTheAiReferrerListBesideTheRanges(): void
+    {
+        $this->transport->willReturnRanges(RangesFetch::http(200, self::LIST_WITH_REFERRERS));
+
+        self::assertTrue($this->ranges()->refreshIfDue());
+
+        self::assertFileExists($this->dir.'/'.VendorRanges::FILE);
+        self::assertFileExists($this->dir.'/'.AiReferrers::FILE);
+        self::assertStringNotContainsString('chatgpt.com', (string) file_get_contents($this->dir.'/'.VendorRanges::FILE), 'the list is not kept twice');
+        $referrers = $this->referrers();
+        self::assertSame('3f2a9c1e0b7d', $referrers->version(), 'the document\'s version');
+        self::assertSame($this->clock->now()->getTimestamp(), $referrers->fetchedAt());
+        self::assertSame('claude', $referrers->match('claude.ai', ''));
+        self::assertSame('perplexity', $referrers->match('', 'perplexity'));
+        self::assertSame('', $this->ranges()->lastError());
+    }
+
+    /**
+     * A backend from before the list joined the document: the list is stored
+     * empty, so the next check stays conditional and the counter counts every
+     * view as ``none``.
+     */
+    public function testA200WithoutAiReferrersStoresEmptyLists(): void
+    {
+        $this->transport->willReturnRanges(RangesFetch::http(200, self::LIST));
+
+        $this->ranges()->refreshIfDue();
+
+        $referrers = $this->referrers();
+        self::assertSame('3f2a9c1e0b7d', $referrers->version());
+        self::assertSame(0, $referrers->hostCount());
+        self::assertSame(0, $referrers->utmSourceCount());
+        self::assertSame('none', $referrers->match('chatgpt.com', ''));
+    }
+
+    public function testA304RestampsBothFiles(): void
+    {
+        $this->transport->willReturnRanges(RangesFetch::http(200, self::LIST_WITH_REFERRERS));
+        $this->ranges()->refreshIfDue();
+
+        $this->clock->modify('+20 days');
+        self::assertTrue($this->referrers()->isStale());
+        $this->transport->willReturnRanges(RangesFetch::http(304));
+        $this->ranges()->refreshIfDue();
+
+        self::assertSame('3f2a9c1e0b7d', $this->transport->rangeRequests[1]['version']);
+        self::assertSame('2026-11-04T10:00:00Z', $this->ranges()->fetchedAtIso());
+        self::assertSame($this->clock->now()->getTimestamp(), $this->referrers()->fetchedAt());
+        self::assertSame('claude', $this->referrers()->match('claude.ai', ''), 'confirmed fresh, still matching');
+    }
+
+    /**
+     * The upgrade from 0.8.x: vendor-ranges.json is there, ai-referrers.json is
+     * not, and the backend's version may well not have moved. A conditional
+     * fetch would answer 304 for as long as it does not, and the list would
+     * never arrive.
+     */
+    public function testAMissingAiReferrerListDropsIfNoneMatch(): void
+    {
+        $this->transport->willReturnRanges(RangesFetch::http(200, self::LIST_WITH_REFERRERS));
+        $this->ranges(withReferrers: false)->refreshIfDue();
+        self::assertFileDoesNotExist($this->dir.'/'.AiReferrers::FILE, '0.8.x writes the ranges only');
+
+        $this->clock->modify('+1 day');
+        $this->transport->willReturnRanges(RangesFetch::http(200, self::LIST_WITH_REFERRERS));
+        $this->ranges()->refreshIfDue();
+
+        self::assertSame('', $this->transport->rangeRequests[1]['version'], 'unconditional');
+        self::assertSame('claude', $this->referrers()->match('claude.ai', ''));
+
+        $this->clock->modify('+1 day');
+        $this->transport->willReturnRanges(RangesFetch::http(304));
+        $this->ranges()->refreshIfDue();
+        self::assertSame('3f2a9c1e0b7d', $this->transport->rangeRequests[2]['version'], 'conditional again once both are stored');
+    }
+
+    /**
+     * Two files are two writes: one can land without the other. A version
+     * mismatch means they no longer describe one document.
+     */
+    public function testAnAiReferrerListFromAnotherVersionDropsIfNoneMatch(): void
+    {
+        $this->transport->willReturnRanges(RangesFetch::http(200, self::LIST_WITH_REFERRERS));
+        $this->ranges()->refreshIfDue();
+        $this->referrers()->store('000000000000', [], []);
+
+        $this->clock->modify('+1 day');
+        $this->transport->willReturnRanges(RangesFetch::http(200, self::LIST_WITH_REFERRERS));
+        $this->ranges()->refreshIfDue();
+
+        self::assertSame('', $this->transport->rangeRequests[1]['version']);
+        self::assertSame('3f2a9c1e0b7d', $this->referrers()->version());
+    }
+
+    /**
+     * A 304 to the unconditional request sent while the list is missing (a
+     * cache in between answering for the backend) confirms the ranges and has
+     * no list to restamp: that is not a write failure.
+     */
+    public function testA304WithNoAiReferrerListStoredIsNotAnError(): void
+    {
+        $this->transport->willReturnRanges(RangesFetch::http(200, self::LIST));
+        $this->ranges(withReferrers: false)->refreshIfDue();
+
+        $this->clock->modify('+1 day');
+        $this->transport->willReturnRanges(RangesFetch::http(304));
+        $ranges = $this->ranges();
+        $ranges->refreshIfDue();
+
+        self::assertSame('', $this->transport->rangeRequests[1]['version']);
+        self::assertSame('', $ranges->lastError());
+        self::assertSame('2026-10-16T10:00:00Z', $ranges->fetchedAtIso());
+        self::assertNull($this->referrers()->version());
+    }
+
+    public function testAFailureKeepsThePreviousAiReferrerList(): void
+    {
+        $this->transport->willReturnRanges(RangesFetch::http(200, self::LIST_WITH_REFERRERS));
+        $this->ranges()->refreshIfDue();
+
+        $this->clock->modify('+1 day');
+        $this->transport->willReturnRanges(RangesFetch::http(500));
+        $this->ranges()->refreshIfDue();
+
+        self::assertSame('2026-10-15T10:00:00Z', gmdate('Y-m-d\TH:i:s\Z', (int) $this->referrers()->fetchedAt()));
+        self::assertSame('claude', $this->referrers()->match('claude.ai', ''));
+    }
+
+    private function ranges(bool $withReferrers = true): VendorRanges
     {
         return new VendorRanges(
             new BufferDirectory($this->dir),
@@ -185,6 +323,12 @@ final class VendorRangesTest extends TestCase
             new AnalyticsOptions(true, self::ENDPOINT, self::TOKEN, true, false),
             $this->state,
             $this->clock,
+            $withReferrers ? $this->referrers() : null,
         );
+    }
+
+    private function referrers(): AiReferrers
+    {
+        return new AiReferrers(new BufferDirectory($this->dir), $this->clock);
     }
 }

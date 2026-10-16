@@ -7,6 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-10-16
+
+### Added
+
+- **AI referrals on your own domain.** With the page-view counter on, a human
+  view that arrives from an AI answer citing your site is now counted under
+  the assistant that sent it (`chatgpt`, `claude`, `perplexity`, `gemini`,
+  `copilot`), so Presence Analytics can show which pages AI answers send
+  people to. The beacon script also sends the **host** of the referring page
+  (only when it is another site, never the full URL) and the page's
+  `utm_source` value. Your server looks them up in a list Globetrotters
+  publishes — the host first, which wins, then the `utm_source` — and keeps
+  only the platform, or `none`. The host and the `utm_source` value are never
+  written to `buffer_dir`, logged or sent. `ai_browser` views always count as
+  `none`.
+- **`buffer_dir/ai-referrers.json`**, the AI referrer list (about 1 KB). It
+  comes with the daily `<endpoint>/ranges` fetch that already brings the
+  vendor ranges, but is kept in its own file: the beacon endpoint reads it
+  only for a view that carries a referrer or a `utm_source`, and never loads
+  `vendor-ranges.json`. While the list is missing or older than 14 days, every
+  view counts as `none`.
+- `gt:status` shows an **AI referrer list** row: fresh or stale, version,
+  counts and age.
+
+### Changed
+
+- **The beacon script** posts `{p, r, u}` instead of `{p}` and is now 497
+  bytes. It stays byte-identical to `gt-wordpress-plugin` 0.9.0's. A
+  Content-Security-Policy nonce or hash you pinned to the old script must be
+  updated. A `utm_source` over 100 characters is left out rather than cut, so
+  a cut can never split an emoji; the endpoint likewise reads a value holding
+  half an emoji as no value, and still counts the view.
+- **Page-view records carry a `platform`** (`none` when unmatched), and a
+  day's counts are kept per path, bucket and platform. The 2,000-paths-a-day
+  cap still counts paths, so a path's platform rows are kept or folded into
+  `(other)` together. Unattributed views keep their 0.8.x key, so a day
+  opened before the upgrade keeps counting, and a day sealed before it is
+  sent as `none`.
+
+### Notes
+
+- Upgrading is `composer update globetrotters-ai/symfony-bundle` with a
+  `^0.9` constraint (a `^0.8` constraint does not pick up a new minor before
+  1.0). No configuration change is needed. The first ranges check after the
+  upgrade is made unconditionally, so the AI referrer list arrives with the
+  next daily check even when the vendor ranges have not changed. Until then,
+  views count as before, as `none`.
+
 ## [0.8.2] - 2026-10-15
 
 ### Added

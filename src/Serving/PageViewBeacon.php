@@ -13,6 +13,17 @@ use Globetrotters\AiPresenceBundle\Analytics\PageViewOptions;
  * path on the page's **own origin**, answered by {@see PageViewEndpoint}. The
  * browser never talks to Globetrotters, no cookie or storage is touched, and a
  * browser without ``sendBeacon`` (or any error at all) simply does nothing.
+ *
+ * The body is ``{p, r, u}`` and nothing else: ``p`` the path (never the query
+ * string), ``r`` the **host** of ``document.referrer`` — only when it differs
+ * from the page's own, and never the referrer URL — and ``u`` the page's
+ * ``utm_source`` value — left out when over 100 characters rather than cut,
+ * since a cut could split an emoji and leave the body undecodable. ``r`` and
+ * ``u`` are what the endpoint matches against the AI referrer list; each is sent only when
+ * present, and a referrer that does not parse is left out rather than fail
+ * the count. Under the browsers' default ``strict-origin-when-cross-origin``
+ * policy a cross-site referrer is already reduced to its origin, so the host
+ * is all there is to send.
  * Crawlers do not run it, and a page cache cannot hide it: the script is in
  * the cached HTML, and the POST is never cached. A page the browser
  * *prerenders* (Speculation Rules) runs its scripts with nobody looking, so
@@ -20,7 +31,7 @@ use Globetrotters\AiPresenceBundle\Analytics\PageViewOptions;
  * a prerender that is never shown counts nothing.
  *
  * Byte-identical to gt-wordpress-plugin's, so the same page counts the same
- * way on either producer.
+ * way on either producer; both repos pin the same literal in a test.
  */
 final class PageViewBeacon
 {
@@ -30,7 +41,7 @@ final class PageViewBeacon
      * The script without its tag, so a nonce can be added to the tag and the
      * injector can recognise a copy placed with or without one.
      */
-    public const SCRIPT_BODY = "(function(){var n=navigator,d=document;function s(){try{n.sendBeacon('".self::PATH."',new Blob([JSON.stringify({p:location.pathname})],{type:'text/plain'}))}catch(e){}}try{if(!n.sendBeacon)return;if(d.prerendering){d.addEventListener('prerenderingchange',s,{once:true})}else{s()}}catch(e){}})();";
+    public const SCRIPT_BODY = "(function(){var n=navigator,d=document,l=location;function s(){try{var b={p:l.pathname},r,u;try{r=new URL(d.referrer).host}catch(e){}if(r&&r!==l.host)b.r=r;try{u=new URLSearchParams(l.search).get('utm_source')}catch(e){}if(u&&u.length<=100)b.u=u;n.sendBeacon('".self::PATH."',new Blob([JSON.stringify(b)],{type:'text/plain'}))}catch(e){}}try{if(!n.sendBeacon)return;if(d.prerendering){d.addEventListener('prerenderingchange',s,{once:true})}else{s()}}catch(e){}})();";
 
     public const SCRIPT = '<script>'.self::SCRIPT_BODY.'</script>';
 

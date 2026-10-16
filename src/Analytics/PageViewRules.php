@@ -19,6 +19,20 @@ final class PageViewRules
     public const BUCKET_AI_BROWSER = 'ai_browser';
 
     /**
+     * The platform of a view no AI answer referred — and of every
+     * ``ai_browser`` view, which says where it came from by its bucket. What
+     * gt-backend stores a missing or unknown platform as, too.
+     */
+    public const PLATFORM_NONE = 'none';
+
+    /**
+     * What a platform may look like: gt-backend's ``agent_platform`` slugs
+     * (``chatgpt``, ``claude``, …). No tab, no ``@`` and nothing upper-case,
+     * so one can never corrupt a counter key (``bucket@platform\tpath``).
+     */
+    public const PLATFORM_PATTERN = '/^[a-z0-9_-]{1,32}$/D';
+
+    /**
      * Where increments go once a day already counts 2000 distinct paths. A
      * literal the backend accepts in place of a path, and one no client can
      * send (it does not start with ``/``).

@@ -27,6 +27,15 @@ use Symfony\Contracts\Service\ResetInterface;
  *
  * A list older than {@see STALE_AFTER_SECONDS} (or none) answers ``null``:
  * stale data degrades verification, never capture.
+ *
+ * The same document carries the AI referrer list (``aiReferrers``) the
+ * page-view counter matches against. This fetch stores it too, but through
+ * {@see AiReferrers} and into its own file: the beacon endpoint reads that one
+ * and must never pay for decoding this one. The two files describe one
+ * document version, so a conditional fetch is made only when both are stored
+ * under the same version — otherwise a ``304`` would confirm a list this
+ * install does not have (the upgrade from 0.8.x, where the backend's version
+ * need not have moved) and it would never arrive.
  */
 final class VendorRanges implements ResetInterface
 {
@@ -68,6 +77,7 @@ final class VendorRanges implements ResetInterface
         private readonly AnalyticsOptions $options,
         private readonly AnalyticsState $state,
         private readonly ClockInterface $clock,
+        private readonly ?AiReferrers $aiReferrers = null,
     ) {
     }
 
@@ -116,30 +126,47 @@ final class VendorRanges implements ResetInterface
     }
 
     /**
-     * One conditional fetch. On a 200 the new list replaces the old; on a 304
-     * the old one is re-stamped as fresh; on anything else it is kept as is.
+     * One fetch, conditional when both lists are stored under one version. On
+     * a 200 the new lists replace the old (a document without ``aiReferrers``
+     * stores two empty ones); on a 304 both are re-stamped as fresh; on
+     * anything else both are kept as they are.
      */
     public function refresh(): void
     {
         $current = $this->stored();
+        $conditional = null !== $current
+            && (null === $this->aiReferrers || $this->aiReferrers->version() === $current['version']);
         $result = $this->transport->fetchRanges(
             $this->url(),
             $this->options->ingestToken(),
-            null === $current ? '' : $current['version'],
+            $conditional ? $current['version'] : '',
         );
 
         $error = '';
         if ($result->isNotModified() && null !== $current) {
             $current['fetched_at'] = $this->now();
-            if (!$this->write($current)) {
+            // A list is restamped only if one is stored: a 304 to the
+            // unconditional request sent while it is missing (a cache in
+            // between) has nothing to confirm, and is not a write failure.
+            if (!$this->write($current)
+                || (null !== $this->aiReferrers && null !== $this->aiReferrers->version() && !$this->aiReferrers->restamp())
+            ) {
                 $error = self::WRITE_ERROR;
             }
         } elseif ($result->isOk()) {
-            $parsed = self::parse($result->body());
+            $decoded = json_decode($result->body(), true);
+            $parsed = \is_array($decoded) ? self::parseDecoded($decoded) : null;
             if (null === $parsed) {
                 $error = 'the range list could not be read';
             } elseif (!$this->write(['version' => $parsed['version'], 'fetched_at' => $this->now(), 'ranges' => $parsed['ranges']])) {
                 $error = self::WRITE_ERROR;
+            } elseif (null !== $this->aiReferrers) {
+                // Written second: if this write fails, the two versions differ
+                // and the next check is unconditional, so a 200 repairs it.
+                $referrers = AiReferrers::parse($decoded['aiReferrers'] ?? null);
+                if (!$this->aiReferrers->store($parsed['version'], $referrers['hosts'], $referrers['utmSources'])) {
+                    $error = self::WRITE_ERROR;
+                }
             }
         } else {
             $error = '' !== $result->errorMessage() ? $result->errorMessage() : 'unexpected response';
@@ -284,19 +311,7 @@ final class VendorRanges implements ResetInterface
             return false;
         }
         $json = json_encode($list, \JSON_UNESCAPED_SLASHES);
-        if (!\is_string($json)) {
-            return false;
-        }
-
-        $path = $this->directory->path(self::FILE);
-        $temp = $path.'.'.bin2hex(random_bytes(4)).'.tmp';
-        if (false === @file_put_contents($temp, $json)) {
-            return false;
-        }
-        $this->directory->share($temp);
-        if (!@rename($temp, $path)) {
-            @unlink($temp);
-
+        if (!\is_string($json) || !$this->directory->replace($this->directory->path(self::FILE), $json)) {
             return false;
         }
         $this->loaded = $list;
@@ -306,18 +321,8 @@ final class VendorRanges implements ResetInterface
     }
 
     /**
-     * The wire (or stored) list, keeping only well-formed ranges.
+     * The wire list, keeping only well-formed ranges.
      *
-     * @return array{version: string, ranges: list<array{platform: string, start: string, end: string}>}|null
-     */
-    private static function parse(string $json): ?array
-    {
-        $decoded = json_decode($json, true);
-
-        return \is_array($decoded) ? self::parseDecoded($decoded) : null;
-    }
-
-    /**
      * @param array<mixed> $decoded
      *
      * @return array{version: string, ranges: list<array{platform: string, start: string, end: string}>}|null

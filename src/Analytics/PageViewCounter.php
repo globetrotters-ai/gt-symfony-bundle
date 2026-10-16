@@ -5,13 +5,17 @@ declare(strict_types=1);
 namespace Globetrotters\AiPresenceBundle\Analytics;
 
 /**
- * First-party page-view counts per UTC day, path and bucket, on the local
- * filesystem next to the event buffer.
+ * First-party page-view counts per UTC day, path, bucket and referring AI
+ * platform, on the local filesystem next to the event buffer.
  *
  * Two kinds of file, one per day:
  *
- * - ``pageviews-<day>.json`` — the **open** day, a map of ``"bucket\tpath"``
- *   to a count, read-modify-written under ``flock(LOCK_EX)`` on every
+ * - ``pageviews-<day>.json`` — the **open** day, a map of
+ *   ``"bucket\tpath"`` (a view no AI answer referred) or
+ *   ``"bucket@platform\tpath"`` (one that {@see AiReferrers} matched) to a
+ *   count. The unattributed key is the 0.8.x key, byte for byte, so a day
+ *   opened before the upgrade keeps counting into the same rows after it.
+ *   Read-modify-written under ``flock(LOCK_EX)`` on every
  *   increment, the same discipline as {@see DroppedCounter}. Concurrent
  *   PHP-FPM workers are the normal case, and an exclusive lock over the file
  *   is what keeps an increment from being lost.
@@ -25,7 +29,8 @@ namespace Globetrotters\AiPresenceBundle\Analytics;
  *   stays on disk and is never sent.
  *
  * Nothing that identifies a visitor ever reaches this class: no IP, no
- * User-Agent string, no cookie. A day, a path, a bucket and a count.
+ * User-Agent string, no cookie, no referrer. A day, a path, a bucket, a
+ * platform slug and a count.
  *
  * Every method degrades instead of throwing. The increment is reached from a
  * request listener, and an unusable directory must cost the page view, never
@@ -58,8 +63,8 @@ final class PageViewCounter
      * identifies an open file when sealing (see {@see self::fingerprint()}) —
      * Linux reuses a freed inode at once and mtime is to the second, so a
      * late-view file recreated just after sealing can otherwise match the
-     * sealed one on inode, mtime and bytes. No ``"bucket\tpath"`` key can
-     * collide with it: it has no tab. (Not a NUL-prefixed key: the file is
+     * sealed one on inode, mtime and bytes. No count key can collide with
+     * it: it has no tab. (Not a NUL-prefixed key: the file is
      * written through an object cast, where PHP reads one as a private property
      * name and json_encode() drops it.).
      */
@@ -85,8 +90,11 @@ final class PageViewCounter
      * Count one view. False when it could not be stored — including when the
      * day's file stays locked for more than a few milliseconds: dropping one
      * view is better than queueing every PHP-FPM worker behind a slow writer.
+     *
+     * A platform that is not a slug ({@see PageViewRules::PLATFORM_PATTERN})
+     * is counted as ``none``: it would otherwise corrupt the key.
      */
-    public function increment(string $day, string $path, string $bucket): bool
+    public function increment(string $day, string $path, string $bucket, string $platform = PageViewRules::PLATFORM_NONE): bool
     {
         if (!self::isDay($day) || !$this->directory->ensure()) {
             return false;
@@ -119,7 +127,7 @@ final class PageViewCounter
 
                     [$counts, $generation] = self::decodeOpen(self::readAll($handle));
                     $generation ??= random_int(1, \PHP_INT_MAX);
-                    $key = self::keyFor($counts, $path, $bucket);
+                    $key = self::keyFor($counts, $path, self::prefix($bucket, $platform));
                     $counts[$key] = ($counts[$key] ?? 0) + 1;
 
                     // Renamed over the file while its lock is still held, so a
@@ -159,7 +167,8 @@ final class PageViewCounter
     }
 
     /**
-     * The open counts for one day, keyed ``"bucket\tpath"``.
+     * The open counts for one day, keyed ``"bucket\tpath"`` or
+     * ``"bucket@platform\tpath"``.
      *
      * @return array<string, int>
      */
@@ -235,7 +244,7 @@ final class PageViewCounter
     /**
      * Sealed records, oldest day first.
      *
-     * @return list<array{id: string, day: string, path: string, bucket: string, count: int}>
+     * @return list<array{id: string, day: string, path: string, bucket: string, platform: string, count: int}>
      */
     public function pending(int $limit): array
     {
@@ -342,8 +351,10 @@ final class PageViewCounter
 
             $records = [];
             foreach (self::decodeCounts($contents) as $key => $count) {
-                [$bucket, $path] = explode("\t", $key, 2);
-                $records[] = ['id' => Uuid::v4(), 'day' => $day, 'path' => $path, 'bucket' => $bucket, 'count' => $count, 'src' => $source];
+                [$prefix, $path] = explode("\t", $key, 2);
+                [$bucket, $platform] = explode('@', $prefix, 2) + [1 => PageViewRules::PLATFORM_NONE];
+                $platform = self::platform($platform);
+                $records[] = ['id' => Uuid::v4(), 'day' => $day, 'path' => $path, 'bucket' => $bucket, 'platform' => $platform, 'count' => $count, 'src' => $source];
             }
 
             if ([] !== $records) {
@@ -378,7 +389,7 @@ final class PageViewCounter
      * Sealed records in their wire form: ``src`` is local bookkeeping and is
      * never sent.
      *
-     * @return list<array{id: string, day: string, path: string, bucket: string, count: int}>
+     * @return list<array{id: string, day: string, path: string, bucket: string, platform: string, count: int}>
      */
     private function sealedRecords(string $day): array
     {
@@ -388,6 +399,7 @@ final class PageViewCounter
                 'day' => $record['day'],
                 'path' => $record['path'],
                 'bucket' => $record['bucket'],
+                'platform' => $record['platform'],
                 'count' => $record['count'],
             ],
             $this->storedRecords($day),
@@ -395,9 +407,11 @@ final class PageViewCounter
     }
 
     /**
-     * Sealed records as stored, with the ``src`` fingerprint when present.
+     * Sealed records as stored, with the ``src`` fingerprint when present. A
+     * record sealed by 0.8.x has no ``platform`` and reads as ``none``, so a
+     * day sealed but not yet sent before the upgrade goes out unchanged.
      *
-     * @return list<array{id: string, day: string, path: string, bucket: string, count: int, src?: string}>
+     * @return list<array{id: string, day: string, path: string, bucket: string, platform: string, count: int, src?: string}>
      */
     private function storedRecords(string $day): array
     {
@@ -420,6 +434,7 @@ final class PageViewCounter
                     'day' => $day,
                     'path' => $record['path'],
                     'bucket' => $record['bucket'],
+                    'platform' => self::platform($record['platform'] ?? null),
                     'count' => $record['count'],
                 ];
                 if (\is_string($record['src'] ?? null)) {
@@ -436,7 +451,7 @@ final class PageViewCounter
      * Write a whole file by atomic rename, so a reader sees the old contents
      * or the new, never a truncated one.
      *
-     * @param list<array{id: string, day: string, path: string, bucket: string, count: int, src?: string}> $records
+     * @param list<array{id: string, day: string, path: string, bucket: string, platform: string, count: int, src?: string}> $records
      */
     private function replace(string $path, array $records): bool
     {
@@ -451,37 +466,47 @@ final class PageViewCounter
     private function replaceJson(string $path, mixed $data): bool
     {
         $json = json_encode($data, self::JSON_FLAGS);
-        if (!\is_string($json)) {
-            return false;
-        }
 
-        $temporary = $path.'.'.bin2hex(random_bytes(6)).'.tmp';
-        if (\strlen($json) !== @file_put_contents($temporary, $json)) {
-            @unlink($temporary);
+        return \is_string($json) && $this->directory->replace($path, $json);
+    }
 
-            return false;
-        }
-        $this->directory->share($temporary);
-        if (!@rename($temporary, $path)) {
-            @unlink($temporary);
+    /**
+     * What goes before the tab: the bucket alone for an unattributed view, as
+     * in 0.8.x, or ``bucket@platform``.
+     */
+    private static function prefix(string $bucket, string $platform): string
+    {
+        $platform = self::platform($platform);
 
-            return false;
-        }
+        return PageViewRules::PLATFORM_NONE === $platform ? $bucket : $bucket.'@'.$platform;
+    }
 
-        return true;
+    /**
+     * A platform slug ({@see PageViewRules::PLATFORM_PATTERN}), or ``none``.
+     * Applied where a platform enters the counter and again where one is read
+     * back from disk, so a key or record edited by hand (or left by another
+     * build) can never put anything else on the wire.
+     */
+    private static function platform(mixed $platform): string
+    {
+        return \is_string($platform) && 1 === preg_match(PageViewRules::PLATFORM_PATTERN, $platform)
+            ? $platform
+            : PageViewRules::PLATFORM_NONE;
     }
 
     /**
      * The key an increment lands on: the path's own, or ``(other)`` once the
      * day counts {@see self::MAX_PATHS_PER_DAY} distinct paths and this is a
      * new one. The cap is on paths, not keys, so a counted path keeps its
-     * name in a bucket it had not been seen in.
+     * name in a bucket or platform row it had not been seen in, and a path's
+     * rows are kept or folded together. A folded row keeps its prefix, so the
+     * views under ``(other)`` still say where they came from.
      *
      * @param array<string, int> $counts
      */
-    private static function keyFor(array $counts, string $path, string $bucket): string
+    private static function keyFor(array $counts, string $path, string $prefix): string
     {
-        $key = $bucket."\t".$path;
+        $key = $prefix."\t".$path;
         if (isset($counts[$key]) || PageViewRules::OTHER_PATH === $path) {
             return $key;
         }
@@ -496,7 +521,7 @@ final class PageViewCounter
         unset($paths[PageViewRules::OTHER_PATH]);
 
         return \count($paths) >= self::MAX_PATHS_PER_DAY
-            ? $bucket."\t".PageViewRules::OTHER_PATH
+            ? $prefix."\t".PageViewRules::OTHER_PATH
             : $key;
     }
 
@@ -601,7 +626,7 @@ final class PageViewCounter
     }
 
     /**
-     * The ``"bucket\tpath"`` counts only. The generation entry has no tab, so
+     * The counts only, every key holding a tab. The generation entry has none, so
      * it never reaches counts(), openViews(), the path cap or a sealed record;
      * {@see self::generation()} reads it.
      *

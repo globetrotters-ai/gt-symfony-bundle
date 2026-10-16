@@ -108,6 +108,32 @@ final class BufferDirectory
     }
 
     /**
+     * Replace a whole file atomically: write a temporary file beside it, give
+     * it the shared mode, and rename it over the original, so a reader — or a
+     * worker holding the old inode's lock — sees the old contents or the new,
+     * never a truncated file. A short write (a full disk) or a failed rename
+     * removes the temporary file rather than leave it behind. Needs write
+     * access on the directory only, not on a file another user owns.
+     */
+    public function replace(string $path, string $contents): bool
+    {
+        $temporary = $path.'.'.bin2hex(random_bytes(6)).'.tmp';
+        if (\strlen($contents) !== @file_put_contents($temporary, $contents)) {
+            @unlink($temporary);
+
+            return false;
+        }
+        $this->share($temporary);
+        if (!@rename($temporary, $path)) {
+            @unlink($temporary);
+
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
      * Open a file to lock it, creating it with $mode when missing.
      *
      * Falls back to a read-only handle when the file exists but this user may

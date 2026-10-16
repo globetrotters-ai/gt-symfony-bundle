@@ -8,6 +8,7 @@ use Globetrotters\AiPresenceBundle\Analytics\BufferDirectory;
 use Globetrotters\AiPresenceBundle\Analytics\PageViewCounter;
 use Globetrotters\AiPresenceBundle\Analytics\PageViewRules;
 use Globetrotters\AiPresenceBundle\Tests\Support\TempDirectory;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 final class PageViewCounterTest extends TestCase
@@ -235,7 +236,7 @@ final class PageViewCounterTest extends TestCase
         $raw = json_decode((string) file_get_contents($this->dir.'/pageviews-sealed-2026-09-26.json'), true);
         self::assertIsArray($raw);
         self::assertIsString($raw[0]['src'], 'the sealed file carries the fingerprint');
-        self::assertSame(['id', 'day', 'path', 'bucket', 'count'], array_keys($this->counter->pending(10)[0]));
+        self::assertSame(['id', 'day', 'path', 'bucket', 'platform', 'count'], array_keys($this->counter->pending(10)[0]));
     }
 
     public function testRemovingSomeRecordsKeepsTheFingerprintOnTheRest(): void
@@ -400,12 +401,12 @@ final class PageViewCounterTest extends TestCase
     }
 
     /**
-     * Privacy by construction: what lands on disk is a day, a path, a bucket
-     * and a count — nothing that identifies a visitor. The one other field is
-     * ``src``, a sha1 of the random generation of the open file it was sealed
-     * from, which is bookkeeping about a file, not a visitor.
+     * Privacy by construction: what lands on disk is a day, a path, a bucket,
+     * a platform and a count — nothing that identifies a visitor. The one
+     * other field is ``src``, a sha1 of the random generation of the open file
+     * it was sealed from, which is bookkeeping about a file, not a visitor.
      */
-    public function testWritesNothingButDayPathBucketAndCount(): void
+    public function testWritesNothingButDayPathBucketPlatformAndCount(): void
     {
         $this->counter->increment('2026-09-26', '/a', PageViewRules::BUCKET_BROWSER);
         $this->counter->seal('2026-09-27');
@@ -415,7 +416,167 @@ final class PageViewCounterTest extends TestCase
 
         $records = json_decode((string) file_get_contents($this->dir.'/'.$files[0]), true);
         self::assertIsArray($records);
-        self::assertSame(['id', 'day', 'path', 'bucket', 'count', 'src'], array_keys($records[0]));
+        self::assertSame(['id', 'day', 'path', 'bucket', 'platform', 'count', 'src'], array_keys($records[0]));
+        self::assertSame(PageViewRules::PLATFORM_NONE, $records[0]['platform']);
         self::assertMatchesRegularExpression('/^[0-9a-f]{40}$/', $records[0]['src']);
+    }
+
+    /**
+     * An unmatched view keeps the 0.8.x key, byte for byte, so an open day
+     * written before the upgrade keeps counting into the same row after it.
+     */
+    public function testCountsAPlatformInItsOwnRowAndNoneUnderTheOldKey(): void
+    {
+        $this->counter->increment('2026-09-26', '/a', PageViewRules::BUCKET_BROWSER);
+        $this->counter->increment('2026-09-26', '/a', PageViewRules::BUCKET_BROWSER, PageViewRules::PLATFORM_NONE);
+        $this->counter->increment('2026-09-26', '/a', PageViewRules::BUCKET_BROWSER, 'chatgpt');
+        $this->counter->increment('2026-09-26', '/a', PageViewRules::BUCKET_BROWSER, 'chatgpt');
+        $this->counter->increment('2026-09-26', '/a', PageViewRules::BUCKET_BROWSER, 'claude');
+
+        self::assertSame([
+            "browser\t/a" => 2,
+            "browser@chatgpt\t/a" => 2,
+            "browser@claude\t/a" => 1,
+        ], $this->counter->counts('2026-09-26'));
+        self::assertSame(5, $this->counter->openViews());
+    }
+
+    /**
+     * A platform is a short slug; anything else would corrupt the key or the
+     * wire, so it is counted — as ``none``.
+     *
+     * @return iterable<string, array{string}>
+     */
+    public static function malformedPlatforms(): iterable
+    {
+        yield 'empty' => [''];
+        yield 'a tab' => ["chatgpt\t/evil"];
+        yield 'the separator' => ['chat@gpt'];
+        yield 'upper case' => ['ChatGPT'];
+        yield 'too long' => [str_repeat('p', 33)];
+    }
+
+    #[DataProvider('malformedPlatforms')]
+    public function testAMalformedPlatformCountsAsNone(string $platform): void
+    {
+        self::assertTrue($this->counter->increment('2026-09-26', '/a', PageViewRules::BUCKET_BROWSER, $platform));
+
+        self::assertSame(["browser\t/a" => 1], $this->counter->counts('2026-09-26'));
+    }
+
+    public function testSealsThePlatformIntoEachRecord(): void
+    {
+        $this->counter->increment('2026-09-26', '/a', PageViewRules::BUCKET_BROWSER);
+        $this->counter->increment('2026-09-26', '/a', PageViewRules::BUCKET_BROWSER, 'chatgpt');
+        $this->counter->increment('2026-09-26', '/a', PageViewRules::BUCKET_AI_BROWSER);
+
+        self::assertSame(3, $this->counter->seal('2026-09-27'));
+
+        $records = array_map(static fn (array $record): array => \array_slice($record, 1), $this->counter->pending(10));
+        self::assertSame([
+            ['day' => '2026-09-26', 'path' => '/a', 'bucket' => 'browser', 'platform' => 'none', 'count' => 1],
+            ['day' => '2026-09-26', 'path' => '/a', 'bucket' => 'browser', 'platform' => 'chatgpt', 'count' => 1],
+            ['day' => '2026-09-26', 'path' => '/a', 'bucket' => 'ai_browser', 'platform' => 'none', 'count' => 1],
+        ], $records);
+    }
+
+    /**
+     * The cap counts paths, not rows: a path's platform rows are kept or
+     * folded into ``(other)`` together, and a folded row keeps its platform.
+     */
+    public function testAPathsPlatformRowsAreKeptOrFoldedTogether(): void
+    {
+        for ($i = 0; $i < PageViewCounter::MAX_PATHS_PER_DAY; ++$i) {
+            $this->counter->increment('2026-09-26', '/p'.$i, PageViewRules::BUCKET_BROWSER);
+        }
+
+        // A counted path gains a platform row without taking a slot.
+        $this->counter->increment('2026-09-26', '/p0', PageViewRules::BUCKET_BROWSER, 'chatgpt');
+        // A new path is folded, in its platform's own (other) row.
+        $this->counter->increment('2026-09-26', '/new-path', PageViewRules::BUCKET_BROWSER, 'chatgpt');
+        $this->counter->increment('2026-09-26', '/new-path', PageViewRules::BUCKET_BROWSER);
+
+        $counts = $this->counter->counts('2026-09-26');
+        self::assertSame(1, $counts["browser@chatgpt\t/p0"]);
+        self::assertSame(1, $counts["browser@chatgpt\t(other)"]);
+        self::assertSame(1, $counts["browser\t(other)"]);
+        self::assertArrayNotHasKey("browser@chatgpt\t/new-path", $counts);
+        self::assertArrayNotHasKey("browser\t/new-path", $counts);
+    }
+
+    public function testAPlatformRowCountsTowardsTheCapAsItsPath(): void
+    {
+        for ($i = 0; $i < PageViewCounter::MAX_PATHS_PER_DAY - 1; ++$i) {
+            $this->counter->increment('2026-09-26', '/p'.$i, PageViewRules::BUCKET_BROWSER);
+        }
+        // The 2000th distinct path arrives only as a platform row.
+        $this->counter->increment('2026-09-26', '/last', PageViewRules::BUCKET_BROWSER, 'claude');
+        $this->counter->increment('2026-09-26', '/last', PageViewRules::BUCKET_BROWSER);
+        $this->counter->increment('2026-09-26', '/one-too-many', PageViewRules::BUCKET_BROWSER);
+
+        $counts = $this->counter->counts('2026-09-26');
+        self::assertSame(1, $counts["browser@claude\t/last"]);
+        self::assertSame(1, $counts["browser\t/last"], 'the same path in another row takes no new slot');
+        self::assertSame(1, $counts["browser\t(other)"]);
+    }
+
+    /**
+     * An open day written by 0.8.x, before platforms, keeps counting and seals
+     * as ``none``.
+     */
+    public function testAnOpenDayWrittenBy08xKeepsCounting(): void
+    {
+        file_put_contents($this->dir.'/pageviews-2026-09-26.json', '{"#gen":12345,"browser\t/a":3,"ai_browser\t/a":1}');
+
+        $this->counter->increment('2026-09-26', '/a', PageViewRules::BUCKET_BROWSER);
+        $this->counter->increment('2026-09-26', '/a', PageViewRules::BUCKET_BROWSER, 'chatgpt');
+
+        self::assertSame(["browser\t/a" => 4, "ai_browser\t/a" => 1, "browser@chatgpt\t/a" => 1], $this->counter->counts('2026-09-26'));
+        $this->counter->seal('2026-09-27');
+        self::assertSame(
+            [['browser', 'none', 4], ['ai_browser', 'none', 1], ['browser', 'chatgpt', 1]],
+            array_map(static fn (array $record): array => [$record['bucket'], $record['platform'], $record['count']], $this->counter->pending(10)),
+        );
+    }
+
+    /**
+     * A platform is checked where it enters and again where it is read back,
+     * so a key or a sealed record edited by hand never puts anything but a
+     * slug on the wire.
+     */
+    public function testAMalformedPlatformOnDiskIsSentAsNone(): void
+    {
+        file_put_contents($this->dir.'/pageviews-2026-09-25.json', '{"#gen":7,"browser@\t/a":2,"browser@Chat GPT\t/b":1}');
+        file_put_contents(
+            $this->dir.'/pageviews-sealed-2026-09-26.json',
+            '[{"id":"0b5e3c2a-1f4d-4e6b-9a8c-7d2e1f0a3b4c","day":"2026-09-26","path":"/c","bucket":"browser","platform":"chat\tgpt","count":1},'
+            .'{"id":"1b5e3c2a-1f4d-4e6b-9a8c-7d2e1f0a3b4c","day":"2026-09-26","path":"/d","bucket":"browser","platform":42,"count":1}]',
+        );
+
+        $this->counter->seal('2026-09-27');
+
+        self::assertSame(
+            [['/a', 'none'], ['/b', 'none'], ['/c', 'none'], ['/d', 'none']],
+            array_map(static fn (array $record): array => [$record['path'], $record['platform']], $this->counter->pending(10)),
+        );
+    }
+
+    /**
+     * A day 0.8.x sealed but did not send before the upgrade goes out as
+     * ``none``, with the id it was sealed under.
+     */
+    public function testARecordSealedBy08xIsSentAsNone(): void
+    {
+        $id = '0b5e3c2a-1f4d-4e6b-9a8c-7d2e1f0a3b4c';
+        file_put_contents(
+            $this->dir.'/pageviews-sealed-2026-09-26.json',
+            '[{"id":"'.$id.'","day":"2026-09-26","path":"/a","bucket":"browser","count":3,"src":"'.sha1('x').'"}]',
+        );
+
+        self::assertSame(
+            [['id' => $id, 'day' => '2026-09-26', 'path' => '/a', 'bucket' => 'browser', 'platform' => 'none', 'count' => 3]],
+            $this->counter->pending(10),
+        );
+        self::assertSame(1, $this->counter->remove([$id]));
     }
 }

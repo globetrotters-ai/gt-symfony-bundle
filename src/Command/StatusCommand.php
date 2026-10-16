@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Globetrotters\AiPresenceBundle\Command;
 
+use Globetrotters\AiPresenceBundle\Analytics\AiReferrers;
 use Globetrotters\AiPresenceBundle\Analytics\AnalyticsOptions;
 use Globetrotters\AiPresenceBundle\Analytics\AnalyticsState;
 use Globetrotters\AiPresenceBundle\Analytics\BufferDirectory;
@@ -49,6 +50,7 @@ final class StatusCommand extends Command
         private readonly ?PageViewOptions $pageViewOptions = null,
         private readonly ?PageViewCounter $pageViews = null,
         private readonly ?VendorRanges $ranges = null,
+        private readonly ?AiReferrers $aiReferrers = null,
     ) {
         parent::__construct();
     }
@@ -170,6 +172,7 @@ final class StatusCommand extends Command
             ['Site events sent', (string) (int) $state['site_events_sent']],
             ['AI vendor ranges', $this->rangesStatus()],
             ['Page views', $this->pageViewMode()],
+            ['AI referrer list', $this->aiReferrersStatus()],
             ['Page views pending', $usable && null !== $this->pageViews
                 ? \sprintf('%d record(s) sealed; %d view(s) counted on open days', $this->pageViews->pendingRecords(), $this->pageViews->openViews())
                 : '—'],
@@ -233,6 +236,38 @@ final class StatusCommand extends Command
             $days,
             1 === $days ? '' : 's',
             $suffix,
+        );
+    }
+
+    /**
+     * The list the page-view counter attributes AI referrals with. Fetched
+     * with the vendor ranges, so a fetch error shows on that row.
+     */
+    private function aiReferrersStatus(): string
+    {
+        if (null === $this->aiReferrers) {
+            return '-';
+        }
+        $fetched = $this->aiReferrers->fetchedAt();
+        if (null === $fetched) {
+            return 'not fetched yet, so no page view is attributed to an AI answer (fetched with the AI vendor ranges)';
+        }
+
+        $days = intdiv(max(0, time() - $fetched), 86400);
+        $hosts = $this->aiReferrers->hostCount();
+        $sources = $this->aiReferrers->utmSourceCount();
+
+        return \sprintf(
+            '%s, version %s, %d host%s, %d utm_source value%s, fetched %s UTC (%d day%s ago)',
+            $this->aiReferrers->isStale() ? 'STALE, so no page view is attributed to an AI answer' : 'fresh',
+            $this->aiReferrers->version() ?? '-',
+            $hosts,
+            1 === $hosts ? '' : 's',
+            $sources,
+            1 === $sources ? '' : 's',
+            gmdate('Y-m-d H:i:s', $fetched),
+            $days,
+            1 === $days ? '' : 's',
         );
     }
 

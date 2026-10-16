@@ -236,7 +236,7 @@ final class Flusher
     }
 
     /**
-     * @return list<array{id: string, day: string, path: string, bucket: string, count: int}>
+     * @return list<array{id: string, day: string, path: string, bucket: string, platform: string, count: int}>
      */
     private function pendingPageViews(int $limit): array
     {
@@ -268,10 +268,10 @@ final class Flusher
      * each the record steps aside so the event can be tried alone. Whatever is
      * left over stays buffered for the next batch rather than being discarded.
      *
-     * @param list<Event>                                                                    $claimed
-     * @param list<array{id: string, day: string, path: string, bucket: string, count: int}> $pageViews
+     * @param list<Event>                                                                                      $claimed
+     * @param list<array{id: string, day: string, path: string, bucket: string, platform: string, count: int}> $pageViews
      *
-     * @return array{events: list<Event>, pageViews: list<array{id: string, day: string, path: string, bucket: string, count: int}>, json: string}
+     * @return array{events: list<Event>, pageViews: list<array{id: string, day: string, path: string, bucket: string, platform: string, count: int}>, json: string}
      */
     private function fit(array $claimed, int $dropped, array $pageViews): array
     {
@@ -322,8 +322,8 @@ final class Flusher
      * install that does not count page views sends exactly the envelope it
      * always has.
      *
-     * @param list<Event>                                                                    $events
-     * @param list<array{id: string, day: string, path: string, bucket: string, count: int}> $pageViews
+     * @param list<Event>                                                                                      $events
+     * @param list<array{id: string, day: string, path: string, bucket: string, platform: string, count: int}> $pageViews
      */
     private function encode(array $events, int $dropped, array $pageViews): string
     {

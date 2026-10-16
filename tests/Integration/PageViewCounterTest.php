@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Globetrotters\AiPresenceBundle\Tests\Integration;
 
+use Globetrotters\AiPresenceBundle\Analytics\AiReferrers;
 use Globetrotters\AiPresenceBundle\Analytics\BufferDirectory;
 use Globetrotters\AiPresenceBundle\Analytics\PageViewCounter;
 use Globetrotters\AiPresenceBundle\Analytics\PageViewRules;
@@ -11,6 +12,7 @@ use Globetrotters\AiPresenceBundle\Serving\PageViewBeacon;
 use Globetrotters\AiPresenceBundle\Serving\Router;
 use Globetrotters\AiPresenceBundle\Tests\Fixtures\CookieStampingListener;
 use Globetrotters\AiPresenceBundle\Tests\Fixtures\TestKernel;
+use Symfony\Component\Clock\NativeClock;
 use Symfony\Component\Console\Command\Command;
 use Twig\Environment;
 
@@ -120,9 +122,63 @@ final class PageViewCounterTest extends IntegrationTestCase
         $envelope = $this->transport()->envelopes()[0];
         self::assertSame([], $envelope['events']);
         self::assertCount(1, $envelope['pageViews']);
-        self::assertSame(['day' => $yesterday, 'path' => '/visiter/marche', 'bucket' => 'browser', 'count' => 2], \array_slice($envelope['pageViews'][0], 1));
+        self::assertSame(['day' => $yesterday, 'path' => '/visiter/marche', 'bucket' => 'browser', 'platform' => 'none', 'count' => 2], \array_slice($envelope['pageViews'][0], 1));
         self::assertSame([], $this->counter()->pending(10));
         self::assertStringContainsString('1 page-view record', $tester->getDisplay());
+    }
+
+    /**
+     * The PRD's acceptance run, end to end on the kernel: a referred visit, a
+     * tagged visit and a plain one to the same page, matched against the list
+     * the ranges sync stored, flushed the next day as 2 ``chatgpt`` views and
+     * 1 ``none`` — and neither the referrer nor the parameter on disk.
+     */
+    public function testAViewFromAnAiAnswerIsCountedUnderItsPlatformAndFlushed(): void
+    {
+        $client = $this->bootClient();
+        (new AiReferrers(new BufferDirectory($this->bufferDir()), new NativeClock()))
+            ->store('3f2a9c1e0b7d', ['chatgpt.com' => 'chatgpt'], ['chatgpt.com' => 'chatgpt']);
+
+        foreach (['{"p":"/x","r":"chatgpt.com"}', '{"p":"/x","u":"chatgpt.com"}', '{"p":"/x"}'] as $body) {
+            $client->request('POST', PageViewBeacon::PATH, server: [
+                'HTTP_HOST' => self::HOST,
+                'HTTP_ORIGIN' => 'https://'.self::HOST,
+                'HTTP_USER_AGENT' => self::CHROME,
+                'CONTENT_TYPE' => 'text/plain;charset=UTF-8',
+            ], content: $body);
+            self::assertSame(204, $client->getResponse()->getStatusCode());
+        }
+
+        $today = gmdate('Y-m-d');
+        self::assertSame(["browser@chatgpt\t/x" => 2, "browser\t/x" => 1], $this->counter()->counts($today));
+        foreach (glob($this->bufferDir().'/pageviews-*') ?: [] as $file) {
+            self::assertStringNotContainsString('chatgpt.com', (string) file_get_contents($file));
+            self::assertStringNotContainsString('utm_source', (string) file_get_contents($file));
+        }
+
+        // Next day: the flush seals and sends yesterday.
+        rename($this->bufferDir().'/pageviews-'.$today.'.json', $this->bufferDir().'/pageviews-'.gmdate('Y-m-d', time() - 86400).'.json');
+        $tester = $this->runCommand('gt:presence:flush', ['--force' => true]);
+
+        self::assertSame(Command::SUCCESS, $tester->getStatusCode(), $tester->getDisplay());
+        $records = $this->transport()->envelopes()[0]['pageViews'];
+        self::assertSame(
+            [['/x', 'browser', 'chatgpt', 2], ['/x', 'browser', 'none', 1]],
+            array_map(static fn (array $record): array => [$record['path'], $record['bucket'], $record['platform'], $record['count']], $records),
+        );
+        self::assertStringNotContainsString('chatgpt.com', $this->transport()->sent[0]['json']);
+    }
+
+    public function testStatusShowsTheAiReferrerList(): void
+    {
+        $this->bootClient();
+
+        self::assertMatchesRegularExpression('/AI referrer list\s+not fetched yet/', $this->runCommand('gt:status')->getDisplay());
+
+        (new AiReferrers(new BufferDirectory($this->bufferDir()), new NativeClock()))
+            ->store('3f2a9c1e0b7d', ['chatgpt.com' => 'chatgpt', 'claude.ai' => 'claude'], ['perplexity' => 'perplexity']);
+
+        self::assertMatchesRegularExpression('/AI referrer list\s+fresh, version 3f2a9c1e0b7d, 2 hosts, 1 utm_source value/', $this->runCommand('gt:status')->getDisplay());
     }
 
     public function testStatusShowsPendingPageViews(): void
