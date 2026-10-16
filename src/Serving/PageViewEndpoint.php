@@ -32,7 +32,8 @@ use Symfony\Component\HttpKernel\KernelEvents;
  *   else is answered and discarded.
  * - Reads a body of at most 1 KB, ``{"p": "<path>", "r": "<host>", "u":
  *   "<utm_source>"}``, and counts the path only if the backend would keep it
- *   ({@see PageViewRules::normalizePath()}).
+ *   ({@see PageViewRules::normalizePath()}). An unpaired surrogate (half an
+ *   emoji) in one value costs that value, not the view.
  * - Matches the User-Agent against two coarse patterns and keeps the bucket,
  *   never the string. An obvious bot is not counted at all.
  * - For a ``browser`` view, matches the referrer host ``r`` and the
@@ -197,7 +198,29 @@ final class PageViewEndpoint implements EventSubscriberInterface
         }
 
         $decoded = json_decode($body, true);
+        if (null === $decoded && \JSON_ERROR_UTF16 === json_last_error()) {
+            $decoded = json_decode(self::withoutUnpairedSurrogates($body), true);
+        }
 
         return \is_array($decoded) ? $decoded : [];
+    }
+
+    /**
+     * The body with every unpaired UTF-16 surrogate escape (``\ud83d`` alone:
+     * half an emoji, which ``JSON.stringify`` writes and PHP refuses to
+     * decode) replaced by ``\u0000``, so one bad value costs that value and
+     * not the view. A NUL is refused in ``p`` by
+     * {@see PageViewRules::normalizePath()} and can never match the AI
+     * referrer list in ``r`` or ``u``. Valid pairs, and a ``\u`` that is an
+     * escaped backslash followed by text, are left as they are. Only reached
+     * once a decode has already failed this way.
+     */
+    private static function withoutUnpairedSurrogates(string $body): string
+    {
+        return (string) preg_replace_callback(
+            '/(?<!\\\\)((?:\\\\\\\\)*)(\\\\ud[89ab][0-9a-f]{2}\\\\ud[c-f][0-9a-f]{2}|\\\\ud[89a-f][0-9a-f]{2})/i',
+            static fn (array $match): string => $match[1].(12 === \strlen($match[2]) ? $match[2] : '\u0000'),
+            $body,
+        );
     }
 }

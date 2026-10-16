@@ -16,7 +16,7 @@ final class PageViewBeaconTest extends TestCase
      * the two producers must count the same page the same way. Change both
      * together, and the README's copy with them.
      */
-    public const SCRIPT_BODY = "(function(){var n=navigator,d=document,l=location;function s(){try{var b={p:l.pathname},r,u;try{r=new URL(d.referrer).host}catch(e){}if(r&&r!==l.host)b.r=r;try{u=new URLSearchParams(l.search).get('utm_source')}catch(e){}if(u)b.u=u.slice(0,100);n.sendBeacon('/.well-known/globetrotters/pv',new Blob([JSON.stringify(b)],{type:'text/plain'}))}catch(e){}}try{if(!n.sendBeacon)return;if(d.prerendering){d.addEventListener('prerenderingchange',s,{once:true})}else{s()}}catch(e){}})();";
+    public const SCRIPT_BODY = "(function(){var n=navigator,d=document,l=location;function s(){try{var b={p:l.pathname},r,u;try{r=new URL(d.referrer).host}catch(e){}if(r&&r!==l.host)b.r=r;try{u=new URLSearchParams(l.search).get('utm_source')}catch(e){}if(u&&u.length<=100)b.u=u;n.sendBeacon('/.well-known/globetrotters/pv',new Blob([JSON.stringify(b)],{type:'text/plain'}))}catch(e){}}try{if(!n.sendBeacon)return;if(d.prerendering){d.addEventListener('prerenderingchange',s,{once:true})}else{s()}}catch(e){}})();";
 
     public function testIsTheDocumentedScript(): void
     {
@@ -61,7 +61,8 @@ final class PageViewBeaconTest extends TestCase
         self::assertStringContainsString('new URL(d.referrer).host', $script, 'the host only, never the referrer URL');
         self::assertStringContainsString('if(r&&r!==l.host)b.r=r', $script, 'never the page\'s own host');
         self::assertStringContainsString(".get('utm_source')", $script, 'one parameter, not the query string');
-        self::assertStringContainsString('if(u)b.u=u.slice(0,100)', $script, 'capped well under the 1 KB body');
+        self::assertStringContainsString('if(u&&u.length<=100)b.u=u;', $script, 'an over-long value is dropped, never cut mid-character');
+        self::assertStringNotContainsString('slice(', $script);
         self::assertStringNotContainsString('location.search', $script);
         self::assertStringNotContainsString('d.referrer)', str_replace('new URL(d.referrer)', '', $script), 'the referrer is only ever parsed');
     }

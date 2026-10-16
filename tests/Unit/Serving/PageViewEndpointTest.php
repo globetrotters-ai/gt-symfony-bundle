@@ -351,6 +351,47 @@ final class PageViewEndpointTest extends TestCase
     }
 
     /**
+     * A browser hands the script UTF-16, and ``JSON.stringify`` writes an
+     * unpaired surrogate (half an emoji) as an escape that PHP refuses to
+     * decode. That costs the referral match, never the view.
+     *
+     * @return iterable<string, array{string, array<string, int>}>
+     */
+    public static function unpairedSurrogates(): iterable
+    {
+        yield 'a lone high surrogate in u' => ['{"p":"/x","u":"\ud83d"}', ["browser\t/x" => 1]];
+        yield 'a lone low surrogate in u' => ['{"p":"/x","u":"a\ude00b"}', ["browser\t/x" => 1]];
+        yield 'reversed pair in r' => ['{"p":"/x","r":"\ude00\ud83d"}', ["browser\t/x" => 1]];
+        yield 'beside a host that still matches' => ['{"p":"/x","r":"chatgpt.com","u":"\ud83d"}', ["browser@chatgpt\t/x" => 1]];
+        yield 'a valid pair is untouched' => ['{"p":"/x","u":"😀"}', ["browser\t/x" => 1]];
+        yield 'an escaped backslash is not an escape' => ['{"p":"/x","u":"\\\\ud83d"}', ["browser\t/x" => 1]];
+    }
+
+    /**
+     * @param array<string, int> $counted
+     */
+    #[DataProvider('unpairedSurrogates')]
+    public function testAnUnpairedSurrogateCostsTheMatchNotTheView(string $body, array $counted): void
+    {
+        $this->storeReferrers();
+
+        $this->handle($this->beacon(body: $body));
+
+        self::assertSame($counted, $this->counter->counts(self::TODAY));
+    }
+
+    /**
+     * An unpaired surrogate in ``p`` is still refused: a path the backend
+     * would keep is valid UTF-8.
+     */
+    public function testAnUnpairedSurrogateInThePathIsNotCounted(): void
+    {
+        $this->handle($this->beacon(body: '{"p":"/x\ud83d"}'));
+
+        self::assertSame([], $this->counter->counts(self::TODAY));
+    }
+
+    /**
      * AC7: with the synced list gone, the view is still counted — as ``none``.
      */
     public function testWithoutTheListAReferredViewCountsAsNone(): void

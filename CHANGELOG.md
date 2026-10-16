@@ -33,10 +33,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **The beacon script** posts `{p, r, u}` instead of `{p}` and is now 495
+- **The beacon script** posts `{p, r, u}` instead of `{p}` and is now 497
   bytes. It stays byte-identical to `gt-wordpress-plugin` 0.9.0's. A
   Content-Security-Policy nonce or hash you pinned to the old script must be
-  updated.
+  updated. A `utm_source` over 100 characters is left out rather than cut, so
+  a cut can never split an emoji; the endpoint likewise reads a value holding
+  half an emoji as no value, and still counts the view.
 - **Page-view records carry a `platform`** (`none` when unmatched), and a
   day's counts are kept per path, bucket and platform. The 2,000-paths-a-day
   cap still counts paths, so a path's platform rows are kept or folded into

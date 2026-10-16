@@ -17,8 +17,9 @@ use Globetrotters\AiPresenceBundle\Analytics\PageViewOptions;
  * The body is ``{p, r, u}`` and nothing else: ``p`` the path (never the query
  * string), ``r`` the **host** of ``document.referrer`` — only when it differs
  * from the page's own, and never the referrer URL — and ``u`` the page's
- * ``utm_source`` value, capped at 100 characters. ``r`` and ``u`` are what the
- * endpoint matches against the AI referrer list; each is sent only when
+ * ``utm_source`` value — left out when over 100 characters rather than cut,
+ * since a cut could split an emoji and leave the body undecodable. ``r`` and
+ * ``u`` are what the endpoint matches against the AI referrer list; each is sent only when
  * present, and a referrer that does not parse is left out rather than fail
  * the count. Under the browsers' default ``strict-origin-when-cross-origin``
  * policy a cross-site referrer is already reduced to its origin, so the host
@@ -40,7 +41,7 @@ final class PageViewBeacon
      * The script without its tag, so a nonce can be added to the tag and the
      * injector can recognise a copy placed with or without one.
      */
-    public const SCRIPT_BODY = "(function(){var n=navigator,d=document,l=location;function s(){try{var b={p:l.pathname},r,u;try{r=new URL(d.referrer).host}catch(e){}if(r&&r!==l.host)b.r=r;try{u=new URLSearchParams(l.search).get('utm_source')}catch(e){}if(u)b.u=u.slice(0,100);n.sendBeacon('".self::PATH."',new Blob([JSON.stringify(b)],{type:'text/plain'}))}catch(e){}}try{if(!n.sendBeacon)return;if(d.prerendering){d.addEventListener('prerenderingchange',s,{once:true})}else{s()}}catch(e){}})();";
+    public const SCRIPT_BODY = "(function(){var n=navigator,d=document,l=location;function s(){try{var b={p:l.pathname},r,u;try{r=new URL(d.referrer).host}catch(e){}if(r&&r!==l.host)b.r=r;try{u=new URLSearchParams(l.search).get('utm_source')}catch(e){}if(u&&u.length<=100)b.u=u;n.sendBeacon('".self::PATH."',new Blob([JSON.stringify(b)],{type:'text/plain'}))}catch(e){}}try{if(!n.sendBeacon)return;if(d.prerendering){d.addEventListener('prerenderingchange',s,{once:true})}else{s()}}catch(e){}})();";
 
     public const SCRIPT = '<script>'.self::SCRIPT_BODY.'</script>';
 
