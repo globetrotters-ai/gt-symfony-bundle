@@ -137,6 +137,36 @@ final class BufferDirectoryTest extends TestCase
         self::assertSame([], $directory->unwritableFiles());
     }
 
+    public function testReplaceWritesTheWholeFileSharedAndLeavesNoTemporaryFile(): void
+    {
+        $directory = new BufferDirectory($this->dir);
+        $directory->ensure();
+        $path = $directory->path('list.json');
+        file_put_contents($path, 'old');
+
+        self::assertTrue($directory->replace($path, '{"new":true}'));
+
+        self::assertSame('{"new":true}', file_get_contents($path));
+        self::assertSame(BufferDirectory::FILE_MODE, $this->mode($path));
+        self::assertSame(['list.json'], array_values(array_diff(scandir($this->dir) ?: [], ['.', '..'])));
+    }
+
+    /**
+     * A replace that cannot land removes its temporary file: nothing prunes
+     * one left beside a list.
+     */
+    public function testAFailedReplaceLeavesNoTemporaryFile(): void
+    {
+        $directory = new BufferDirectory($this->dir);
+        $directory->ensure();
+        // A directory in the way: the rename fails after the write succeeded.
+        mkdir($directory->path('list.json'));
+
+        self::assertFalse($directory->replace($directory->path('list.json'), '{"new":true}'));
+
+        self::assertSame(['list.json'], array_values(array_diff(scandir($this->dir) ?: [], ['.', '..'])));
+    }
+
     private function mode(string $path): int
     {
         clearstatcache(true, $path);

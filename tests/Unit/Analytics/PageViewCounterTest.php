@@ -540,6 +540,28 @@ final class PageViewCounterTest extends TestCase
     }
 
     /**
+     * A platform is checked where it enters and again where it is read back,
+     * so a key or a sealed record edited by hand never puts anything but a
+     * slug on the wire.
+     */
+    public function testAMalformedPlatformOnDiskIsSentAsNone(): void
+    {
+        file_put_contents($this->dir.'/pageviews-2026-09-25.json', '{"#gen":7,"browser@\t/a":2,"browser@Chat GPT\t/b":1}');
+        file_put_contents(
+            $this->dir.'/pageviews-sealed-2026-09-26.json',
+            '[{"id":"0b5e3c2a-1f4d-4e6b-9a8c-7d2e1f0a3b4c","day":"2026-09-26","path":"/c","bucket":"browser","platform":"chat\tgpt","count":1},'
+            .'{"id":"1b5e3c2a-1f4d-4e6b-9a8c-7d2e1f0a3b4c","day":"2026-09-26","path":"/d","bucket":"browser","platform":42,"count":1}]',
+        );
+
+        $this->counter->seal('2026-09-27');
+
+        self::assertSame(
+            [['/a', 'none'], ['/b', 'none'], ['/c', 'none'], ['/d', 'none']],
+            array_map(static fn (array $record): array => [$record['path'], $record['platform']], $this->counter->pending(10)),
+        );
+    }
+
+    /**
      * A day 0.8.x sealed but did not send before the upgrade goes out as
      * ``none``, with the id it was sealed under.
      */

@@ -353,6 +353,7 @@ final class PageViewCounter
             foreach (self::decodeCounts($contents) as $key => $count) {
                 [$prefix, $path] = explode("\t", $key, 2);
                 [$bucket, $platform] = explode('@', $prefix, 2) + [1 => PageViewRules::PLATFORM_NONE];
+                $platform = self::platform($platform);
                 $records[] = ['id' => Uuid::v4(), 'day' => $day, 'path' => $path, 'bucket' => $bucket, 'platform' => $platform, 'count' => $count, 'src' => $source];
             }
 
@@ -433,7 +434,7 @@ final class PageViewCounter
                     'day' => $day,
                     'path' => $record['path'],
                     'bucket' => $record['bucket'],
-                    'platform' => \is_string($record['platform'] ?? null) ? $record['platform'] : PageViewRules::PLATFORM_NONE,
+                    'platform' => self::platform($record['platform'] ?? null),
                     'count' => $record['count'],
                 ];
                 if (\is_string($record['src'] ?? null)) {
@@ -465,24 +466,8 @@ final class PageViewCounter
     private function replaceJson(string $path, mixed $data): bool
     {
         $json = json_encode($data, self::JSON_FLAGS);
-        if (!\is_string($json)) {
-            return false;
-        }
 
-        $temporary = $path.'.'.bin2hex(random_bytes(6)).'.tmp';
-        if (\strlen($json) !== @file_put_contents($temporary, $json)) {
-            @unlink($temporary);
-
-            return false;
-        }
-        $this->directory->share($temporary);
-        if (!@rename($temporary, $path)) {
-            @unlink($temporary);
-
-            return false;
-        }
-
-        return true;
+        return \is_string($json) && $this->directory->replace($path, $json);
     }
 
     /**
@@ -491,9 +476,22 @@ final class PageViewCounter
      */
     private static function prefix(string $bucket, string $platform): string
     {
-        return PageViewRules::PLATFORM_NONE === $platform || 1 !== preg_match(PageViewRules::PLATFORM_PATTERN, $platform)
-            ? $bucket
-            : $bucket.'@'.$platform;
+        $platform = self::platform($platform);
+
+        return PageViewRules::PLATFORM_NONE === $platform ? $bucket : $bucket.'@'.$platform;
+    }
+
+    /**
+     * A platform slug ({@see PageViewRules::PLATFORM_PATTERN}), or ``none``.
+     * Applied where a platform enters the counter and again where one is read
+     * back from disk, so a key or record edited by hand (or left by another
+     * build) can never put anything else on the wire.
+     */
+    private static function platform(mixed $platform): string
+    {
+        return \is_string($platform) && 1 === preg_match(PageViewRules::PLATFORM_PATTERN, $platform)
+            ? $platform
+            : PageViewRules::PLATFORM_NONE;
     }
 
     /**

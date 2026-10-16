@@ -145,7 +145,12 @@ final class VendorRanges implements ResetInterface
         $error = '';
         if ($result->isNotModified() && null !== $current) {
             $current['fetched_at'] = $this->now();
-            if (!$this->write($current) || (null !== $this->aiReferrers && !$this->aiReferrers->restamp())) {
+            // A list is restamped only if one is stored: a 304 to the
+            // unconditional request sent while it is missing (a cache in
+            // between) has nothing to confirm, and is not a write failure.
+            if (!$this->write($current)
+                || (null !== $this->aiReferrers && null !== $this->aiReferrers->version() && !$this->aiReferrers->restamp())
+            ) {
                 $error = self::WRITE_ERROR;
             }
         } elseif ($result->isOk()) {
@@ -306,19 +311,7 @@ final class VendorRanges implements ResetInterface
             return false;
         }
         $json = json_encode($list, \JSON_UNESCAPED_SLASHES);
-        if (!\is_string($json)) {
-            return false;
-        }
-
-        $path = $this->directory->path(self::FILE);
-        $temp = $path.'.'.bin2hex(random_bytes(4)).'.tmp';
-        if (false === @file_put_contents($temp, $json)) {
-            return false;
-        }
-        $this->directory->share($temp);
-        if (!@rename($temp, $path)) {
-            @unlink($temp);
-
+        if (!\is_string($json) || !$this->directory->replace($this->directory->path(self::FILE), $json)) {
             return false;
         }
         $this->loaded = $list;

@@ -281,6 +281,27 @@ final class VendorRangesTest extends TestCase
         self::assertSame('3f2a9c1e0b7d', $this->referrers()->version());
     }
 
+    /**
+     * A 304 to the unconditional request sent while the list is missing (a
+     * cache in between answering for the backend) confirms the ranges and has
+     * no list to restamp: that is not a write failure.
+     */
+    public function testA304WithNoAiReferrerListStoredIsNotAnError(): void
+    {
+        $this->transport->willReturnRanges(RangesFetch::http(200, self::LIST));
+        $this->ranges(withReferrers: false)->refreshIfDue();
+
+        $this->clock->modify('+1 day');
+        $this->transport->willReturnRanges(RangesFetch::http(304));
+        $ranges = $this->ranges();
+        $ranges->refreshIfDue();
+
+        self::assertSame('', $this->transport->rangeRequests[1]['version']);
+        self::assertSame('', $ranges->lastError());
+        self::assertSame('2026-10-16T10:00:00Z', $ranges->fetchedAtIso());
+        self::assertNull($this->referrers()->version());
+    }
+
     public function testAFailureKeepsThePreviousAiReferrerList(): void
     {
         $this->transport->willReturnRanges(RangesFetch::http(200, self::LIST_WITH_REFERRERS));

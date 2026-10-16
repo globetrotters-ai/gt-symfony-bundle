@@ -272,19 +272,7 @@ final class AiReferrers implements ResetInterface
             ],
             \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE,
         );
-        if (!\is_string($json)) {
-            return false;
-        }
-
-        $path = $this->directory->path(self::FILE);
-        $temp = $path.'.'.bin2hex(random_bytes(4)).'.tmp';
-        if (false === @file_put_contents($temp, $json)) {
-            return false;
-        }
-        $this->directory->share($temp);
-        if (!@rename($temp, $path)) {
-            @unlink($temp);
-
+        if (!\is_string($json) || !$this->directory->replace($this->directory->path(self::FILE), $json)) {
             return false;
         }
         $this->loaded = $list;
