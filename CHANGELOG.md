@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.2] - 2026-10-17
+
+### Added
+
+- **Five more AI agents named in robots.txt.** Meta's on-demand fetcher and
+  AI search indexer (`meta-externalfetcher`, `meta-webindexer`) and xAI's
+  Grok agents (`GrokBot`, `xAI-Grok`, `Grok-DeepSearch`) join
+  `RobotsFilter::AI_BOTS`, following gt-backend's AI user-agent registry. As
+  for every other agent, a site that already names one keeps its own rules.
+
 ## [0.9.1] - 2026-10-17
 
 ### Added

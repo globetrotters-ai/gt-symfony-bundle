@@ -62,6 +62,26 @@ User-agent: meta-externalagent
 Allow: /
 Content-Signal: search=yes, ai-input=yes, ai-train=yes
 
+User-agent: meta-externalfetcher
+Allow: /
+Content-Signal: search=yes, ai-input=yes, ai-train=yes
+
+User-agent: meta-webindexer
+Allow: /
+Content-Signal: search=yes, ai-input=yes, ai-train=yes
+
+User-agent: GrokBot
+Allow: /
+Content-Signal: search=yes, ai-input=yes, ai-train=yes
+
+User-agent: xAI-Grok
+Allow: /
+Content-Signal: search=yes, ai-input=yes, ai-train=yes
+
+User-agent: Grok-DeepSearch
+Allow: /
+Content-Signal: search=yes, ai-input=yes, ai-train=yes
+
 User-agent: Amazonbot
 Allow: /
 Content-Signal: search=yes, ai-input=yes, ai-train=yes
