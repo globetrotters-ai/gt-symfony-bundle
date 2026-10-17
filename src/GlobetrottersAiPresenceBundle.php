@@ -22,7 +22,7 @@ use function Symfony\Component\DependencyInjection\Loader\Configurator\service;
  */
 final class GlobetrottersAiPresenceBundle extends AbstractBundle
 {
-    public const VERSION = '0.9.0';
+    public const VERSION = '0.9.1';
 
     public function getPath(): string
     {

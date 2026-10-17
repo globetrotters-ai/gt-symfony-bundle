@@ -24,6 +24,10 @@ use Symfony\Component\HttpKernel\KernelEvents;
  * A path miss or cold cache returns without touching the response, letting the
  * app handle the request normally.
  *
+ * Each artefact is also answered at the aliases {@see ContentTypes::resolve()}
+ * knows (``/agents.md``, ``/.well-known/agent-skills``), with the same bytes
+ * and headers.
+ *
  * Alongside the artefact set it answers three paths that are deliberately not
  * {@see ContentTypes} entries, because none is fetched: the generated API
  * catalog at ``/.well-known/api-catalog`` and sitemap at ``/ai-sitemap.xml``
@@ -165,7 +169,8 @@ final class Router implements EventSubscriberInterface
         // (8-128 chars) to keep ``/llms.txt`` reaching the artefact handler; the
         // order here reaches the same outcome structurally, so a served file can
         // never be shadowed by whatever a marker happens to carry.
-        $type = ContentTypes::forPath($path);
+        $artefact = ContentTypes::resolve($path);
+        $type = ContentTypes::forPath($artefact);
         if (null === $type) {
             // The sitemap is matched before the key for the same structural
             // reason the artefact map is matched before both: ``ai-sitemap.xml``
@@ -180,17 +185,18 @@ final class Router implements EventSubscriberInterface
             return;
         }
 
-        $body = $this->cache->get($path);
+        $body = $this->cache->get($artefact);
         if (null === $body) {
             return;
         }
 
-        // The canonical path (with its leading slash) and the size of what we
+        // The requested path (with its leading slash) and the size of what we
         // served, so the capture listener doesn't have to re-derive either. The
         // guard above means this is always one of the paths the backend
         // matches exactly — getPathInfo() has already dropped any query string,
         // so /llms.txt?v=2 reports as /llms.txt rather than being dropped at
-        // ingest.
+        // ingest. An alias reports as itself, not as the artefact it serves:
+        // the backend maps both to the same format.
         $request->attributes->set(self::ATTRIBUTE_PATH, $pathInfo);
         $request->attributes->set(self::ATTRIBUTE_BYTES, \strlen($body));
 

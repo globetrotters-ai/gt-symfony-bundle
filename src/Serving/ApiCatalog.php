@@ -20,6 +20,11 @@ use Globetrotters\AiPresenceBundle\Cache\ArtefactCache;
  * Same shape as the edge proxy's, minus ``/okf``, which no companion serves
  * locally. readiness' ``check_api_catalog`` scores a linkset entry carrying both
  * ``service-desc`` and ``service-doc`` at 100.
+ *
+ * Since 0.9.1 the entry also carries RFC 9727's ``item``: one link per API the
+ * host exposes, which today is the MCP server named by the cached MCP card's
+ * first remote. The key is left out when the card is not cached or names no
+ * remote — an empty list would advertise an API surface that is not there.
  */
 final class ApiCatalog
 {
@@ -70,9 +75,32 @@ final class ApiCatalog
         if ([] === $entry) {
             return '';
         }
+        $mcpUrl = $this->mcpUrl();
+        if (null !== $mcpUrl) {
+            $entry['item'] = [['href' => $mcpUrl, 'type' => 'application/json']];
+        }
 
         $linkset = ['linkset' => [['anchor' => $origin.'/'] + $entry]];
 
         return json_encode($linkset, \JSON_PRETTY_PRINT | \JSON_UNESCAPED_SLASHES | \JSON_THROW_ON_ERROR)."\n";
+    }
+
+    /**
+     * ``remotes[0].url`` of the cached MCP card, or null.
+     *
+     * Read as published, never rewritten onto the request's origin: the MCP
+     * server is reached where the card says it is, which is the Globetrotters
+     * host — the one URL in this document that may name it.
+     */
+    private function mcpUrl(): ?string
+    {
+        $card = $this->cache->get('.well-known/mcp.json');
+        if (null === $card) {
+            return null;
+        }
+        $card = json_decode($card, true);
+        $url = \is_array($card) ? $card['remotes'][0]['url'] ?? null : null;
+
+        return \is_string($url) && '' !== $url ? $url : null;
     }
 }
