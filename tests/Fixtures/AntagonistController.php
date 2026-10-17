@@ -83,6 +83,9 @@ final class AntagonistController
         if ('sitemap.xml' === $path) {
             throw new NotFoundHttpException('No sitemap.xml route.');
         }
+        if (\in_array($path, ['agents.md', '.well-known/agent-skills', '.well-known/agent-skills/'], true)) {
+            throw new NotFoundHttpException('No discovery alias route.');
+        }
 
         return new Response('ANTAGONIST', 200, ['Content-Type' => 'text/html; charset=utf-8']);
     }

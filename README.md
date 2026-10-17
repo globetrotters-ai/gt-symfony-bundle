@@ -18,9 +18,9 @@ What your apex serves once installed:
 | `/.well-known/mcp.json` | `application/json; charset=utf-8` |
 | `/.well-known/agent-card.json` | `application/json; charset=utf-8` |
 | `/.well-known/ai-catalog.json` | `application/json; charset=utf-8` (since 0.7.0) |
-| `/.well-known/agent-skills/index.json` | `application/json; charset=utf-8` (since 0.7.0) |
+| `/.well-known/agent-skills/index.json` | `application/json; charset=utf-8` (since 0.7.0; also at `/.well-known/agent-skills` and `/.well-known/agent-skills/` since 0.9.1) |
 | `/agent.json` | `application/json; charset=utf-8` (since 0.7.0) |
-| `/AGENTS.md` | `text/markdown; charset=utf-8` (since 0.7.0) |
+| `/AGENTS.md` | `text/markdown; charset=utf-8` (since 0.7.0; also at `/agents.md` since 0.9.1) |
 | `/.well-known/globetrotters-apex-version.json` | `application/json; charset=utf-8` (version/drift marker) |
 | `/.well-known/api-catalog` | `application/linkset+json` (since 0.8.2, generated locally, see below) |
 
@@ -32,7 +32,7 @@ Nothing to configure: the key arrives on the version marker with your normal ref
 
 A rotated key reaches your install on its next refresh (daily by default), so submissions for your host can fail verification during that window.
 
-**`/.well-known/api-catalog`** is an [RFC 9727](https://www.rfc-editor.org/rfc/rfc9727) API catalog: a linkset anchored on your homepage that points agents at `/llms.txt` (`service-doc`) and at the MCP card, the agent card and the AI catalog (`service-desc`). Like the sitemap below it is generated from the cache on every request, in the URL space of the request it arrives on, and lists only what this install serves; with no bundle cached the path is left to your application. It carries the artefacts' headers, `Access-Control-Allow-Origin: *` included, and agent requests for it are counted in Presence Analytics.
+**`/.well-known/api-catalog`** is an [RFC 9727](https://www.rfc-editor.org/rfc/rfc9727) API catalog: a linkset anchored on your homepage that points agents at `/llms.txt` (`service-doc`) and at the MCP card, the agent card and the AI catalog (`service-desc`), and lists your MCP server, the first remote in the cached MCP card, under `item` (since 0.9.1). Like the sitemap below it is generated from the cache on every request, in the URL space of the request it arrives on, and lists only what this install serves; with no bundle cached the path is left to your application. It carries the artefacts' headers, `Access-Control-Allow-Origin: *` included, and agent requests for it are counted in Presence Analytics.
 
 One more path is served once a bundle is cached: **`/ai-sitemap.xml`** (`application/xml; charset=utf-8`), a sitemaps.org `<urlset>` over your homepage plus every artefact this install is actually serving, in the URL space of the request it arrives on. It is generated locally rather than fetched, so it can never advertise a URL your site does not answer, and it needs no configuration to know your domain. `robots.txt` declares it, so crawlers discover it the standard way.
 

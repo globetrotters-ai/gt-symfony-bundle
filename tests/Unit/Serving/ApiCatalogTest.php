@@ -7,6 +7,7 @@ namespace Globetrotters\AiPresenceBundle\Tests\Unit\Serving;
 use Globetrotters\AiPresenceBundle\Cache\ArtefactCache;
 use Globetrotters\AiPresenceBundle\Serving\ApiCatalog;
 use Globetrotters\AiPresenceBundle\Serving\ContentTypes;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Cache\Adapter\ArrayAdapter;
 
@@ -113,6 +114,45 @@ final class ApiCatalogTest extends TestCase
     {
         self::assertNotSame('', $this->catalog(['llms.txt' => 'llms'])->render('https://apex.example'));
         self::assertNotSame('', $this->catalog(['.well-known/mcp.json' => '{}'])->render('https://apex.example'));
+    }
+
+    public function testItemNamesTheMcpServerFromTheCachedCard(): void
+    {
+        $files = $this->fullSet();
+        $files['.well-known/mcp.json'] = '{"name":"ai.globetrotters/provence","remotes":[{"type":"streamable-http","url":"https://provence.globetrotters.ai/mcp"},{"type":"sse","url":"https://provence.globetrotters.ai/sse"}]}';
+
+        $linkset = $this->decode($this->catalog($files)->render('https://www.provenceguide.com'));
+
+        self::assertSame(
+            [['href' => 'https://provence.globetrotters.ai/mcp', 'type' => 'application/json']],
+            $linkset['linkset'][0]['item'],
+        );
+        // service-doc and service-desc are untouched, and item comes last.
+        self::assertSame(['anchor', 'service-doc', 'service-desc', 'item'], array_keys($linkset['linkset'][0]));
+    }
+
+    /**
+     * @return iterable<string, array{array<string, string>}>
+     */
+    public static function noMcpRemote(): iterable
+    {
+        yield 'card not cached' => [['llms.txt' => 'llms']];
+        yield 'no remotes' => [['.well-known/mcp.json' => '{"name":"x"}']];
+        yield 'empty remotes' => [['.well-known/mcp.json' => '{"remotes":[]}']];
+        yield 'remote without url' => [['.well-known/mcp.json' => '{"remotes":[{"type":"streamable-http"}]}']];
+        yield 'empty url' => [['.well-known/mcp.json' => '{"remotes":[{"url":""}]}']];
+        yield 'not an object' => [['.well-known/mcp.json' => '"mcp"']];
+    }
+
+    /**
+     * @param array<string, string> $files
+     */
+    #[DataProvider('noMcpRemote')]
+    public function testItemIsOmittedWithoutAnMcpRemote(array $files): void
+    {
+        $linkset = $this->decode($this->catalog($files)->render('https://apex.example'));
+
+        self::assertArrayNotHasKey('item', $linkset['linkset'][0]);
     }
 
     public function testEveryTargetIsAnArtefactThisBundleServes(): void

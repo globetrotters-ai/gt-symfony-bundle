@@ -44,6 +44,25 @@ final class ContentTypes
     ];
 
     /**
+     * Alias path → the artefact it serves, byte for byte, under the artefact's
+     * own Content-Type. Since 0.9.1.
+     *
+     * Agent discovery scanners probe ``/agents.md`` and the bare
+     * ``/.well-known/agent-skills`` directory, not the published names, and a
+     * redirect is a miss to some of them. Kept out of {@see self::MAP} so
+     * nothing pulls, lists or links an alias: the refresh, the sitemap, the
+     * ``Link`` header and the API catalog all name the canonical path only. A
+     * hit is reported under the path actually requested; gt-backend's
+     * ``server_log.ARTEFACT_PATH_TO_ASSET_FORMAT`` maps each alias to its
+     * artefact's format.
+     */
+    private const ALIASES = [
+        'agents.md' => 'AGENTS.md',
+        '.well-known/agent-skills' => '.well-known/agent-skills/index.json',
+        '.well-known/agent-skills/' => '.well-known/agent-skills/index.json',
+    ];
+
+    /**
      * @return list<string>
      */
     public static function paths(): array
@@ -59,5 +78,13 @@ final class ContentTypes
     public static function has(string $path): bool
     {
         return isset(self::MAP[$path]);
+    }
+
+    /**
+     * The artefact an alias serves, or the path itself.
+     */
+    public static function resolve(string $path): string
+    {
+        return self::ALIASES[$path] ?? $path;
     }
 }

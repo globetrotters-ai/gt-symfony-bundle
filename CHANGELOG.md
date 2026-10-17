@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-10-17
+
+### Added
+
+- **`item` in `/.well-known/api-catalog`.** The linkset entry now lists the
+  APIs your site exposes under RFC 9727's `item` relation: today the MCP
+  server, named by the first remote in the cached MCP card
+  (`{"href": "<remotes[0].url>", "type": "application/json"}`). The key is
+  left out when the card is not cached or names no remote. `service-doc` and
+  `service-desc` are unchanged.
+
+### Fixed
+
+- **Discovery-file aliases.** Scanners checking for an agent discovery file
+  probe `/agents.md` and `/.well-known/agent-skills`, which answered `404`.
+  `/agents.md` now serves the cached `AGENTS.md`, and
+  `/.well-known/agent-skills` and `/.well-known/agent-skills/` the cached
+  `/.well-known/agent-skills/index.json`: same bytes, same headers, no
+  redirect. Hits are reported to Presence Analytics under the path
+  requested. The aliases are not listed in `/ai-sitemap.xml`, the `Link`
+  header or the API catalog, which keep the canonical paths. With no bundle
+  cached the paths stay with your application.
+
 ## [0.9.0] - 2026-10-16
 
 ### Added
