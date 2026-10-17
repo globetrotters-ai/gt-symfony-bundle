@@ -15,7 +15,8 @@ use Globetrotters\AiPresenceBundle\Cache\ArtefactCache;
  * edge proxy renders the same document per host (``_serve_api_catalog``), so a
  * fetched copy would name the Globetrotters host. Built from the request's own
  * origin and from the paths the cache would actually serve, it cannot list a
- * URL this install does not answer.
+ * local URL this install does not answer. The one remote URL is the ``item``
+ * below, read from the MCP card as published.
  *
  * Same shape as the edge proxy's, minus ``/okf``, which no companion serves
  * locally. readiness' ``check_api_catalog`` scores a linkset entry carrying both
