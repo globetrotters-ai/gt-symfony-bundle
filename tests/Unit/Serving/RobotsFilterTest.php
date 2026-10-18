@@ -182,7 +182,7 @@ final class RobotsFilterTest extends TestCase
         self::assertFalse(self::allows($existing, 'Googlebot', '/private'));
         self::assertFalse(self::allows($decorated, 'Googlebot', '/private'));
         self::assertTrue(self::allows($decorated, 'Googlebot', '/public'));
-        self::assertStringContainsString("User-agent: cohere-ai\nContent-Signal: ai-train=no\nDisallow: /private\n", $block);
+        self::assertStringContainsString("User-agent: cohere-ai\nUser-agent: ExaSearchBot\nContent-Signal: ai-train=no\nDisallow: /private\n", $block);
         self::assertStringNotContainsString('Allow: /', $block);
         self::assertDoesNotMatchRegularExpression('~^User-agent: GPTBot$~m', $block, 'the site names GPTBot');
     }
@@ -251,7 +251,7 @@ final class RobotsFilterTest extends TestCase
         $block = RobotsFilter::buildBlock(self::REQUEST_ORIGIN, "User-agent: *\nCrawl-delay: 10\nDisallow: /admin\n");
 
         self::assertStringContainsString("User-agent: GPTBot\nUser-agent: OAI-SearchBot\n", $block);
-        self::assertStringContainsString("User-agent: cohere-ai\nCrawl-delay: 10\nDisallow: /admin\nContent-Signal: search=yes, ai-input=yes\n\n", $block);
+        self::assertStringContainsString("User-agent: cohere-ai\nUser-agent: ExaSearchBot\nCrawl-delay: 10\nDisallow: /admin\nContent-Signal: search=yes, ai-input=yes\n\n", $block);
         self::assertSame(1, substr_count($block, 'Disallow: /admin'));
         self::assertStringNotContainsString('Allow: /', $block);
     }
@@ -344,7 +344,7 @@ final class RobotsFilterTest extends TestCase
 
         $content = (string) $decorated->getContent();
         self::assertStringStartsWith("User-agent: *\nDisallow: /admin\n\n# Globetrotters AI Presence\n", $content);
-        self::assertStringContainsString("User-agent: cohere-ai\nDisallow: /admin\nContent-Signal: search=yes, ai-input=yes\n", $content);
+        self::assertStringContainsString("User-agent: cohere-ai\nUser-agent: ExaSearchBot\nDisallow: /admin\nContent-Signal: search=yes, ai-input=yes\n", $content);
         self::assertStringContainsString('Sitemap: '.self::REQUEST_ORIGIN.'/ai-sitemap.xml', $content);
         // The app's own wildcard group is the only one in the file.
         self::assertSame(1, substr_count($content, 'User-agent: *'));

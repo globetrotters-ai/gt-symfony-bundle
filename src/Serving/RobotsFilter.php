@@ -121,6 +121,7 @@ final class RobotsFilter implements EventSubscriberInterface
         'DuckAssistBot',
         'Bytespider',
         'cohere-ai',
+        'ExaSearchBot',
     ];
 
     /**

@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.3] - 2026-10-18
+
+### Added
+
+- **Exa's crawler named in robots.txt.** `ExaSearchBot`, which indexes for
+  Exa, the search API AI agents query, joins `RobotsFilter::AI_BOTS`, following
+  gt-backend's AI user-agent registry. As for every other agent, a site that
+  already names it keeps its own rules.
+
 ## [0.9.2] - 2026-10-17
 
 ### Added

@@ -98,3 +98,7 @@ User-agent: cohere-ai
 Allow: /
 Content-Signal: search=yes, ai-input=yes, ai-train=yes
 
+User-agent: ExaSearchBot
+Allow: /
+Content-Signal: search=yes, ai-input=yes, ai-train=yes
+

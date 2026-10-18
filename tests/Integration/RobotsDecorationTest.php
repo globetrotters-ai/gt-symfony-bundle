@@ -32,7 +32,7 @@ final class RobotsDecorationTest extends IntegrationTestCase
         self::assertStringContainsString("User-agent: GPTBot\nUser-agent: OAI-SearchBot\n", $content);
         // Every named agent keeps the site's /admin restriction; nothing grants
         // it more than the wildcard group did.
-        self::assertStringContainsString("User-agent: cohere-ai\nDisallow: /admin\nContent-Signal: search=yes, ai-input=yes\n", $content);
+        self::assertStringContainsString("User-agent: cohere-ai\nUser-agent: ExaSearchBot\nDisallow: /admin\nContent-Signal: search=yes, ai-input=yes\n", $content);
         self::assertStringNotContainsString('Allow: /', $content);
         self::assertStringNotContainsString('ai-train', $content);
         self::assertStringContainsString('Sitemap: http://localhost/ai-sitemap.xml', $content);
@@ -51,7 +51,7 @@ final class RobotsDecorationTest extends IntegrationTestCase
         $client->request('GET', '/robots.txt?fixture=full');
         $content = (string) $client->getResponse()->getContent();
 
-        self::assertStringContainsString("User-agent: cohere-ai\nDisallow: /\n", $content);
+        self::assertStringContainsString("User-agent: cohere-ai\nUser-agent: ExaSearchBot\nDisallow: /\n", $content);
         self::assertStringNotContainsString('Allow:', $content);
     }
 
@@ -79,7 +79,7 @@ final class RobotsDecorationTest extends IntegrationTestCase
         $content = (string) $client->getResponse()->getContent();
 
         self::assertStringContainsString("User-agent: Googlebot\n", $content);
-        self::assertStringContainsString("User-agent: cohere-ai\nContent-Signal: ai-train=no\nDisallow: /private\n", $content);
+        self::assertStringContainsString("User-agent: cohere-ai\nUser-agent: ExaSearchBot\nContent-Signal: ai-train=no\nDisallow: /private\n", $content);
         self::assertStringNotContainsString('Allow: /', $content);
         self::assertSame(1, substr_count($content, 'User-agent: GPTBot'));
     }
