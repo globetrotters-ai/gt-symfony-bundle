@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **The page-view counter setting is reported.** `captureContext` carries
+  `pageViewCounter` (the counter runs: `reporting.page_views.enabled` and
+  reporting configured), so Studio can tell a counter that is off from one
+  that counted nobody, and say how to turn it on.
+
 ## [0.9.3] - 2026-10-18
 
 ### Added

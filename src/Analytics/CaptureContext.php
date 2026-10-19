@@ -9,10 +9,12 @@ use Symfony\Component\HttpFoundation\Response;
 
 /**
  * The ``captureContext`` block every flush envelope carries, heartbeat
- * included: whether site capture is on, what may sit in front of this
- * application and hide requests from it, and which vendor range list the
- * ``verified`` flags were computed against. The backend derives the
- * "complete" or "floor" confidence badge from it.
+ * included: whether site capture and the page-view counter are on, what may
+ * sit in front of this application and hide requests from it, and which vendor
+ * range list the ``verified`` flags were computed against. The backend derives
+ * the "complete" or "floor" confidence badge from it, and reads
+ * ``pageViewCounter`` to tell a counter that is off from one that counted
+ * nobody.
  *
  * CDN markers and the page cache are observed on incoming requests and kept as
  * a sticky set in {@see AnalyticsState}, written only when something new is
@@ -46,6 +48,7 @@ final class CaptureContext
         private readonly AnalyticsOptions $options,
         private readonly AnalyticsState $state,
         private readonly ?VendorRanges $ranges = null,
+        private readonly ?PageViewOptions $pageViews = null,
     ) {
     }
 
@@ -94,7 +97,7 @@ final class CaptureContext
     /**
      * The envelope block.
      *
-     * @return array{siteCapture: bool, pageCache: string|null, cdnMarkers: list<string>, rangesVersion: string|null, rangesFetchedAt: string|null}
+     * @return array{siteCapture: bool, pageViewCounter: bool, pageCache: string|null, cdnMarkers: list<string>, rangesVersion: string|null, rangesFetchedAt: string|null}
      */
     public function toArray(): array
     {
@@ -102,6 +105,7 @@ final class CaptureContext
 
         return [
             'siteCapture' => $this->options->isSiteCaptureEnabled(),
+            'pageViewCounter' => $this->pageViews?->isActive() ?? false,
             'pageCache' => \is_string($state['page_cache'] ?? null) ? $state['page_cache'] : null,
             'cdnMarkers' => self::markers($state['cdn_markers'] ?? []),
             'rangesVersion' => $this->ranges?->version(),
