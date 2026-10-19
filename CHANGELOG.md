@@ -44,6 +44,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   pull, so a second runner (both lanes configured, two cron entries) exits
   with status 0 instead of pulling the whole set again. The README now says to
   pick one lane.
+- **The page-view counter setting is reported.** `captureContext` carries
+  `pageViewCounter` (the counter runs: `reporting.page_views.enabled` and
+  reporting configured), so Studio can tell a counter that is off from one
+  that counted nobody, and say how to turn it on.
 
 ### Upgrading
 

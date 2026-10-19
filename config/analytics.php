@@ -124,6 +124,7 @@ return static function (ContainerConfigurator $container): void {
             service(AnalyticsOptions::class),
             service(AnalyticsState::class),
             service(VendorRanges::class),
+            service(PageViewOptions::class),
             service(ServedVersion::class),
         ]);
 
