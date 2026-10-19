@@ -7,12 +7,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.4] - 2026-10-19
+
+### Fixed
+
+- **A refresh run from cron now reaches the web server.** The artefact bundle
+  and its state lived in `cache.app` by default, and an application that maps
+  `cache.app` to APCu gives every PHP process its own copy: `gt:refresh`
+  pulled and stored a new version in the CLI's, and PHP-FPM kept serving the
+  old one. The default `cache_pool` is now the bundle's own filesystem pool,
+  `globetrotters_ai_presence.cache`, under
+  `var/globetrotters-ai-presence/cache`: outside `var/cache`, so `cache:clear`
+  and deploys keep it, with directories `2770` and files `0660` like
+  `buffer_dir`, so a cron user and a web user in one group share it. An
+  explicit `cache_pool` keeps working.
+
 ### Added
 
+- **Pools the CLI and the web cannot share are refused at build.** A
+  `cache_pool` backed by APCu or the array adapter, `cache.system`, or a chain
+  or tag-aware pool with one of those in it, fails the container build with a
+  message naming the pool and the fix.
+- **`gt:status` compares what was pulled with what is served.** Every
+  successful pull records its version, time, host, project directory,
+  `APP_ENV` and user (`Pulled by`); the web server records the version it
+  served on homepage and artefact requests in `buffer_dir/served-version.json`
+  (`Web serving`), on every install, when it changes or every five minutes.
+  When a web request made after the pull still served another version,
+  `gt:status` prints in red "pulled vN but the web serves vM: the CLI and the
+  web server don't share the cache pool".
+- **A refresh the pool refuses is visible.** The failure is recorded in
+  `buffer_dir/refresh-error.json`, outside the pool that refused it, and
+  `gt:status` shows it in red (time, version it could not install, who ran
+  it) until a pull succeeds. The message carries the pool's own reason again
+  (`fopen(…): Permission denied` and the path).
+- **`captureContext.servedVersion` in every reporting envelope**: the version
+  marker id the web server last served (e.g. `"2026-10-18-050325"`), or `null`
+  when unknown.
+- **One refresh at a time.** `gt:refresh` and the Scheduler's refresh take a
+  non-blocking lock (`buffer_dir/refresh.lock`) around the due-check and the
+  pull, so a second runner (both lanes configured, two cron entries) exits
+  with status 0 instead of pulling the whole set again. The README now says to
+  pick one lane.
 - **The page-view counter setting is reported.** `captureContext` carries
   `pageViewCounter` (the counter runs: `reporting.page_views.enabled` and
   reporting configured), so Studio can tell a counter that is off from one
   that counted nobody, and say how to turn it on.
+
+### Upgrading
+
+- No configuration change. An install that never set `cache_pool` starts on
+  an empty pool; until the first refresh fills it, the bundle 0.9.3 left in
+  `cache.app` keeps serving read-only, and that refresh is due at once. Still
+  run `bin/console gt:refresh` as the deploy step that ships 0.9.4: a deploy
+  that empties `cache.app` leaves nothing to fall back on. On a
+  release-directory deploy, list `var/globetrotters-ai-presence` as a shared
+  directory. `symfony/cache` is now a direct requirement (FrameworkBundle
+  already installs it).
 
 ## [0.9.3] - 2026-10-18
 

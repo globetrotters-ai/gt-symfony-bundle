@@ -15,6 +15,7 @@ use Globetrotters\AiPresenceBundle\Scheduler\RefreshMessage;
 use Globetrotters\AiPresenceBundle\Scheduler\RefreshMessageHandler;
 use Globetrotters\AiPresenceBundle\Settings\Options;
 use Globetrotters\AiPresenceBundle\Sync\ArtefactSync;
+use Globetrotters\AiPresenceBundle\Sync\RefreshLock;
 use Globetrotters\AiPresenceBundle\Tests\Support\FakeFetcher;
 use Globetrotters\AiPresenceBundle\Tests\Support\FakeIngestTransport;
 use Globetrotters\AiPresenceBundle\Tests\Support\TempDirectory;
@@ -179,6 +180,26 @@ final class RefreshMessageHandlerTest extends TestCase
         }
 
         return $fetcher;
+    }
+
+    public function testAPollSkipsWhileACronRefreshHoldsTheLock(): void
+    {
+        $dir = TempDirectory::make();
+        try {
+            $lock = new RefreshLock(new BufferDirectory($dir));
+            $options = new Options($this->pool, self::BASE_URL, 'daily', '/');
+            $handler = new RefreshMessageHandler(new ArtefactSync($this->fetcher, $this->cache(), $options, $this->clock), null, $lock);
+
+            $lock->withLock(static fn () => $handler(new RefreshMessage()));
+            self::assertSame([], $this->fetcher->requested);
+            self::assertFalse($this->cache()->hasAny());
+
+            // The next poll, with the lock free, fills the empty pool.
+            $handler(new RefreshMessage());
+            self::assertTrue($this->cache()->hasAny());
+        } finally {
+            TempDirectory::remove($dir);
+        }
     }
 
     private function handler(string $interval): RefreshMessageHandler

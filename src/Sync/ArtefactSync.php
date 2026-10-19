@@ -6,6 +6,7 @@ namespace Globetrotters\AiPresenceBundle\Sync;
 
 use Globetrotters\AiPresenceBundle\Analytics\AnalyticsOptions;
 use Globetrotters\AiPresenceBundle\Cache\ArtefactCache;
+use Globetrotters\AiPresenceBundle\Cache\PoolFailureLog;
 use Globetrotters\AiPresenceBundle\Client\FetcherInterface;
 use Globetrotters\AiPresenceBundle\Client\FetchResult;
 use Globetrotters\AiPresenceBundle\Serving\ContentTypes;
@@ -33,6 +34,10 @@ final class ArtefactSync
         private readonly ArtefactCache $cache,
         private readonly Options $options,
         private readonly ClockInterface $clock,
+        private readonly string $projectDir = '',
+        private readonly string $environment = '',
+        private readonly ?RefreshFailure $failure = null,
+        private readonly ?PoolFailureLog $poolLog = null,
     ) {
     }
 
@@ -98,6 +103,7 @@ final class ArtefactSync
         // byte-identical content.
         $previousHash = (string) $this->options->state()['content_hash'];
         $reason = '';
+        $this->poolLog?->clear();
         try {
             $stored = $this->cache->store($files, $marker['version'], $this->clock->now()->getTimestamp());
         } catch (\Throwable $error) {
@@ -108,9 +114,15 @@ final class ArtefactSync
             $reason = $error->getMessage();
         }
         if (!$stored) {
+            // A pool reports a refused write by logging it and returning
+            // false; the bundle pool's logger kept what it said (the path and
+            // "Permission denied"), which is the part an operator can act on.
+            if ('' === $reason) {
+                $reason = (string) $this->poolLog?->last();
+            }
             $detail = '' !== $reason ? \sprintf(' (%s)', $reason) : '';
 
-            return $this->fail([\sprintf('Failed to persist refreshed artefacts%s; keeping the last good bundle.', $detail)]);
+            return $this->fail([\sprintf('Failed to persist refreshed artefacts%s; keeping the last good bundle.', $detail)], $marker['version']);
         }
 
         $state = [
@@ -128,6 +140,12 @@ final class ArtefactSync
             'content_hash' => $contentHash,
             'last_refresh' => $this->clock->now()->getTimestamp(),
             'last_error' => '',
+            // Who pulled, so gt:status can tell a pool the web does not read
+            // (another host, another checkout, another user) from a lagging one.
+            'pulled_by' => [
+                'version' => $marker['version'],
+                'at' => $this->clock->now()->getTimestamp(),
+            ] + Provenance::describe($this->projectDir, $this->environment),
         ];
 
         // Only stamped when the content genuinely moved. The generated sitemap
@@ -139,6 +157,7 @@ final class ArtefactSync
         }
 
         $this->options->updateState($state);
+        $this->failure?->clear();
 
         return new SyncResult(true, $previousHash !== $contentHash, $marker['version'], []);
     }
@@ -184,7 +203,8 @@ final class ArtefactSync
     {
         // Nothing servable (an evicted item, a pool emptied while the state
         // item survived): waiting out the interval would leave the apex dark.
-        if (!$this->cache->hasAny()) {
+        // Serving the 0.9.3 pool's bundle read-only is a stopgap, not a fill.
+        if (!$this->cache->hasAny() || $this->cache->servesLegacy()) {
             return true;
         }
 
@@ -380,10 +400,14 @@ final class ArtefactSync
 
     /**
      * @param list<string> $errors
+     * @param string       $version the version the pull tried to install, when it got that far
      */
-    private function fail(array $errors): SyncResult
+    private function fail(array $errors, string $version = ''): SyncResult
     {
+        // In the pool, as before, and outside it: a pool that refused the
+        // bundle has most likely refused this write too.
         $this->options->updateState(['last_error' => implode('; ', $errors)]);
+        $this->failure?->record(implode('; ', $errors), $version, $this->clock->now()->getTimestamp());
 
         return new SyncResult(false, false, $this->cache->version(), $errors);
     }

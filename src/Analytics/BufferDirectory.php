@@ -6,7 +6,9 @@ namespace Globetrotters\AiPresenceBundle\Analytics;
 
 /**
  * The one directory the reporting lane writes to: the event log, the drop
- * counter, the flush lock and the flush stamp.
+ * counter, the flush lock and the flush stamp — and, reporting or not, the
+ * refresh lock ({@see \Globetrotters\AiPresenceBundle\Sync\RefreshLock}), the
+ * one file every refresh lane already shares.
  *
  * Kept as its own object so the three collaborators that need it share one
  * "can we write here at all?" answer, and so ``gt:status`` can report an

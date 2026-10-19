@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Globetrotters\AiPresenceBundle\Settings;
 
+use Globetrotters\AiPresenceBundle\Cache\LegacyPool;
 use Globetrotters\AiPresenceBundle\Serving\IndexNowKey;
+use Globetrotters\AiPresenceBundle\Sync\Provenance;
 use Psr\Cache\CacheItemPoolInterface;
 use Symfony\Contracts\Service\ResetInterface;
 
@@ -35,6 +37,11 @@ final class Options implements ResetInterface
         // does not have.
         'content_changed_at' => 0,
         'last_error' => '',
+        // Which process made the last successful pull, and of which version:
+        // {version, at, hostname, project_dir, user}. Compared by gt:status
+        // with what the web lane reports serving (Analytics\ServedVersion), so
+        // a pool the two do not share shows up as a disagreement.
+        'pulled_by' => [],
     ];
 
     /** @var array<string, mixed>|null */
@@ -45,6 +52,7 @@ final class Options implements ResetInterface
         private readonly string $websiteUrl,
         private readonly string $refreshInterval,
         private readonly string $homepagePath,
+        private readonly ?LegacyPool $legacy = null,
     ) {
     }
 
@@ -99,9 +107,7 @@ final class Options implements ResetInterface
     public function state(): array
     {
         if (null === $this->state) {
-            $item = $this->pool->getItem(self::STATE_ITEM);
-            $stored = $item->isHit() ? $item->get() : [];
-            $this->state = array_merge(self::STATE_DEFAULTS, \is_array($stored) ? $stored : []);
+            $this->state = array_merge(self::STATE_DEFAULTS, $this->stored());
         }
 
         return $this->state;
@@ -116,13 +122,8 @@ final class Options implements ResetInterface
         // snapshot: a concurrent writer (e.g. a CLI refresh while a web request
         // holds an older state()) would otherwise be silently clobbered by our
         // stale in-memory copy. We still only overwrite the keys in $values.
+        $state = array_merge(self::STATE_DEFAULTS, $this->stored(), $values);
         $item = $this->pool->getItem(self::STATE_ITEM);
-        $stored = $item->isHit() ? $item->get() : [];
-        $state = array_merge(
-            self::STATE_DEFAULTS,
-            \is_array($stored) ? $stored : [],
-            $values,
-        );
         $item->set($state);
         $this->pool->save($item);
         $this->state = $state;
@@ -152,8 +153,41 @@ final class Options implements ResetInterface
         return IndexNowKey::sanitize($this->state()['indexnow_key']);
     }
 
+    /**
+     * The last successful pull's stamp, or null before the first one.
+     *
+     * @return array{version: string, at: int, hostname: string, project_dir: string, user: string, env: string}|null
+     */
+    public function pulledBy(): ?array
+    {
+        $stamp = $this->state()['pulled_by'];
+        if (!\is_array($stamp) || !\is_string($stamp['version'] ?? null) || !\is_int($stamp['at'] ?? null)) {
+            return null;
+        }
+
+        return [
+            'version' => $stamp['version'],
+            'at' => $stamp['at'],
+        ] + Provenance::fromRecord($stamp);
+    }
+
     public function reset(): void
     {
         $this->state = null;
+    }
+
+    /**
+     * The stored state; while this pool has none, the legacy pool's (the
+     * 0.9.3 default), so a bundle served from there keeps its IndexNow key,
+     * change date and version until the first refresh writes here.
+     *
+     * @return array<string, mixed>
+     */
+    private function stored(): array
+    {
+        $item = $this->pool->getItem(self::STATE_ITEM);
+        $stored = $item->isHit() ? $item->get() : $this->legacy?->value(self::STATE_ITEM);
+
+        return \is_array($stored) ? $stored : [];
     }
 }

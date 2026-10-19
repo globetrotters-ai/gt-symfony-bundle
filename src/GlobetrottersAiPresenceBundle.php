@@ -6,8 +6,11 @@ namespace Globetrotters\AiPresenceBundle;
 
 use Globetrotters\AiPresenceBundle\Analytics\AnalyticsOptions;
 use Globetrotters\AiPresenceBundle\Analytics\PageViewOptions;
+use Globetrotters\AiPresenceBundle\Cache\CachePoolGuardPass;
+use Globetrotters\AiPresenceBundle\Cache\LegacyPool;
 use Globetrotters\AiPresenceBundle\Settings\Options;
 use Symfony\Component\Config\Definition\Configurator\DefinitionConfigurator;
+use Symfony\Component\DependencyInjection\Compiler\PassConfig;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
 use Symfony\Component\HttpKernel\Bundle\AbstractBundle;
@@ -15,6 +18,7 @@ use Symfony\Component\Messenger\MessageBusInterface;
 use Symfony\Component\Scheduler\Schedule;
 
 use function Symfony\Component\DependencyInjection\Loader\Configurator\service;
+use function Symfony\Component\DependencyInjection\Loader\Configurator\service_closure;
 
 /**
  * Composition root: config tree + service wiring. The extension alias derived
@@ -22,11 +26,23 @@ use function Symfony\Component\DependencyInjection\Loader\Configurator\service;
  */
 final class GlobetrottersAiPresenceBundle extends AbstractBundle
 {
-    public const VERSION = '0.9.3';
+    public const VERSION = '0.9.4';
+
+    /** The bundle's own pool, and the cache_pool default. */
+    public const CACHE_POOL = 'globetrotters_ai_presence.cache';
 
     public function getPath(): string
     {
         return \dirname(__DIR__);
+    }
+
+    public function build(ContainerBuilder $container): void
+    {
+        parent::build($container);
+
+        // Once parents and decorators are resolved, so the guard sees the
+        // adapter a pool actually is.
+        $container->addCompilerPass(new CachePoolGuardPass(), PassConfig::TYPE_BEFORE_REMOVING);
     }
 
     public function configure(DefinitionConfigurator $definition): void
@@ -49,8 +65,8 @@ final class GlobetrottersAiPresenceBundle extends AbstractBundle
                     ->defaultValue('daily')
                 ->end()
                 ->scalarNode('cache_pool')
-                    ->info('PSR-6 cache pool service id used for the artefact bundle and sync state. For stateful symfony/scheduler runs the pool must also implement Symfony\Contracts\Cache\CacheInterface (the default cache.app does); a PSR-6-only pool still works but the schedule falls back to non-stateful.')
-                    ->defaultValue('cache.app')
+                    ->info('PSR-6 cache pool service id holding the artefact bundle and sync state. It must be shared by every process: the CLI or worker that runs gt:refresh writes it and the web server reads it. The default, globetrotters_ai_presence.cache, is a filesystem pool under var/globetrotters-ai-presence/cache, outside var/cache so cache:clear and deploys keep it, shared with the group like the reporting buffer. An APCu or array pool (including cache.app mapped to APCu) is refused at container build. For stateful symfony/scheduler runs the pool must also implement Symfony\Contracts\Cache\CacheInterface; a PSR-6-only pool still works but the schedule falls back to non-stateful.')
+                    ->defaultValue(self::CACHE_POOL)
                 ->end()
                 ->enumNode('profile')
                     ->info('Install profile, mirroring the Studio\'s. "full_apex": this site is the whole presence. "subdomain_breadcrumb" (recommended, both lanes): keep serving the artefacts here AND link back to the presence published at your Globetrotters host, so that host stops being unreachable to crawlers. The set of paths served locally is the same either way.')
@@ -196,9 +212,22 @@ final class GlobetrottersAiPresenceBundle extends AbstractBundle
             ->set('globetrotters_ai_presence.breadcrumb.anchor_text', $config['breadcrumb']['anchor_text'])
             ->set('globetrotters_ai_presence.robots.ai_agents', $config['robots']['ai_agents'])
             ->set('globetrotters_ai_presence.robots.ai_train', $config['robots']['ai_train'])
-            ->set('globetrotters_ai_presence.reporting.buffer_dir', $config['reporting']['buffer_dir']);
+            ->set('globetrotters_ai_presence.reporting.buffer_dir', $config['reporting']['buffer_dir'])
+            // Beside the default buffer_dir and outside var/cache, so neither
+            // cache:clear nor a deploy that empties var/cache drops the bundle.
+            ->set('globetrotters_ai_presence.cache_dir', '%kernel.project_dir%/var/globetrotters-ai-presence/cache');
 
         $container->services()->alias('globetrotters_ai_presence.cache_pool', $config['cache_pool']);
+
+        // Upgrading from 0.9.3 with cache_pool left alone: the bundle pool
+        // starts empty, and cache.app still holds the bundle the site served.
+        // Read it until the first refresh, rather than go dark until the next
+        // cron tick. Lazy, since cache.app may be APCu on a PHP without it.
+        if (self::CACHE_POOL === $config['cache_pool']) {
+            $container->services()
+                ->set(LegacyPool::class)
+                ->args([service_closure('cache.app')->nullOnInvalid()]);
+        }
 
         // The ingest token is a credential, so it is wired straight into the
         // one service that needs it rather than being published as a container

@@ -7,6 +7,7 @@ namespace Globetrotters\AiPresenceBundle\Command;
 use Globetrotters\AiPresenceBundle\Analytics\VendorRanges;
 use Globetrotters\AiPresenceBundle\Settings\Options;
 use Globetrotters\AiPresenceBundle\Sync\ArtefactSync;
+use Globetrotters\AiPresenceBundle\Sync\RefreshLock;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
@@ -28,6 +29,7 @@ final class RefreshCommand extends Command
         private readonly ArtefactSync $sync,
         private readonly Options $options,
         private readonly ?VendorRanges $ranges = null,
+        private readonly ?RefreshLock $lock = null,
     ) {
         parent::__construct();
     }
@@ -57,6 +59,25 @@ final class RefreshCommand extends Command
             return Command::SUCCESS;
         }
 
+        // Everything from here runs under the refresh lock, due-check
+        // included: a second gt:refresh (another cron entry, a deploy hook)
+        // or a Scheduler worker polling at the same moment skips rather than
+        // pulling the whole set again, and whichever runs next finds this
+        // run's last_refresh.
+        $code = null === $this->lock
+            ? $this->refresh($input, $io)
+            : $this->lock->withLock(fn (): int => $this->refresh($input, $io));
+        if (null === $code) {
+            $io->writeln('Another refresh is already running (gt:refresh or the Scheduler); skipping this one.');
+
+            return Command::SUCCESS;
+        }
+
+        return $code;
+    }
+
+    private function refresh(InputInterface $input, SymfonyStyle $io): int
+    {
         // Before the due-check: forgetting resets last_refresh, so a changed
         // website_url is pulled on this run rather than a full interval later.
         if ($this->sync->forgetForeignBundle()) {
