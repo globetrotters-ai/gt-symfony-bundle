@@ -17,6 +17,7 @@ use Globetrotters\AiPresenceBundle\Analytics\FlushOutcome;
 use Globetrotters\AiPresenceBundle\Analytics\IngestResult;
 use Globetrotters\AiPresenceBundle\Analytics\IngestTransportInterface;
 use Globetrotters\AiPresenceBundle\Analytics\NdjsonEventStore;
+use Globetrotters\AiPresenceBundle\Analytics\PageViewOptions;
 use Globetrotters\AiPresenceBundle\Analytics\RangesFetch;
 use Globetrotters\AiPresenceBundle\Analytics\VendorRanges;
 use Globetrotters\AiPresenceBundle\Tests\Support\FakeIngestTransport;
@@ -109,6 +110,7 @@ final class FlusherSiteEventsTest extends TestCase
         self::assertArrayNotHasKey('siteEvents', $envelope);
         self::assertSame([
             'siteCapture' => true,
+            'pageViewCounter' => false,
             'pageCache' => 'symfony-http-cache',
             'cdnMarkers' => ['cf-ray', 'via'],
             'rangesVersion' => '3f2a9c1e0b7d',
@@ -169,11 +171,26 @@ final class FlusherSiteEventsTest extends TestCase
 
         self::assertSame([
             'siteCapture' => false,
+            'pageViewCounter' => false,
             'pageCache' => null,
             'cdnMarkers' => [],
             'rangesVersion' => null,
             'rangesFetchedAt' => null,
         ], $context->toArray());
+    }
+
+    public function testThePageViewCounterFlag(): void
+    {
+        $options = new AnalyticsOptions(true, VendorRangesTest::ENDPOINT, VendorRangesTest::TOKEN, true, false, false);
+        $on = new CaptureContext($options, $this->state, $this->ranges, new PageViewOptions($options, true, false));
+        $off = new CaptureContext($options, $this->state, $this->ranges, new PageViewOptions($options, false, false));
+        $unconfigured = new AnalyticsOptions(true, VendorRangesTest::ENDPOINT, '', true, false, false);
+        $neverRuns = new CaptureContext($unconfigured, $this->state, $this->ranges, new PageViewOptions($unconfigured, true, false));
+
+        self::assertTrue($on->toArray()['pageViewCounter']);
+        self::assertFalse($off->toArray()['pageViewCounter']);
+        // Opted in but reporting unconfigured: the counter never runs.
+        self::assertFalse($neverRuns->toArray()['pageViewCounter']);
     }
 
     public function testASiteLineSurvivesTheBufferRoundTrip(): void
