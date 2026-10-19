@@ -36,6 +36,8 @@ final class ServedVersion
 {
     public const FILE = 'served-version.json';
 
+    public const LOCK_FILE = 'served-version.lock';
+
     public const HEARTBEAT_SECONDS = 300;
 
     public function __construct(
@@ -53,29 +55,64 @@ final class ServedVersion
     {
         try {
             $seenAt ??= $this->clock->now()->getTimestamp();
-            $stored = $this->read();
-            if (null !== $stored) {
-                if ($seenAt < $stored['seen_at']) {
-                    return;
-                }
-                if ($version === $stored['version']
-                    && $this->projectDir === $stored['project_dir']
-                    && $this->environment === $stored['env']
-                    && $seenAt - $stored['seen_at'] < self::HEARTBEAT_SECONDS) {
-                    return;
-                }
-            }
-            if (!$this->directory->ensure()) {
+            // The common case, nothing to record, costs one read and no lock.
+            if (!$this->isNews($version, $seenAt) || !$this->directory->ensure()) {
                 return;
             }
 
-            $this->directory->replace(
-                $this->directory->path(self::FILE),
-                (string) json_encode(['version' => $version, 'seen_at' => $seenAt] + Provenance::describe($this->projectDir, $this->environment), \JSON_UNESCAPED_SLASHES),
-            );
+            // Compare again and replace under one lock, so two workers cannot
+            // both pass the check and let the older observation land last.
+            // Non-blocking: a worker that finds it held skips, since another
+            // one is recording at this very moment.
+            $handle = $this->directory->openForLock($this->directory->path(self::LOCK_FILE), 'c');
+            if (false === $handle) {
+                return;
+            }
+            try {
+                if (!flock($handle, \LOCK_EX | \LOCK_NB)) {
+                    return;
+                }
+                try {
+                    if ($this->isNews($version, $seenAt)) {
+                        $this->directory->replace(
+                            $this->directory->path(self::FILE),
+                            (string) json_encode(['version' => $version, 'seen_at' => $seenAt] + Provenance::describe($this->projectDir, $this->environment), \JSON_UNESCAPED_SLASHES),
+                        );
+                    }
+                } finally {
+                    flock($handle, \LOCK_UN);
+                }
+            } finally {
+                fclose($handle);
+            }
         } catch (\Throwable) {
             // Diagnostic only; the response is already on the wire.
         }
+    }
+
+    /**
+     * Whether this observation changes the record: a new version, process or
+     * environment, or the same one five minutes on — and never one older
+     * than what is stored.
+     *
+     * Reads the file on every call, so a second call can answer differently.
+     *
+     * @phpstan-impure
+     */
+    private function isNews(string $version, int $seenAt): bool
+    {
+        $stored = $this->read();
+        if (null === $stored) {
+            return true;
+        }
+        if ($seenAt < $stored['seen_at']) {
+            return false;
+        }
+
+        return $version !== $stored['version']
+            || $this->projectDir !== $stored['project_dir']
+            || $this->environment !== $stored['env']
+            || $seenAt - $stored['seen_at'] >= self::HEARTBEAT_SECONDS;
     }
 
     /**

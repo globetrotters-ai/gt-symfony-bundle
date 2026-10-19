@@ -50,8 +50,6 @@ final class CachePoolGuardPass implements CompilerPassInterface
         ProxyAdapter::class,
     ];
 
-    private const MAX_DEPTH = 4;
-
     public function process(ContainerBuilder $container): void
     {
         if (!$container->hasAlias(self::POOL_ALIAS) || !$container->has(self::POOL_ALIAS)) {
@@ -59,7 +57,8 @@ final class CachePoolGuardPass implements CompilerPassInterface
         }
 
         $configured = (string) $container->getAlias(self::POOL_ALIAS);
-        $kind = $this->unsharedKind($container, $container->findDefinition(self::POOL_ALIAS), 0);
+        $visited = [];
+        $kind = $this->unsharedKind($container, $container->findDefinition(self::POOL_ALIAS), $visited);
         if (null === $kind) {
             return;
         }
@@ -67,8 +66,18 @@ final class CachePoolGuardPass implements CompilerPassInterface
         throw new InvalidConfigurationException(\sprintf('globetrotters_ai_presence.cache_pool "%s" is backed by %s, so the CLI or worker that runs gt:refresh and the web server that serves the artefacts would not share it: a refresh would succeed and the apex would keep serving the bundle it had. Remove the cache_pool setting to use the bundle\'s own pool (globetrotters_ai_presence.cache, a filesystem pool under var/globetrotters-ai-presence/cache), or point it at a filesystem or Redis pool every process reads. See %s', $configured, $kind, self::README_ANCHOR));
     }
 
-    private function unsharedKind(ContainerBuilder $container, Definition $definition, int $depth): ?string
+    /**
+     * Every wrapper layer is walked, however deep; $visited stops a cycle.
+     *
+     * @param array<int, true> $visited definitions seen, by object id
+     */
+    private function unsharedKind(ContainerBuilder $container, Definition $definition, array &$visited): ?string
     {
+        if (isset($visited[spl_object_id($definition)])) {
+            return null;
+        }
+        $visited[spl_object_id($definition)] = true;
+
         $factory = $definition->getFactory();
         if (\is_array($factory) && 'createSystemCache' === ($factory[1] ?? null)) {
             return 'cache.system, which puts an APCu tier (memory private to each PHP process) in front of its files';
@@ -85,7 +94,7 @@ final class CachePoolGuardPass implements CompilerPassInterface
             }
         }
 
-        if ($depth >= self::MAX_DEPTH || [] === array_filter(self::WRAPPERS, static fn (string $wrapper): bool => is_a($class, $wrapper, true))) {
+        if ([] === array_filter(self::WRAPPERS, static fn (string $wrapper): bool => is_a($class, $wrapper, true))) {
             return null;
         }
 
@@ -99,7 +108,7 @@ final class CachePoolGuardPass implements CompilerPassInterface
                 }
                 $inner = $container->findDefinition((string) $inner);
             }
-            $kind = $this->unsharedKind($container, $inner, $depth + 1);
+            $kind = $this->unsharedKind($container, $inner, $visited);
             if (null !== $kind) {
                 return $kind;
             }

@@ -80,6 +80,27 @@ final class ServedVersionTest extends TestCase
         self::assertSame('v2', $served->version());
     }
 
+    public function testAWorkerRecordingRightNowMakesAnotherSkip(): void
+    {
+        $served = $this->served();
+        $served->observe('v1');
+        $this->clock->modify('+1 minute');
+
+        $handle = fopen($this->directory->path(ServedVersion::LOCK_FILE), 'c');
+        self::assertNotFalse($handle);
+        self::assertTrue(flock($handle, \LOCK_EX));
+        try {
+            $served->observe('v2');
+        } finally {
+            flock($handle, \LOCK_UN);
+            fclose($handle);
+        }
+        self::assertSame('v1', $served->version(), 'skipped while another held the lock');
+
+        $served->observe('v2');
+        self::assertSame('v2', $served->version());
+    }
+
     public function testNoBundleIsRecordedButReportedAsUnknown(): void
     {
         $served = $this->served();

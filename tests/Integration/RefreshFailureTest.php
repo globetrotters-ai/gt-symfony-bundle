@@ -71,6 +71,18 @@ final class RefreshFailureTest extends IntegrationTestCase
         self::assertStringContainsString('env test', $status);
     }
 
+    public function testAHomepageTheBundleDidNotServeRecordsNothing(): void
+    {
+        $client = $this->bootClient();
+        $this->pull('2026-10-18-050325');
+        $this->refresh();
+
+        // The app answers its homepage with JSON here: no injection, no record.
+        $client->request('GET', '/?json');
+
+        self::assertStringContainsString('Web serving not recorded yet', $this->flat($this->runCommand('gt:status')->getDisplay()));
+    }
+
     private function pull(string $version): void
     {
         $this->serveRequiredFiles();

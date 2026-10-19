@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Globetrotters\AiPresenceBundle\Cache;
 
+use Psr\Cache\CacheItemInterface;
 use Symfony\Component\Cache\Adapter\FilesystemAdapter;
 
 /**
@@ -48,6 +49,15 @@ final class SharedFilesystemAdapter extends FilesystemAdapter
     public function commit(): bool
     {
         return $this->shared(fn (): bool => parent::commit());
+    }
+
+    /**
+     * save() goes through commit() in every supported symfony/cache release;
+     * wrapped too so the modes never hinge on that.
+     */
+    public function save(CacheItemInterface $item): bool
+    {
+        return $this->shared(fn (): bool => parent::save($item));
     }
 
     /**
