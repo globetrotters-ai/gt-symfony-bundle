@@ -53,7 +53,7 @@ final class FlusherSiteEventsTest extends TestCase
         $this->clock = new MockClock('2026-10-15 10:00:00', 'UTC');
         $options = new AnalyticsOptions(true, VendorRangesTest::ENDPOINT, VendorRangesTest::TOKEN, true, false);
         $this->ranges = new VendorRanges($directory, $this->transport, $options, $this->state, $this->clock);
-        $this->context = new CaptureContext($options, $this->state, $this->ranges, servedVersion: new ServedVersion($directory, $options, $this->clock));
+        $this->context = new CaptureContext($options, $this->state, $this->ranges, servedVersion: new ServedVersion($directory, $this->clock));
 
         $this->flusher = new Flusher(
             $this->buffer,
@@ -104,8 +104,7 @@ final class FlusherSiteEventsTest extends TestCase
             new Response(),
         );
         // What the web lane recorded serving, not anything this process read.
-        $options = new AnalyticsOptions(true, VendorRangesTest::ENDPOINT, VendorRangesTest::TOKEN, true, false);
-        (new ServedVersion(new BufferDirectory($this->dir), $options, $this->clock))->observe('2026-10-18-050325');
+        (new ServedVersion(new BufferDirectory($this->dir), $this->clock))->observe('2026-10-18-050325');
 
         self::assertSame(FlushOutcome::Accepted, $this->flusher->run(AnalyticsState::LANE_COMMAND));
 

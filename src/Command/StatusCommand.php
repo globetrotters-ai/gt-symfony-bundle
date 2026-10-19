@@ -19,6 +19,7 @@ use Globetrotters\AiPresenceBundle\Cache\CachePoolGuardPass;
 use Globetrotters\AiPresenceBundle\Settings\Options;
 use Globetrotters\AiPresenceBundle\Sync\ArtefactSync;
 use Globetrotters\AiPresenceBundle\Sync\Provenance;
+use Globetrotters\AiPresenceBundle\Sync\RefreshFailure;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
@@ -55,6 +56,7 @@ final class StatusCommand extends Command
         private readonly ?VendorRanges $ranges = null,
         private readonly ?AiReferrers $aiReferrers = null,
         private readonly ?ServedVersion $servedVersion = null,
+        private readonly ?RefreshFailure $refreshFailure = null,
     ) {
         parent::__construct();
     }
@@ -81,6 +83,12 @@ final class StatusCommand extends Command
         $lastRefresh = (int) $state['last_refresh'];
         $pulledBy = $this->options->pulledBy();
         $served = $this->servedVersion?->read();
+        $failure = $this->refreshFailure?->read();
+        // Read from outside the pool, so it shows even when the pool refused
+        // the write. One older than the last successful pull is history.
+        if (null !== $failure && null !== $pulledBy && $failure['at'] < $pulledBy['at']) {
+            $failure = null;
+        }
 
         $io->section('Artefacts');
         $io->table([], [
@@ -90,6 +98,7 @@ final class StatusCommand extends Command
                 default => 'yes ('.$this->options->baseUrl().')',
             }],
             ['Bundle cached', match (true) {
+                $this->cache->servesLegacy() => 'yes — read-only from cache.app, the pre-0.9.4 pool, until the next refresh fills the bundle pool',
                 $this->cache->hasAny() => 'yes',
                 $this->cache->holdsForeignBundle() => 'no — the cached one is from another website_url and is not served',
                 default => 'no',
@@ -98,12 +107,26 @@ final class StatusCommand extends Command
             ['Latest version', '' !== $latest ? $latest : '—'],
             ['Content hash', '' !== (string) $state['content_hash'] ? (string) $state['content_hash'] : '—'],
             ['Last refresh', $lastRefresh > 0 ? gmdate('Y-m-d H:i:s', $lastRefresh).' UTC' : 'never'],
-            ['Last error', '' !== (string) $state['last_error'] ? (string) $state['last_error'] : '—'],
+            ['Last error', match (true) {
+                null !== $failure => $failure['message'],
+                '' !== (string) $state['last_error'] => (string) $state['last_error'],
+                default => '—',
+            }],
             ['Pulled by', null !== $pulledBy
                 ? \sprintf('%s at %s UTC by %s', $pulledBy['version'], gmdate('Y-m-d H:i:s', $pulledBy['at']), Provenance::label($pulledBy))
                 : '—'],
             ['Web serving', $this->webServing($served)],
         ]);
+
+        if (null !== $failure) {
+            $io->error(\sprintf(
+                'The last refresh failed at %s UTC%s, run as %s: %s',
+                gmdate('Y-m-d H:i:s', $failure['at']),
+                '' !== $failure['version'] ? ' (it pulled v'.$failure['version'].' but could not install it)' : '',
+                Provenance::label($failure),
+                $failure['message'],
+            ));
+        }
 
         $this->reportUnsharedPool($io, $pulledBy, $served);
 
@@ -118,12 +141,12 @@ final class StatusCommand extends Command
     }
 
     /**
-     * @param array{version: string, seen_at: int, hostname: string, project_dir: string, user: string}|null $served
+     * @param array{version: string, seen_at: int, hostname: string, project_dir: string, user: string, env: string}|null $served
      */
     private function webServing(?array $served): string
     {
-        if (null === $this->servedVersion || !$this->analytics->isConfigured()) {
-            return 'unknown (recorded by the web server only while reporting is configured)';
+        if (null === $this->servedVersion) {
+            return '—';
         }
         if (null === $served) {
             return 'not recorded yet (the next homepage or artefact request records it)';
@@ -143,8 +166,8 @@ final class StatusCommand extends Command
      * reads. A web observation from before the pull is only lag, the next
      * request picks the new bundle up, so it is not reported.
      *
-     * @param array{version: string, at: int, hostname: string, project_dir: string, user: string}|null      $pulledBy
-     * @param array{version: string, seen_at: int, hostname: string, project_dir: string, user: string}|null $served
+     * @param array{version: string, at: int, hostname: string, project_dir: string, user: string, env: string}|null      $pulledBy
+     * @param array{version: string, seen_at: int, hostname: string, project_dir: string, user: string, env: string}|null $served
      */
     private function reportUnsharedPool(SymfonyStyle $io, ?array $pulledBy, ?array $served): void
     {
@@ -155,7 +178,7 @@ final class StatusCommand extends Command
         }
 
         $io->error(\sprintf(
-            "pulled v%s but the web serves %s: the CLI and the web server don't share the cache pool. The pull ran as %s, the web read its pool as %s. Use the bundle's default pool, or a filesystem or Redis pool both read with the same project directory, and make the pool readable by the web user. See %s",
+            "pulled v%s but the web serves %s: the CLI and the web server don't share the cache pool. The pull ran as %s, the web read its pool as %s. Use the bundle's default pool, or a filesystem or Redis pool both read, run the cron in the same project directory and APP_ENV as the web, and make the pool readable by the web user. See %s",
             $pulledBy['version'],
             '' !== $served['version'] ? 'v'.$served['version'] : 'no bundle',
             Provenance::label($pulledBy),

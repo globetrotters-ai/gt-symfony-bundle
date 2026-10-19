@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Globetrotters\AiPresenceBundle\Tests\Unit\Analytics;
 
-use Globetrotters\AiPresenceBundle\Analytics\AnalyticsOptions;
 use Globetrotters\AiPresenceBundle\Analytics\BufferDirectory;
 use Globetrotters\AiPresenceBundle\Analytics\ServedVersion;
 use Globetrotters\AiPresenceBundle\Tests\Support\TempDirectory;
@@ -39,31 +38,24 @@ final class ServedVersionTest extends TestCase
         self::assertSame('2026-10-14-104728', $record['version']);
         self::assertSame($this->clock->now()->getTimestamp(), $record['seen_at']);
         self::assertSame('/srv/site', $record['project_dir']);
+        self::assertSame('prod', $record['env']);
         self::assertNotSame('', $record['user']);
         self::assertSame('2026-10-14-104728', $served->version());
         self::assertSame(0o660, fileperms($this->directory->path(ServedVersion::FILE)) & 0o777);
     }
 
-    public function testNothingIsWrittenWhileReportingIsNotConfigured(): void
-    {
-        $served = new ServedVersion($this->directory, new AnalyticsOptions(true, '', '', true, false), $this->clock, '/srv/site');
-        $served->observe('2026-10-14-104728');
-
-        self::assertDirectoryDoesNotExist($this->directory->dir(), 'serving never writes on an install that does not report');
-        self::assertNull($served->version());
-    }
-
-    public function testTheSameVersionIsRewrittenOnlyHourly(): void
+    public function testTheSameVersionIsRewrittenEveryFiveMinutes(): void
     {
         $served = $this->served();
         $served->observe('v1');
         $first = $served->read()['seen_at'] ?? null;
 
-        $this->clock->modify('+10 minutes');
+        $this->clock->modify('+4 minutes');
         $served->observe('v1');
         self::assertSame($first, $served->read()['seen_at'] ?? null);
 
-        $this->clock->modify('+51 minutes');
+        // A web stuck on v1 after a pull shows as such within five minutes.
+        $this->clock->modify('+1 minute');
         $served->observe('v1');
         self::assertSame($this->clock->now()->getTimestamp(), $served->read()['seen_at'] ?? null);
     }
@@ -107,11 +99,6 @@ final class ServedVersionTest extends TestCase
 
     private function served(): ServedVersion
     {
-        return new ServedVersion(
-            $this->directory,
-            new AnalyticsOptions(true, VendorRangesTest::ENDPOINT, VendorRangesTest::TOKEN, true, false),
-            $this->clock,
-            '/srv/site',
-        );
+        return new ServedVersion($this->directory, $this->clock, '/srv/site', 'prod');
     }
 }

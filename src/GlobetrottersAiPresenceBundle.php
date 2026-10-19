@@ -7,6 +7,7 @@ namespace Globetrotters\AiPresenceBundle;
 use Globetrotters\AiPresenceBundle\Analytics\AnalyticsOptions;
 use Globetrotters\AiPresenceBundle\Analytics\PageViewOptions;
 use Globetrotters\AiPresenceBundle\Cache\CachePoolGuardPass;
+use Globetrotters\AiPresenceBundle\Cache\LegacyPool;
 use Globetrotters\AiPresenceBundle\Settings\Options;
 use Symfony\Component\Config\Definition\Configurator\DefinitionConfigurator;
 use Symfony\Component\DependencyInjection\Compiler\PassConfig;
@@ -17,6 +18,7 @@ use Symfony\Component\Messenger\MessageBusInterface;
 use Symfony\Component\Scheduler\Schedule;
 
 use function Symfony\Component\DependencyInjection\Loader\Configurator\service;
+use function Symfony\Component\DependencyInjection\Loader\Configurator\service_closure;
 
 /**
  * Composition root: config tree + service wiring. The extension alias derived
@@ -216,6 +218,16 @@ final class GlobetrottersAiPresenceBundle extends AbstractBundle
             ->set('globetrotters_ai_presence.cache_dir', '%kernel.project_dir%/var/globetrotters-ai-presence/cache');
 
         $container->services()->alias('globetrotters_ai_presence.cache_pool', $config['cache_pool']);
+
+        // Upgrading from 0.9.3 with cache_pool left alone: the bundle pool
+        // starts empty, and cache.app still holds the bundle the site served.
+        // Read it until the first refresh, rather than go dark until the next
+        // cron tick. Lazy, since cache.app may be APCu on a PHP without it.
+        if (self::CACHE_POOL === $config['cache_pool']) {
+            $container->services()
+                ->set(LegacyPool::class)
+                ->args([service_closure('cache.app')->nullOnInvalid()]);
+        }
 
         // The ingest token is a credential, so it is wired straight into the
         // one service that needs it rather than being published as a container

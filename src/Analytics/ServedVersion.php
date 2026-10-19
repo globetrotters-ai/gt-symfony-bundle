@@ -16,14 +16,18 @@ use Symfony\Component\Clock\ClockInterface;
  * the CLI and the web server do not share, and a heartbeat kept in that pool
  * would be invisible to exactly the process that needs to read it. The
  * directory is the one place every lane already shares across processes and
- * users. So, like the rest of the directory, it is written only while
- * reporting is configured; serving still never writes.
+ * users. Written whether or not reporting is configured, so ``gt:status``
+ * works on every install; only the flush depends on reporting. It is the one
+ * write the web lane makes outside reporting, after the response, and a
+ * directory it cannot write costs the record, never the response.
  *
  * Written on ``kernel.terminate`` (after the response is sent), only when the
- * version changed or the record is an hour old, so the common case is one
- * small read. An observation older than the stored one is ignored, so a
- * request that began before a refresh cannot overwrite what a later request
- * saw.
+ * version changed or the record is five minutes old, so the common case is
+ * one small read, and a web stuck on an old bundle shows as such within five
+ * minutes of a pull. (Rewriting when the pool's own pull stamp is newer would
+ * not do: a pool the web does not share never holds the CLI's stamp.) An
+ * observation older than the stored one is ignored, so a request that began
+ * before a refresh cannot overwrite what a later request saw.
  *
  * Its version is ``captureContext.servedVersion`` in every flush envelope: the
  * version marker's id (``2026-10-18-050325``), or null when unknown.
@@ -32,13 +36,13 @@ final class ServedVersion
 {
     public const FILE = 'served-version.json';
 
-    public const HEARTBEAT_SECONDS = 3600;
+    public const HEARTBEAT_SECONDS = 300;
 
     public function __construct(
         private readonly BufferDirectory $directory,
-        private readonly AnalyticsOptions $options,
         private readonly ClockInterface $clock,
         private readonly string $projectDir = '',
+        private readonly string $environment = '',
     ) {
     }
 
@@ -47,10 +51,6 @@ final class ServedVersion
      */
     public function observe(string $version, ?int $seenAt = null): void
     {
-        if (!$this->options->isConfigured()) {
-            return;
-        }
-
         try {
             $seenAt ??= $this->clock->now()->getTimestamp();
             $stored = $this->read();
@@ -60,6 +60,7 @@ final class ServedVersion
                 }
                 if ($version === $stored['version']
                     && $this->projectDir === $stored['project_dir']
+                    && $this->environment === $stored['env']
                     && $seenAt - $stored['seen_at'] < self::HEARTBEAT_SECONDS) {
                     return;
                 }
@@ -70,7 +71,7 @@ final class ServedVersion
 
             $this->directory->replace(
                 $this->directory->path(self::FILE),
-                (string) json_encode(['version' => $version, 'seen_at' => $seenAt] + Provenance::describe($this->projectDir), \JSON_UNESCAPED_SLASHES),
+                (string) json_encode(['version' => $version, 'seen_at' => $seenAt] + Provenance::describe($this->projectDir, $this->environment), \JSON_UNESCAPED_SLASHES),
             );
         } catch (\Throwable) {
             // Diagnostic only; the response is already on the wire.
@@ -78,7 +79,7 @@ final class ServedVersion
     }
 
     /**
-     * @return array{version: string, seen_at: int, hostname: string, project_dir: string, user: string}|null
+     * @return array{version: string, seen_at: int, hostname: string, project_dir: string, user: string, env: string}|null
      */
     public function read(): ?array
     {
@@ -96,10 +97,7 @@ final class ServedVersion
         return [
             'version' => $decoded['version'],
             'seen_at' => $decoded['seen_at'],
-            'hostname' => \is_string($decoded['hostname'] ?? null) ? $decoded['hostname'] : '',
-            'project_dir' => \is_string($decoded['project_dir'] ?? null) ? $decoded['project_dir'] : '',
-            'user' => \is_string($decoded['user'] ?? null) ? $decoded['user'] : '',
-        ];
+        ] + Provenance::fromRecord($decoded);
     }
 
     /**

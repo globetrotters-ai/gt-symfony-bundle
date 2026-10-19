@@ -106,13 +106,14 @@ return static function (ContainerConfigurator $container): void {
         ->tag('kernel.reset', ['method' => 'reset']);
 
     // The web lane's heartbeat of the bundle version it serves. In the
-    // buffer directory rather than the pool it exists to cross-check.
+    // buffer directory rather than the pool it exists to cross-check, and
+    // written whether or not reporting is configured.
     $services->set(ServedVersion::class)
         ->args([
             service(BufferDirectory::class),
-            service(AnalyticsOptions::class),
             service('globetrotters_ai_presence.clock'),
             param('kernel.project_dir'),
+            param('kernel.environment'),
         ]);
 
     $services->set(ServedVersionSubscriber::class)

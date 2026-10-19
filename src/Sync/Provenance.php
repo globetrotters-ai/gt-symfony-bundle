@@ -6,24 +6,45 @@ namespace Globetrotters\AiPresenceBundle\Sync;
 
 /**
  * Which process this is, as far as sharing the cache pool goes: the host, the
- * application checkout and the OS user it runs as.
+ * application checkout, the kernel environment and the OS user it runs as.
  *
  * Recorded on both sides of the pool — by the refresh that pulled a bundle and
- * by the web lane that served one — so ``gt:status`` can show which of the
- * three differs when the two disagree: another server, a cron entry still
- * pointing at an old release, or a user that cannot read the pool.
+ * by the web lane that served one — so ``gt:status`` can show which of them
+ * differs when the two disagree: another server, a cron entry still pointing
+ * at an old release, a cron on ``prod`` while the web runs ``dev`` (each has
+ * its own ``var/cache/<env>``), or a user that cannot read the pool.
  */
 final class Provenance
 {
     /**
-     * @return array{hostname: string, project_dir: string, user: string}
+     * @return array{hostname: string, project_dir: string, user: string, env: string}
      */
-    public static function describe(string $projectDir): array
+    public static function describe(string $projectDir, string $environment = ''): array
     {
         return [
             'hostname' => (string) gethostname(),
             'project_dir' => $projectDir,
             'user' => self::user(),
+            'env' => $environment,
+        ];
+    }
+
+    /**
+     * The provenance fields of a stored record, each '' when missing.
+     *
+     * @param array<mixed> $record
+     *
+     * @return array{hostname: string, project_dir: string, user: string, env: string}
+     */
+    public static function fromRecord(array $record): array
+    {
+        $field = static fn (string $key): string => \is_string($record[$key] ?? null) ? $record[$key] : '';
+
+        return [
+            'hostname' => $field('hostname'),
+            'project_dir' => $field('project_dir'),
+            'user' => $field('user'),
+            'env' => $field('env'),
         ];
     }
 
@@ -45,16 +66,20 @@ final class Provenance
     }
 
     /**
-     * "user@host (project dir)", for the status command.
+     * "user@host, env prod (project dir)", for the status command.
      *
      * @param array<string, mixed> $record
      */
     public static function label(array $record): string
     {
-        $user = \is_string($record['user'] ?? null) ? $record['user'] : '';
-        $host = \is_string($record['hostname'] ?? null) ? $record['hostname'] : '';
-        $dir = \is_string($record['project_dir'] ?? null) ? $record['project_dir'] : '';
+        ['hostname' => $host, 'project_dir' => $dir, 'user' => $user, 'env' => $env] = self::fromRecord($record);
 
-        return trim(\sprintf('%s@%s%s', '' !== $user ? $user : '?', '' !== $host ? $host : '?', '' !== $dir ? ' ('.$dir.')' : ''));
+        return \sprintf(
+            '%s@%s%s%s',
+            '' !== $user ? $user : '?',
+            '' !== $host ? $host : '?',
+            '' !== $env ? ', env '.$env : '',
+            '' !== $dir ? ' ('.$dir.')' : '',
+        );
     }
 }

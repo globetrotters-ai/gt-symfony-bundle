@@ -15,6 +15,8 @@ use Globetrotters\AiPresenceBundle\Analytics\PageViewOptions;
 use Globetrotters\AiPresenceBundle\Analytics\ServedVersion;
 use Globetrotters\AiPresenceBundle\Analytics\VendorRanges;
 use Globetrotters\AiPresenceBundle\Cache\ArtefactCache;
+use Globetrotters\AiPresenceBundle\Cache\LegacyPool;
+use Globetrotters\AiPresenceBundle\Cache\PoolFailureLog;
 use Globetrotters\AiPresenceBundle\Cache\SharedFilesystemAdapter;
 use Globetrotters\AiPresenceBundle\Client\FetcherInterface;
 use Globetrotters\AiPresenceBundle\Client\GtClient;
@@ -34,6 +36,7 @@ use Globetrotters\AiPresenceBundle\Settings\BreadcrumbOptions;
 use Globetrotters\AiPresenceBundle\Settings\Options;
 use Globetrotters\AiPresenceBundle\Settings\RobotsOptions;
 use Globetrotters\AiPresenceBundle\Sync\ArtefactSync;
+use Globetrotters\AiPresenceBundle\Sync\RefreshFailure;
 use Globetrotters\AiPresenceBundle\Sync\RefreshLock;
 use Symfony\Component\Clock\NativeClock;
 use Symfony\Component\HttpClient\NoPrivateNetworkHttpClient;
@@ -51,7 +54,14 @@ return static function (ContainerConfigurator $container): void {
     // The default cache_pool: one every process of the app reads, whatever
     // cache.app is. See SharedFilesystemAdapter.
     $services->set(GlobetrottersAiPresenceBundle::CACHE_POOL, SharedFilesystemAdapter::class)
-        ->args([param('globetrotters_ai_presence.cache_dir')]);
+        ->args([param('globetrotters_ai_presence.cache_dir')])
+        ->call('setLogger', [service(PoolFailureLog::class)]);
+
+    // Keeps the reason a write was refused, for the refresh's error, and
+    // passes everything on to the app's logger.
+    $services->set(PoolFailureLog::class)
+        ->args([service('logger')->nullOnInvalid()])
+        ->tag('monolog.logger', ['channel' => 'cache']);
 
     $services->set(GtClient::class)
         ->args([service('globetrotters_ai_presence.http_client')]);
@@ -64,6 +74,7 @@ return static function (ContainerConfigurator $container): void {
             param('globetrotters_ai_presence.website_url'),
             param('globetrotters_ai_presence.refresh_interval'),
             param('globetrotters_ai_presence.homepage_path'),
+            service(LegacyPool::class)->nullOnInvalid(),
         ])
         ->tag('kernel.reset', ['method' => 'reset']);
 
@@ -73,6 +84,7 @@ return static function (ContainerConfigurator $container): void {
         ->args([
             service('globetrotters_ai_presence.cache_pool'),
             param('globetrotters_ai_presence.website_url'),
+            service(LegacyPool::class)->nullOnInvalid(),
         ])
         ->tag('kernel.reset', ['method' => 'reset']);
 
@@ -83,7 +95,14 @@ return static function (ContainerConfigurator $container): void {
             service(Options::class),
             service('globetrotters_ai_presence.clock'),
             param('kernel.project_dir'),
+            param('kernel.environment'),
+            service(RefreshFailure::class),
+            service(PoolFailureLog::class),
         ]);
+
+    // Outside the pool: a pool that refused the bundle refuses this too.
+    $services->set(RefreshFailure::class)
+        ->args([service(BufferDirectory::class), param('kernel.project_dir'), param('kernel.environment')]);
 
     $services->set(RefreshLock::class)
         ->args([service(BufferDirectory::class)]);
@@ -161,6 +180,7 @@ return static function (ContainerConfigurator $container): void {
             service(VendorRanges::class),
             service(AiReferrers::class),
             service(ServedVersion::class),
+            service(RefreshFailure::class),
         ])
         ->tag('console.command');
 };

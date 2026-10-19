@@ -29,13 +29,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   or tag-aware pool with one of those in it, fails the container build with a
   message naming the pool and the fix.
 - **`gt:status` compares what was pulled with what is served.** Every
-  successful pull records its version, time, host, project directory and
-  user (`Pulled by`); with reporting configured, the web server records the
-  version it served on homepage and artefact requests in
-  `buffer_dir/served-version.json` (`Web serving`). When a web request made
-  after the pull still served another version, `gt:status` prints in red
-  "pulled vN but the web serves vM: the CLI and the web server don't share the
-  cache pool".
+  successful pull records its version, time, host, project directory,
+  `APP_ENV` and user (`Pulled by`); the web server records the version it
+  served on homepage and artefact requests in `buffer_dir/served-version.json`
+  (`Web serving`), on every install, when it changes or every five minutes.
+  When a web request made after the pull still served another version,
+  `gt:status` prints in red "pulled vN but the web serves vM: the CLI and the
+  web server don't share the cache pool".
+- **A refresh the pool refuses is visible.** The failure is recorded in
+  `buffer_dir/refresh-error.json`, outside the pool that refused it, and
+  `gt:status` shows it in red (time, version it could not install, who ran
+  it) until a pull succeeds. The message carries the pool's own reason again
+  (`fopen(…): Permission denied` and the path).
 - **`captureContext.servedVersion` in every reporting envelope**: the version
   marker id the web server last served (e.g. `"2026-10-18-050325"`), or `null`
   when unknown.
@@ -52,9 +57,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Upgrading
 
 - No configuration change. An install that never set `cache_pool` starts on
-  an empty pool, and the artefacts fall through to the app until the first
-  refresh: run `bin/console gt:refresh` as the deploy step that ships 0.9.4
-  (otherwise the hourly cron or Scheduler poll fills it within the hour). On a
+  an empty pool; until the first refresh fills it, the bundle 0.9.3 left in
+  `cache.app` keeps serving read-only, and that refresh is due at once. Still
+  run `bin/console gt:refresh` as the deploy step that ships 0.9.4: a deploy
+  that empties `cache.app` leaves nothing to fall back on. On a
   release-directory deploy, list `var/globetrotters-ai-presence` as a shared
   directory. `symfony/cache` is now a direct requirement (FrameworkBundle
   already installs it).

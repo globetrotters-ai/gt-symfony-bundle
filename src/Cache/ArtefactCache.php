@@ -25,6 +25,10 @@ use Symfony\Contracts\Service\ResetInterface;
  *
  * Legacy v1 single-item bundles remain readable and are migrated on the next
  * successful refresh.
+ *
+ * While this pool holds no manifest at all, a {@see LegacyPool} (the 0.9.3
+ * default pool) is read instead, read-only, and only for a bundle this install
+ * may serve. The first store here ends it.
  */
 final class ArtefactCache implements ResetInterface
 {
@@ -41,6 +45,9 @@ final class ArtefactCache implements ResetInterface
     /** @var array<string, string|null> */
     private array $fileMemo = [];
 
+    /** Whether the memoized manifest was read from the legacy pool. */
+    private bool $fromLegacy = false;
+
     /**
      * @param string $source this install's configured website_url: the only
      *                       source whose bundle it serves, and the one it stamps
@@ -48,6 +55,7 @@ final class ArtefactCache implements ResetInterface
     public function __construct(
         private readonly CacheItemPoolInterface $pool,
         string $source,
+        private readonly ?LegacyPool $legacy = null,
     ) {
         $this->source = Options::normalizeUrl($source);
     }
@@ -67,8 +75,12 @@ final class ArtefactCache implements ResetInterface
                 return $this->fileMemo[$path] = null;
             }
 
-            $item = $this->pool->getItem($key);
-            $body = $item->isHit() ? $item->get() : null;
+            if ($this->fromLegacy) {
+                $body = $this->legacy?->value($key);
+            } else {
+                $item = $this->pool->getItem($key);
+                $body = $item->isHit() ? $item->get() : null;
+            }
 
             return $this->fileMemo[$path] = \is_string($body) ? $body : null;
         }
@@ -128,6 +140,17 @@ final class ArtefactCache implements ResetInterface
     }
 
     /**
+     * Whether the bundle being served is the legacy pool's: this pool is still
+     * empty, so a refresh is due whatever the interval says.
+     */
+    public function servesLegacy(): bool
+    {
+        $this->storedManifest();
+
+        return $this->fromLegacy;
+    }
+
+    /**
      * Whether a bundle is cached that this install must not serve: one pulled
      * from another website_url, or any bundle once none is configured.
      *
@@ -152,7 +175,9 @@ final class ArtefactCache implements ResetInterface
      */
     public function store(array $files, string $version, int $storedAt): bool
     {
-        $oldManifest = $this->storedManifest();
+        // A legacy manifest names items in the legacy pool, which this one
+        // neither holds nor cleans up.
+        $oldManifest = $this->servesLegacy() ? [] : $this->storedManifest();
         $oldCurrentItems = $this->fileItemKeys($oldManifest['file_items'] ?? null);
         $oldPreviousItems = $this->stringList($oldManifest['previous_file_items'] ?? null);
 
@@ -195,6 +220,7 @@ final class ArtefactCache implements ResetInterface
         }
 
         $this->manifest = $manifest;
+        $this->fromLegacy = false;
         $this->fileMemo = $this->isServable($manifest) ? $files : [];
 
         // Items older than the retained previous generation are no longer
@@ -221,7 +247,8 @@ final class ArtefactCache implements ResetInterface
      */
     public function clear(): void
     {
-        $manifest = $this->storedManifest();
+        // Never written: the legacy pool is read-only from here.
+        $manifest = $this->servesLegacy() ? [] : $this->storedManifest();
         $keys = array_values(array_unique(array_merge(
             $this->fileItemKeys($manifest['file_items'] ?? null),
             $this->stringList($manifest['previous_file_items'] ?? null),
@@ -246,6 +273,7 @@ final class ArtefactCache implements ResetInterface
     {
         $this->manifest = null;
         $this->fileMemo = [];
+        $this->fromLegacy = false;
     }
 
     /**
@@ -278,8 +306,19 @@ final class ArtefactCache implements ResetInterface
     {
         if (null === $this->manifest) {
             $item = $this->pool->getItem(self::ITEM);
-            $stored = $item->isHit() ? $item->get() : [];
+            $hit = $item->isHit();
+            $stored = $hit ? $item->get() : [];
             $this->manifest = \is_array($stored) ? $stored : [];
+
+            // Only a bundle this install would serve: one from another
+            // source is not worth reading, and never worth forgetting.
+            if (!$hit && null !== $this->legacy) {
+                $legacy = $this->legacy->value(self::ITEM);
+                if (\is_array($legacy) && [] !== $legacy && $this->isServable($legacy)) {
+                    $this->manifest = $legacy;
+                    $this->fromLegacy = true;
+                }
+            }
         }
 
         return $this->manifest;
