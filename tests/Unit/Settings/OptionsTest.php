@@ -62,6 +62,7 @@ final class OptionsTest extends TestCase
             'last_refresh' => 0,
             'content_changed_at' => 0,
             'last_error' => '',
+            'pulled_by' => [],
         ], $this->options()->state());
     }
 

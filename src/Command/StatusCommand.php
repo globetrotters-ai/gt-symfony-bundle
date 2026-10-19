@@ -12,10 +12,13 @@ use Globetrotters\AiPresenceBundle\Analytics\EventBuffer;
 use Globetrotters\AiPresenceBundle\Analytics\FlushGate;
 use Globetrotters\AiPresenceBundle\Analytics\PageViewCounter;
 use Globetrotters\AiPresenceBundle\Analytics\PageViewOptions;
+use Globetrotters\AiPresenceBundle\Analytics\ServedVersion;
 use Globetrotters\AiPresenceBundle\Analytics\VendorRanges;
 use Globetrotters\AiPresenceBundle\Cache\ArtefactCache;
+use Globetrotters\AiPresenceBundle\Cache\CachePoolGuardPass;
 use Globetrotters\AiPresenceBundle\Settings\Options;
 use Globetrotters\AiPresenceBundle\Sync\ArtefactSync;
+use Globetrotters\AiPresenceBundle\Sync\Provenance;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
@@ -51,6 +54,7 @@ final class StatusCommand extends Command
         private readonly ?PageViewCounter $pageViews = null,
         private readonly ?VendorRanges $ranges = null,
         private readonly ?AiReferrers $aiReferrers = null,
+        private readonly ?ServedVersion $servedVersion = null,
     ) {
         parent::__construct();
     }
@@ -75,6 +79,8 @@ final class StatusCommand extends Command
         }
 
         $lastRefresh = (int) $state['last_refresh'];
+        $pulledBy = $this->options->pulledBy();
+        $served = $this->servedVersion?->read();
 
         $io->section('Artefacts');
         $io->table([], [
@@ -93,7 +99,13 @@ final class StatusCommand extends Command
             ['Content hash', '' !== (string) $state['content_hash'] ? (string) $state['content_hash'] : '—'],
             ['Last refresh', $lastRefresh > 0 ? gmdate('Y-m-d H:i:s', $lastRefresh).' UTC' : 'never'],
             ['Last error', '' !== (string) $state['last_error'] ? (string) $state['last_error'] : '—'],
+            ['Pulled by', null !== $pulledBy
+                ? \sprintf('%s at %s UTC by %s', $pulledBy['version'], gmdate('Y-m-d H:i:s', $pulledBy['at']), Provenance::label($pulledBy))
+                : '—'],
+            ['Web serving', $this->webServing($served)],
         ]);
+
+        $this->reportUnsharedPool($io, $pulledBy, $served);
 
         $installed = (string) $state['installed_version'];
         if ('' !== $latest && '' !== $installed && $latest !== $installed) {
@@ -103,6 +115,53 @@ final class StatusCommand extends Command
         $this->reportAgentTraffic($io);
 
         return Command::SUCCESS;
+    }
+
+    /**
+     * @param array{version: string, seen_at: int, hostname: string, project_dir: string, user: string}|null $served
+     */
+    private function webServing(?array $served): string
+    {
+        if (null === $this->servedVersion || !$this->analytics->isConfigured()) {
+            return 'unknown (recorded by the web server only while reporting is configured)';
+        }
+        if (null === $served) {
+            return 'not recorded yet (the next homepage or artefact request records it)';
+        }
+
+        return \sprintf(
+            '%s, seen %s UTC by %s',
+            '' !== $served['version'] ? $served['version'] : 'no bundle',
+            gmdate('Y-m-d H:i:s', $served['seen_at']),
+            Provenance::label($served),
+        );
+    }
+
+    /**
+     * The refresh and the web server disagree about the bundle, and the web
+     * read its pool *after* the pull: the pull went somewhere the web never
+     * reads. A web observation from before the pull is only lag, the next
+     * request picks the new bundle up, so it is not reported.
+     *
+     * @param array{version: string, at: int, hostname: string, project_dir: string, user: string}|null      $pulledBy
+     * @param array{version: string, seen_at: int, hostname: string, project_dir: string, user: string}|null $served
+     */
+    private function reportUnsharedPool(SymfonyStyle $io, ?array $pulledBy, ?array $served): void
+    {
+        if (null === $pulledBy || null === $served
+            || $served['version'] === $pulledBy['version']
+            || $served['seen_at'] <= $pulledBy['at']) {
+            return;
+        }
+
+        $io->error(\sprintf(
+            "pulled v%s but the web serves %s: the CLI and the web server don't share the cache pool. The pull ran as %s, the web read its pool as %s. Use the bundle's default pool, or a filesystem or Redis pool both read with the same project directory, and make the pool readable by the web user. See %s",
+            $pulledBy['version'],
+            '' !== $served['version'] ? 'v'.$served['version'] : 'no bundle',
+            Provenance::label($pulledBy),
+            Provenance::label($served),
+            CachePoolGuardPass::README_ANCHOR,
+        ));
     }
 
     /**

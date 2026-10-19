@@ -18,6 +18,7 @@ use Globetrotters\AiPresenceBundle\Analytics\IngestResult;
 use Globetrotters\AiPresenceBundle\Analytics\IngestTransportInterface;
 use Globetrotters\AiPresenceBundle\Analytics\NdjsonEventStore;
 use Globetrotters\AiPresenceBundle\Analytics\RangesFetch;
+use Globetrotters\AiPresenceBundle\Analytics\ServedVersion;
 use Globetrotters\AiPresenceBundle\Analytics\VendorRanges;
 use Globetrotters\AiPresenceBundle\Tests\Support\FakeIngestTransport;
 use Globetrotters\AiPresenceBundle\Tests\Support\TempDirectory;
@@ -51,7 +52,7 @@ final class FlusherSiteEventsTest extends TestCase
         $this->clock = new MockClock('2026-10-15 10:00:00', 'UTC');
         $options = new AnalyticsOptions(true, VendorRangesTest::ENDPOINT, VendorRangesTest::TOKEN, true, false);
         $this->ranges = new VendorRanges($directory, $this->transport, $options, $this->state, $this->clock);
-        $this->context = new CaptureContext($options, $this->state, $this->ranges);
+        $this->context = new CaptureContext($options, $this->state, $this->ranges, new ServedVersion($directory, $options, $this->clock));
 
         $this->flusher = new Flusher(
             $this->buffer,
@@ -101,6 +102,9 @@ final class FlusherSiteEventsTest extends TestCase
             Request::create('/', server: ['HTTP_CF_RAY' => '8c1', 'HTTP_VIA' => '1.1 varnish', 'HTTP_SURROGATE_CAPABILITY' => 'symfony="ESI/1.0"']),
             new Response(),
         );
+        // What the web lane recorded serving, not anything this process read.
+        $options = new AnalyticsOptions(true, VendorRangesTest::ENDPOINT, VendorRangesTest::TOKEN, true, false);
+        (new ServedVersion(new BufferDirectory($this->dir), $options, $this->clock))->observe('2026-10-18-050325');
 
         self::assertSame(FlushOutcome::Accepted, $this->flusher->run(AnalyticsState::LANE_COMMAND));
 
@@ -113,6 +117,7 @@ final class FlusherSiteEventsTest extends TestCase
             'cdnMarkers' => ['cf-ray', 'via'],
             'rangesVersion' => '3f2a9c1e0b7d',
             'rangesFetchedAt' => '2026-10-15T10:00:00Z',
+            'servedVersion' => '2026-10-18-050325',
         ], $envelope['captureContext']);
 
         // Accepted: the observation window starts over.
@@ -173,6 +178,7 @@ final class FlusherSiteEventsTest extends TestCase
             'cdnMarkers' => [],
             'rangesVersion' => null,
             'rangesFetchedAt' => null,
+            'servedVersion' => null,
         ], $context->toArray());
     }
 

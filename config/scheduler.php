@@ -10,12 +10,13 @@ use Globetrotters\AiPresenceBundle\Scheduler\FlushMessageHandler;
 use Globetrotters\AiPresenceBundle\Scheduler\RefreshMessageHandler;
 use Globetrotters\AiPresenceBundle\Scheduler\RefreshScheduleProvider;
 use Globetrotters\AiPresenceBundle\Sync\ArtefactSync;
+use Globetrotters\AiPresenceBundle\Sync\RefreshLock;
 
 return static function (ContainerConfigurator $container): void {
     $services = $container->services();
 
     $services->set(RefreshMessageHandler::class)
-        ->args([service(ArtefactSync::class), service(VendorRanges::class)])
+        ->args([service(ArtefactSync::class), service(VendorRanges::class), service(RefreshLock::class)])
         ->tag('messenger.message_handler');
 
     $services->set(FlushMessageHandler::class)

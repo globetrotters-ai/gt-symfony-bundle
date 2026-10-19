@@ -12,12 +12,15 @@ use Globetrotters\AiPresenceBundle\Analytics\EventBuffer;
 use Globetrotters\AiPresenceBundle\Analytics\FlushGate;
 use Globetrotters\AiPresenceBundle\Analytics\PageViewCounter;
 use Globetrotters\AiPresenceBundle\Analytics\PageViewOptions;
+use Globetrotters\AiPresenceBundle\Analytics\ServedVersion;
 use Globetrotters\AiPresenceBundle\Analytics\VendorRanges;
 use Globetrotters\AiPresenceBundle\Cache\ArtefactCache;
+use Globetrotters\AiPresenceBundle\Cache\SharedFilesystemAdapter;
 use Globetrotters\AiPresenceBundle\Client\FetcherInterface;
 use Globetrotters\AiPresenceBundle\Client\GtClient;
 use Globetrotters\AiPresenceBundle\Command\RefreshCommand;
 use Globetrotters\AiPresenceBundle\Command\StatusCommand;
+use Globetrotters\AiPresenceBundle\GlobetrottersAiPresenceBundle;
 use Globetrotters\AiPresenceBundle\Serving\ApiCatalog;
 use Globetrotters\AiPresenceBundle\Serving\BreadcrumbInjector;
 use Globetrotters\AiPresenceBundle\Serving\BreadcrumbRenderer;
@@ -31,6 +34,7 @@ use Globetrotters\AiPresenceBundle\Settings\BreadcrumbOptions;
 use Globetrotters\AiPresenceBundle\Settings\Options;
 use Globetrotters\AiPresenceBundle\Settings\RobotsOptions;
 use Globetrotters\AiPresenceBundle\Sync\ArtefactSync;
+use Globetrotters\AiPresenceBundle\Sync\RefreshLock;
 use Symfony\Component\Clock\NativeClock;
 use Symfony\Component\HttpClient\NoPrivateNetworkHttpClient;
 
@@ -43,6 +47,11 @@ return static function (ContainerConfigurator $container): void {
         ->args([service('http_client')]);
 
     $services->set('globetrotters_ai_presence.clock', NativeClock::class);
+
+    // The default cache_pool: one every process of the app reads, whatever
+    // cache.app is. See SharedFilesystemAdapter.
+    $services->set(GlobetrottersAiPresenceBundle::CACHE_POOL, SharedFilesystemAdapter::class)
+        ->args([param('globetrotters_ai_presence.cache_dir')]);
 
     $services->set(GtClient::class)
         ->args([service('globetrotters_ai_presence.http_client')]);
@@ -73,7 +82,11 @@ return static function (ContainerConfigurator $container): void {
             service(ArtefactCache::class),
             service(Options::class),
             service('globetrotters_ai_presence.clock'),
+            param('kernel.project_dir'),
         ]);
+
+    $services->set(RefreshLock::class)
+        ->args([service(BufferDirectory::class)]);
 
     $services->set(ApiCatalog::class)
         ->args([service(ArtefactCache::class)]);
@@ -129,6 +142,7 @@ return static function (ContainerConfigurator $container): void {
             service(ArtefactSync::class),
             service(Options::class),
             service(VendorRanges::class),
+            service(RefreshLock::class),
         ])
         ->tag('console.command');
 
@@ -146,6 +160,7 @@ return static function (ContainerConfigurator $container): void {
             service(PageViewCounter::class),
             service(VendorRanges::class),
             service(AiReferrers::class),
+            service(ServedVersion::class),
         ])
         ->tag('console.command');
 };

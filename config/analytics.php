@@ -21,8 +21,10 @@ use Globetrotters\AiPresenceBundle\Analytics\IngestTransportInterface;
 use Globetrotters\AiPresenceBundle\Analytics\NdjsonEventStore;
 use Globetrotters\AiPresenceBundle\Analytics\PageViewCounter;
 use Globetrotters\AiPresenceBundle\Analytics\PageViewOptions;
+use Globetrotters\AiPresenceBundle\Analytics\ServedVersion;
 use Globetrotters\AiPresenceBundle\Analytics\SiteCapture;
 use Globetrotters\AiPresenceBundle\Analytics\VendorRanges;
+use Globetrotters\AiPresenceBundle\Cache\ArtefactCache;
 use Globetrotters\AiPresenceBundle\Command\PresenceFlushCommand;
 use Globetrotters\AiPresenceBundle\Serving\ArtefactCaptureSubscriber;
 use Globetrotters\AiPresenceBundle\Serving\ArtefactHeaderSubscriber;
@@ -31,7 +33,9 @@ use Globetrotters\AiPresenceBundle\Serving\PageViewBeacon;
 use Globetrotters\AiPresenceBundle\Serving\PageViewBeaconInjector;
 use Globetrotters\AiPresenceBundle\Serving\PageViewEndpoint;
 use Globetrotters\AiPresenceBundle\Serving\ResponseFinalization;
+use Globetrotters\AiPresenceBundle\Serving\ServedVersionSubscriber;
 use Globetrotters\AiPresenceBundle\Serving\SiteCaptureSubscriber;
+use Globetrotters\AiPresenceBundle\Settings\Options;
 
 /*
  * Server-log reporting lane, and the first-party page-view counter that
@@ -101,11 +105,26 @@ return static function (ContainerConfigurator $container): void {
         ])
         ->tag('kernel.reset', ['method' => 'reset']);
 
+    // The web lane's heartbeat of the bundle version it serves. In the
+    // buffer directory rather than the pool it exists to cross-check.
+    $services->set(ServedVersion::class)
+        ->args([
+            service(BufferDirectory::class),
+            service(AnalyticsOptions::class),
+            service('globetrotters_ai_presence.clock'),
+            param('kernel.project_dir'),
+        ]);
+
+    $services->set(ServedVersionSubscriber::class)
+        ->args([service(ArtefactCache::class), service(Options::class), service(ServedVersion::class)])
+        ->tag('kernel.event_subscriber');
+
     $services->set(CaptureContext::class)
         ->args([
             service(AnalyticsOptions::class),
             service(AnalyticsState::class),
             service(VendorRanges::class),
+            service(ServedVersion::class),
         ]);
 
     $services->set(SiteCapture::class)

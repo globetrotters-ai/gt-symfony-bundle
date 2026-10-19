@@ -33,6 +33,7 @@ final class ArtefactSync
         private readonly ArtefactCache $cache,
         private readonly Options $options,
         private readonly ClockInterface $clock,
+        private readonly string $projectDir = '',
     ) {
     }
 
@@ -128,6 +129,12 @@ final class ArtefactSync
             'content_hash' => $contentHash,
             'last_refresh' => $this->clock->now()->getTimestamp(),
             'last_error' => '',
+            // Who pulled, so gt:status can tell a pool the web does not read
+            // (another host, another checkout, another user) from a lagging one.
+            'pulled_by' => [
+                'version' => $marker['version'],
+                'at' => $this->clock->now()->getTimestamp(),
+            ] + Provenance::describe($this->projectDir),
         ];
 
         // Only stamped when the content genuinely moved. The generated sitemap

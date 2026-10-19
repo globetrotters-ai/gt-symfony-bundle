@@ -46,6 +46,7 @@ final class CaptureContext
         private readonly AnalyticsOptions $options,
         private readonly AnalyticsState $state,
         private readonly ?VendorRanges $ranges = null,
+        private readonly ?ServedVersion $servedVersion = null,
     ) {
     }
 
@@ -94,7 +95,12 @@ final class CaptureContext
     /**
      * The envelope block.
      *
-     * @return array{siteCapture: bool, pageCache: string|null, cdnMarkers: list<string>, rangesVersion: string|null, rangesFetchedAt: string|null}
+     * ``servedVersion`` is the bundle version the web lane last served (the
+     * version marker's id, e.g. ``2026-10-18-050325``), or null when unknown —
+     * read from the web's heartbeat, not this process's pool, so a cron flush
+     * reports what the apex serves rather than what the cron pulled.
+     *
+     * @return array{siteCapture: bool, pageCache: string|null, cdnMarkers: list<string>, rangesVersion: string|null, rangesFetchedAt: string|null, servedVersion: string|null}
      */
     public function toArray(): array
     {
@@ -106,6 +112,7 @@ final class CaptureContext
             'cdnMarkers' => self::markers($state['cdn_markers'] ?? []),
             'rangesVersion' => $this->ranges?->version(),
             'rangesFetchedAt' => $this->ranges?->fetchedAtIso(),
+            'servedVersion' => $this->servedVersion?->version(),
         ];
     }
 

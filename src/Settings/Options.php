@@ -35,6 +35,11 @@ final class Options implements ResetInterface
         // does not have.
         'content_changed_at' => 0,
         'last_error' => '',
+        // Which process made the last successful pull, and of which version:
+        // {version, at, hostname, project_dir, user}. Compared by gt:status
+        // with what the web lane reports serving (Analytics\ServedVersion), so
+        // a pool the two do not share shows up as a disagreement.
+        'pulled_by' => [],
     ];
 
     /** @var array<string, mixed>|null */
@@ -150,6 +155,27 @@ final class Options implements ResetInterface
     public function indexNowKey(): string
     {
         return IndexNowKey::sanitize($this->state()['indexnow_key']);
+    }
+
+    /**
+     * The last successful pull's stamp, or null before the first one.
+     *
+     * @return array{version: string, at: int, hostname: string, project_dir: string, user: string}|null
+     */
+    public function pulledBy(): ?array
+    {
+        $stamp = $this->state()['pulled_by'];
+        if (!\is_array($stamp) || !\is_string($stamp['version'] ?? null) || !\is_int($stamp['at'] ?? null)) {
+            return null;
+        }
+
+        return [
+            'version' => $stamp['version'],
+            'at' => $stamp['at'],
+            'hostname' => \is_string($stamp['hostname'] ?? null) ? $stamp['hostname'] : '',
+            'project_dir' => \is_string($stamp['project_dir'] ?? null) ? $stamp['project_dir'] : '',
+            'user' => \is_string($stamp['user'] ?? null) ? $stamp['user'] : '',
+        ];
     }
 
     public function reset(): void

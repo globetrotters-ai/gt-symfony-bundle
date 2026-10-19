@@ -36,6 +36,10 @@ final class TestKernel extends Kernel
         private readonly bool $withSitemapRoute = false,
         private readonly bool $withPageViews = false,
         private readonly bool $withReportingFromEnv = false,
+        /** framework.cache overrides, e.g. ['app' => 'cache.adapter.apcu'] */
+        private readonly array $frameworkCache = [],
+        /** An explicit globetrotters_ai_presence.cache_pool; null keeps the bundle's default */
+        private readonly ?string $cachePool = null,
     ) {
         parent::__construct($environment, $debug);
     }
@@ -79,10 +83,12 @@ final class TestKernel extends Kernel
             'http_method_override' => false,
             'handle_all_throwables' => true,
             'php_errors' => ['log' => true],
+            ...([] !== $this->frameworkCache ? ['cache' => $this->frameworkCache] : []),
         ]);
 
         $container->extension('globetrotters_ai_presence', [
             'website_url' => self::WEBSITE_URL,
+            ...(null !== $this->cachePool ? ['cache_pool' => $this->cachePool] : []),
             // Default stays full_apex, the bundle's original behaviour, so every
             // other test exercises the profile most installs are on.
             'profile' => $this->withBreadcrumb ? 'subdomain_breadcrumb' : 'full_apex',
@@ -167,6 +173,9 @@ final class TestKernel extends Kernel
             .($this->withOpportunisticFlush ? '_terminate' : '')
             .($this->withBreadcrumb ? '_breadcrumb' : '')
             .($this->withSitemapRoute ? '_sitemap' : '')
-            .($this->withPageViews ? '_pageviews' : '');
+            .($this->withPageViews ? '_pageviews' : '')
+            .([] !== $this->frameworkCache || null !== $this->cachePool
+                ? '_pool'.substr(md5(serialize([$this->frameworkCache, $this->cachePool])), 0, 8)
+                : '');
     }
 }

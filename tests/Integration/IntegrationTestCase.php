@@ -28,6 +28,9 @@ abstract class IntegrationTestCase extends WebTestCase
     protected static bool $withSitemapRoute = false;
     protected static bool $withPageViews = false;
     protected static bool $withReportingFromEnv = false;
+    /** @var array<string, string> framework.cache overrides */
+    protected static array $frameworkCache = [];
+    protected static ?string $cachePool = null;
 
     protected const BODIES = [
         'llms.txt' => 'llms body',
@@ -43,7 +46,7 @@ abstract class IntegrationTestCase extends WebTestCase
 
     protected static function createKernel(array $options = []): KernelInterface
     {
-        return new TestKernel('test', false, static::$withRobotsRoute, static::$withReporting, static::$withOpportunisticFlush, static::$withBreadcrumb, static::$withSitemapRoute, static::$withPageViews, static::$withReportingFromEnv);
+        return new TestKernel('test', false, static::$withRobotsRoute, static::$withReporting, static::$withOpportunisticFlush, static::$withBreadcrumb, static::$withSitemapRoute, static::$withPageViews, static::$withReportingFromEnv, static::$frameworkCache, static::$cachePool);
     }
 
     protected function tearDown(): void
@@ -63,13 +66,13 @@ abstract class IntegrationTestCase extends WebTestCase
     }
 
     /**
-     * Boots a client and empties the shared filesystem pool so tests are
-     * isolated despite the persistent cache dir.
+     * Boots a client and empties the bundle's pool so tests are isolated
+     * despite the persistent pool directory.
      */
     protected function bootClient(): KernelBrowser
     {
         $client = static::createClient();
-        static::getContainer()->get('cache.app')->clear();
+        static::getContainer()->get('globetrotters_ai_presence.cache_pool')->clear();
         $this->clearBuffer();
 
         return $client;
