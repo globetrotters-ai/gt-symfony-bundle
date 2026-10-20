@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-10-20
+
+No code change: the number moves in step with the WordPress plugin, whose
+0.10.0 adds the opt-in page-cache exclusion. The bundle's ranges sync already
+ignores the new `cacheExclusionUserAgents` member.
+
 ### Added
 
 - **Docs: keeping AI agents out of a page cache.** A README section with
