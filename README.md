@@ -238,6 +238,64 @@ What is sent, per page fetched by a probable bot: the User-Agent, the page path 
 
 Bot counts are a floor: a request answered by a page cache or CDN in front of the application never reaches it. Each flush therefore carries a small `captureContext`: whether site capture is on, `symfony-http-cache` when the kernel runs behind Symfony's `HttpCache`, which CDN or proxy headers (`CF-Ray`, `X-Varnish`, `Via`, `X-Cache` and similar) were seen on recent requests, and the version and date of the vendor range list. Studio shows the bot numbers as "at least" when something sits in front.
 
+#### Keeping AI agents out of a page cache (optional)
+
+A cache in front of the application answers AI agents too, and those visits are never counted. You can let the AI assistants' live-answer and AI-search agents through to the application, uncached. The trade-off: those agents get uncached pages, a small extra load on your servers. Training crawlers and search engines stay cached. The bundle never changes your cache or proxy configuration, so this is a snippet you add yourself. The WordPress plugin can do it for you, for its supported page caches.
+
+The list of agents is the `cacheExclusionUserAgents` member of the ranges document the bundle already fetches (`<endpoint>/ranges`, with your ingest token). It changes when AI vendors add agents. As of this release:
+
+```text
+OAI-SearchBot|ChatGPT-User|Claude-SearchBot|Claude-User|PerplexityBot|Perplexity-User|meta-externalfetcher|meta-webindexer|xAI-Grok|Grok-DeepSearch|DuckAssistBot|ExaSearchBot
+```
+
+**Symfony `HttpCache`** (your `AppCache` or kernel cache class): skip the lookup for those agents. `pass()` forwards the request to the application without reading or storing the cache.
+
+```php
+use Symfony\Bundle\FrameworkBundle\HttpCache\HttpCache;
+use Symfony\Component\HttpFoundation\Request;
+use Symfony\Component\HttpFoundation\Response;
+
+class AppCache extends HttpCache
+{
+    private const AI_AGENTS = '/OAI-SearchBot|ChatGPT-User|Claude-SearchBot|Claude-User|PerplexityBot|Perplexity-User|meta-externalfetcher|meta-webindexer|xAI-Grok|Grok-DeepSearch|DuckAssistBot|ExaSearchBot/i';
+
+    protected function lookup(Request $request, bool $catch = false): Response
+    {
+        if (preg_match(self::AI_AGENTS, (string) $request->headers->get('User-Agent'))) {
+            return $this->pass($request, $catch);
+        }
+
+        return parent::lookup($request, $catch);
+    }
+}
+```
+
+**Varnish** (`vcl_recv`):
+
+```vcl
+sub vcl_recv {
+    if (req.http.User-Agent ~ "(?i)(OAI-SearchBot|ChatGPT-User|Claude-SearchBot|Claude-User|PerplexityBot|Perplexity-User|meta-externalfetcher|meta-webindexer|xAI-Grok|Grok-DeepSearch|DuckAssistBot|ExaSearchBot)") {
+        return (pass);
+    }
+}
+```
+
+**nginx** `fastcgi_cache` (use `proxy_cache_bypass` / `proxy_no_cache` with `proxy_cache`):
+
+```nginx
+# http {} context
+map $http_user_agent $gt_ai_agent {
+    default 0;
+    "~*(OAI-SearchBot|ChatGPT-User|Claude-SearchBot|Claude-User|PerplexityBot|Perplexity-User|meta-externalfetcher|meta-webindexer|xAI-Grok|Grok-DeepSearch|DuckAssistBot|ExaSearchBot)" 1;
+}
+
+# location {} that runs PHP
+fastcgi_cache_bypass $gt_ai_agent;
+fastcgi_no_cache     $gt_ai_agent;
+```
+
+A CDN needs the same rule in its own cache settings. Studio keeps showing your bot numbers as "at least" while `symfony-http-cache` or a CDN header is seen: the bundle cannot check what your proxy does with these agents.
+
 ### Scheduling the flush
 
 Events are buffered locally and flushed at most every 15 minutes. Three lanes, all sharing one interval, so whichever you have wins and the others stay dormant. The interval is checked under the flush lock, so two lanes firing a second apart never both send; `gt:presence:flush --force` skips the interval but never the lock.
