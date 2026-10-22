@@ -20,9 +20,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `bing.com`, …; `<name>.*` stands for one or two TLD labels, so `google.*` is
   `google.fr` and `google.co.uk`, never `gemini.google.com`): a ChatGPT tag on
   a page a search engine indexed is a search referral. The list is synced, so
-  it changes without a release; a ranges document without it, and an
-  `ai-referrers.json` written by 0.10.x, behave as before until the next
-  fetch. Mirrors gt-backend #1479; same change in the WordPress plugin.
+  it changes without a release; a ranges document without it behaves as
+  before. An `ai-referrers.json` written by 0.10.x still matches, but reports
+  no version, so the next sync sends no `If-None-Match` and its `200` brings
+  the key: 0.10.x may already hold the list at the ranges version that
+  introduced it, and `304`s would otherwise keep the old shape until the
+  backend's version next moved. Mirrors gt-backend #1479; same change in the
+  WordPress plugin.
 
 ## [0.10.0] - 2026-10-20
 

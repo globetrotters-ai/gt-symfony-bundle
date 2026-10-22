@@ -48,7 +48,9 @@ final class AiReferrers implements ResetInterface
      * Read once per process, or per request in a long-running one
      * (kernel.reset), so a list another lane refreshed is picked up.
      *
-     * @var array{version: string, fetched_at: int, hosts: array<string, string>, utmSources: array<string, string>, searchHosts: list<string>}|null
+     * ``searchHosts`` is null for a file written before the key existed.
+     *
+     * @var array{version: string, fetched_at: int, hosts: array<string, string>, utmSources: array<string, string>, searchHosts: list<string>|null}|null
      */
     private ?array $loaded = null;
 
@@ -97,7 +99,7 @@ final class AiReferrers implements ResetInterface
         if ('' !== $host && isset($list['hosts'][$host])) {
             return $list['hosts'][$host];
         }
-        if ('' === $source || '' !== $host && self::isSearchHost($host, $list['searchHosts'])) {
+        if ('' === $source || '' !== $host && self::isSearchHost($host, $list['searchHosts'] ?? [])) {
             return PageViewRules::PLATFORM_NONE;
         }
 
@@ -140,10 +142,18 @@ final class AiReferrers implements ResetInterface
 
     /**
      * The ranges document version the stored list came from.
+     *
+     * Null for a list stored before ``searchHosts`` existed, though it still
+     * matches: 0.10.x may have stored it at the very version that introduced
+     * the key, and a conditional sync would then answer ``304`` until the
+     * backend's version next moved. Null makes the next sync unconditional,
+     * and its ``200`` brings the key.
      */
     public function version(): ?string
     {
-        return $this->stored()['version'] ?? null;
+        $list = $this->stored();
+
+        return null === $list || null === $list['searchHosts'] ? null : $list['version'];
     }
 
     public function fetchedAt(): ?int
@@ -273,7 +283,7 @@ final class AiReferrers implements ResetInterface
     }
 
     /**
-     * @return array{version: string, fetched_at: int, hosts: array<string, string>, utmSources: array<string, string>, searchHosts: list<string>}|null
+     * @return array{version: string, fetched_at: int, hosts: array<string, string>, utmSources: array<string, string>, searchHosts: list<string>|null}|null
      */
     private function fresh(): ?array
     {
@@ -286,7 +296,7 @@ final class AiReferrers implements ResetInterface
     }
 
     /**
-     * @return array{version: string, fetched_at: int, hosts: array<string, string>, utmSources: array<string, string>, searchHosts: list<string>}|null
+     * @return array{version: string, fetched_at: int, hosts: array<string, string>, utmSources: array<string, string>, searchHosts: list<string>|null}|null
      */
     private function stored(): ?array
     {
@@ -311,13 +321,14 @@ final class AiReferrers implements ResetInterface
         // Our own file, written only from an already-parsed list: the parse
         // again is cheap at this size, and keeps a hand-edited file from
         // putting anything but a slug into a counter key. A file from 0.10.x
-        // has no searchHosts: read as none, not discarded.
+        // has no searchHosts: kept as null (none, and no version()), not
+        // discarded.
         return $this->loaded = [
             'version' => $decoded['version'],
             'fetched_at' => $decoded['fetched_at'],
             'hosts' => self::parseMap($decoded['hosts']),
             'utmSources' => self::parseMap($decoded['utmSources']),
-            'searchHosts' => self::parseList($decoded['searchHosts'] ?? null),
+            'searchHosts' => \array_key_exists('searchHosts', $decoded) ? self::parseList($decoded['searchHosts']) : null,
         ];
     }
 
@@ -325,7 +336,7 @@ final class AiReferrers implements ResetInterface
      * Written beside a temporary file and renamed over the old one, so the
      * beacon endpoint reading it never sees half a list.
      *
-     * @param array{version: string, fetched_at: int, hosts: array<string, string>, utmSources: array<string, string>, searchHosts: list<string>} $list
+     * @param array{version: string, fetched_at: int, hosts: array<string, string>, utmSources: array<string, string>, searchHosts: list<string>|null} $list
      */
     private function write(array $list): bool
     {
@@ -333,14 +344,14 @@ final class AiReferrers implements ResetInterface
             return false;
         }
         // Objects, so an empty list is still {} and the file has one shape.
+        // A restamp keeps a 0.10.x file without searchHosts as it was.
         $json = json_encode(
             [
                 'version' => $list['version'],
                 'fetched_at' => $list['fetched_at'],
                 'hosts' => (object) $list['hosts'],
                 'utmSources' => (object) $list['utmSources'],
-                'searchHosts' => $list['searchHosts'],
-            ],
+            ] + (null === $list['searchHosts'] ? [] : ['searchHosts' => $list['searchHosts']]),
             \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE,
         );
         if (!\is_string($json) || !$this->directory->replace($this->directory->path(self::FILE), $json)) {

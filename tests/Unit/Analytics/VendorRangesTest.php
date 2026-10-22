@@ -265,6 +265,34 @@ final class VendorRangesTest extends TestCase
     }
 
     /**
+     * The upgrade from 0.10.x: its list may already be stored at the ranges
+     * version that introduced ``searchHosts``, without the key. A conditional
+     * fetch would answer 304 until the backend's version next moved.
+     */
+    public function testAnAiReferrerListWithoutSearchHostsDropsIfNoneMatch(): void
+    {
+        $this->transport->willReturnRanges(RangesFetch::http(200, self::LIST_WITH_REFERRERS));
+        $this->ranges()->refreshIfDue();
+        $file = $this->dir.'/'.AiReferrers::FILE;
+        $legacy = (array) json_decode((string) file_get_contents($file), true);
+        unset($legacy['searchHosts']);
+        file_put_contents($file, json_encode($legacy));
+        self::assertSame('chatgpt', $this->referrers()->match('google.fr', 'chatgpt.com'), 'as 0.10.x stored it');
+
+        $this->clock->modify('+1 day');
+        $this->transport->willReturnRanges(RangesFetch::http(200, self::LIST_WITH_REFERRERS));
+        $this->ranges()->refreshIfDue();
+
+        self::assertSame('', $this->transport->rangeRequests[1]['version'], 'unconditional');
+        self::assertSame('none', $this->referrers()->match('google.fr', 'chatgpt.com'), 'the 200 brought searchHosts');
+
+        $this->clock->modify('+1 day');
+        $this->transport->willReturnRanges(RangesFetch::http(304));
+        $this->ranges()->refreshIfDue();
+        self::assertSame('3f2a9c1e0b7d', $this->transport->rangeRequests[2]['version'], 'conditional again once the key is stored');
+    }
+
+    /**
      * Two files are two writes: one can land without the other. A version
      * mismatch means they no longer describe one document.
      */

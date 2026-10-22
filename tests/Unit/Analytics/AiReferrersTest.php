@@ -167,26 +167,42 @@ final class AiReferrersTest extends TestCase
      */
     public function testAFileWithoutSearchHostsStillLoads(): void
     {
-        file_put_contents(
-            $this->dir.'/'.AiReferrers::FILE,
-            json_encode([
-                'version' => '3f2a9c1e0b7d',
-                'fetched_at' => $this->clock->now()->getTimestamp(),
-                'hosts' => self::HOSTS,
-                'utmSources' => self::UTM_SOURCES,
-            ]),
-        );
+        $this->writeFile(withSearchHosts: false);
 
         $referrers = $this->referrers();
         self::assertFalse($referrers->isStale());
+        self::assertSame(\count(self::HOSTS), $referrers->hostCount());
         self::assertSame('claude', $referrers->match('claude.ai', ''));
         self::assertSame('chatgpt', $referrers->match('www.google.fr', 'chatgpt.com'));
         self::assertSame('copilot', $referrers->match('', 'copilot.com?form=MG0AUO'));
+    }
 
+    /**
+     * The upgrade trap: 0.10.x may already have stored the list at the ranges
+     * version that introduced ``searchHosts``, dropping the key. Reporting
+     * that version would keep the sync conditional and every answer a 304
+     * until the backend's version next moved, so no version is reported, the
+     * next sync is unconditional, and its 200 brings the key.
+     */
+    public function testAFileWithoutSearchHostsReportsNoVersion(): void
+    {
+        $this->writeFile(withSearchHosts: false);
+
+        $referrers = $this->referrers();
+        self::assertNull($referrers->version());
+        self::assertSame($this->clock->now()->getTimestamp(), $referrers->fetchedAt());
+
+        // A restamp confirms freshness, never the shape: the key stays absent.
         self::assertTrue($referrers->restamp());
-        $decoded = json_decode((string) file_get_contents($this->dir.'/'.AiReferrers::FILE), true);
-        self::assertIsArray($decoded);
-        self::assertSame([], $decoded['searchHosts']);
+        self::assertArrayNotHasKey('searchHosts', (array) json_decode((string) file_get_contents($this->dir.'/'.AiReferrers::FILE), true));
+        self::assertNull($this->referrers()->version());
+    }
+
+    public function testAFileWithAnEmptySearchHostsListReportsItsVersion(): void
+    {
+        $this->writeFile(withSearchHosts: true);
+
+        self::assertSame('3f2a9c1e0b7d', $this->referrers()->version());
     }
 
     #[DataProvider('visits')]
@@ -394,6 +410,19 @@ final class AiReferrersTest extends TestCase
     public function testParseReadsAMissingOrMalformedBlockAsEmptyLists(mixed $block): void
     {
         self::assertSame(['hosts' => [], 'utmSources' => [], 'searchHosts' => []], AiReferrers::parse($block));
+    }
+
+    private function writeFile(bool $withSearchHosts): void
+    {
+        file_put_contents(
+            $this->dir.'/'.AiReferrers::FILE,
+            json_encode([
+                'version' => '3f2a9c1e0b7d',
+                'fetched_at' => $this->clock->now()->getTimestamp(),
+                'hosts' => self::HOSTS,
+                'utmSources' => self::UTM_SOURCES,
+            ] + ($withSearchHosts ? ['searchHosts' => []] : [])),
+        );
     }
 
     private function store(): bool
