@@ -148,8 +148,10 @@ final class VendorRanges implements ResetInterface
             // A list is restamped only if one is stored: a 304 to the
             // unconditional request sent while it is missing (a cache in
             // between) has nothing to confirm, and is not a write failure.
+            // One stored without searchHosts reports no version but is
+            // stored, and is restamped as it is.
             if (!$this->write($current)
-                || (null !== $this->aiReferrers && null !== $this->aiReferrers->version() && !$this->aiReferrers->restamp())
+                || (null !== $this->aiReferrers && null !== $this->aiReferrers->fetchedAt() && !$this->aiReferrers->restamp())
             ) {
                 $error = self::WRITE_ERROR;
             }

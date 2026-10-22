@@ -293,6 +293,32 @@ final class VendorRangesTest extends TestCase
     }
 
     /**
+     * A 304 to that unconditional request (a cache in between) still confirms
+     * the keyless list as fresh, so it keeps matching rather than going stale,
+     * and leaves it keyless, so the next sync stays unconditional.
+     */
+    public function testA304RestampsAnAiReferrerListWithoutSearchHosts(): void
+    {
+        $this->transport->willReturnRanges(RangesFetch::http(200, self::LIST_WITH_REFERRERS));
+        $this->ranges()->refreshIfDue();
+        $file = $this->dir.'/'.AiReferrers::FILE;
+        $legacy = (array) json_decode((string) file_get_contents($file), true);
+        unset($legacy['searchHosts']);
+        file_put_contents($file, json_encode($legacy));
+
+        $this->clock->modify('+20 days');
+        self::assertTrue($this->referrers()->isStale());
+        $this->transport->willReturnRanges(RangesFetch::http(304));
+        $this->ranges()->refreshIfDue();
+
+        self::assertSame('', $this->transport->rangeRequests[1]['version'], 'unconditional');
+        self::assertSame($this->clock->now()->getTimestamp(), $this->referrers()->fetchedAt());
+        self::assertSame('claude', $this->referrers()->match('claude.ai', ''), 'confirmed fresh, still matching');
+        self::assertNull($this->referrers()->version(), 'still keyless');
+        self::assertSame('', $this->ranges()->lastError());
+    }
+
+    /**
      * Two files are two writes: one can land without the other. A version
      * mismatch means they no longer describe one document.
      */
