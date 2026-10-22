@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-10-22
+
+### Changed
+
+- **AI referrals: a suffixed `utm_source` is matched, a tag behind a search
+  engine is not.** The page-view counter cuts the `utm_source` value at its
+  first `?` before the lookup, so Copilot's `copilot.com?form=MG0AUO` counts as
+  `copilot` (still an exact match afterwards, never a prefix). And the value is
+  looked up only when the referrer is empty or not one of the search hosts the
+  ranges document now lists under `aiReferrers.searchHosts` (`google.*`,
+  `bing.com`, …; `<name>.*` stands for one or two TLD labels, so `google.*` is
+  `google.fr` and `google.co.uk`, never `gemini.google.com`): a ChatGPT tag on
+  a page a search engine indexed is a search referral. The list is synced, so
+  it changes without a release; a ranges document without it, and an
+  `ai-referrers.json` written by 0.10.x, behave as before until the next
+  fetch. Mirrors gt-backend #1479; same change in the WordPress plugin.
+
 ## [0.10.0] - 2026-10-20
 
 No code change: the number moves in step with the WordPress plugin, whose

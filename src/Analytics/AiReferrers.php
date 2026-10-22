@@ -10,7 +10,8 @@ use Symfony\Contracts\Service\ResetInterface;
 /**
  * The hosts and ``utm_source`` values AI assistants send their visitors from,
  * synced from Globetrotters so the page-view counter can say which platform
- * referred a human view without the referrer itself ever being kept.
+ * referred a human view without the referrer itself ever being kept, and the
+ * search hosts behind which a ``utm_source`` is not trusted.
  *
  * Arrives in the same ``<ingest endpoint>/ranges`` document as the vendor
  * ranges (its ``aiReferrers`` block), and is written by the same daily fetch
@@ -38,10 +39,16 @@ final class AiReferrers implements ResetInterface
     public const STALE_AFTER_SECONDS = 14 * 86400;
 
     /**
+     * What ``<name>.*`` in a search host pattern stands for: one or two TLD
+     * labels of two letters or more (gt-backend ``vendor_ranges._ANY_TLD``).
+     */
+    private const ANY_TLD = '\\.[a-z]{2,}(?:\\.[a-z]{2,})?';
+
+    /**
      * Read once per process, or per request in a long-running one
      * (kernel.reset), so a list another lane refreshed is picked up.
      *
-     * @var array{version: string, fetched_at: int, hosts: array<string, string>, utmSources: array<string, string>}|null
+     * @var array{version: string, fetched_at: int, hosts: array<string, string>, utmSources: array<string, string>, searchHosts: list<string>}|null
      */
     private ?array $loaded = null;
 
@@ -64,6 +71,10 @@ final class AiReferrers implements ResetInterface
      * along with it. Exact matches only, after normalising — a subdomain or
      * parent domain of a listed host is a different site.
      *
+     * The ``utm_source`` is looked up only when the host is empty or not a
+     * search host: an assistant's tag on a page that a search engine indexed
+     * travels with the search result, and that click is a search referral.
+     *
      * With neither a host nor a ``utm_source`` — nearly every view — this
      * returns before touching the file.
      *
@@ -83,9 +94,14 @@ final class AiReferrers implements ResetInterface
             return PageViewRules::PLATFORM_NONE;
         }
 
-        return ('' !== $host ? $list['hosts'][$host] ?? null : null)
-            ?? ('' !== $source ? $list['utmSources'][$source] ?? null : null)
-            ?? PageViewRules::PLATFORM_NONE;
+        if ('' !== $host && isset($list['hosts'][$host])) {
+            return $list['hosts'][$host];
+        }
+        if ('' === $source || '' !== $host && self::isSearchHost($host, $list['searchHosts'])) {
+            return PageViewRules::PLATFORM_NONE;
+        }
+
+        return $list['utmSources'][$source] ?? PageViewRules::PLATFORM_NONE;
     }
 
     /**
@@ -94,14 +110,16 @@ final class AiReferrers implements ResetInterface
      *
      * @param array<string, string> $hosts
      * @param array<string, string> $utmSources
+     * @param list<string>          $searchHosts
      */
-    public function store(string $version, array $hosts, array $utmSources): bool
+    public function store(string $version, array $hosts, array $utmSources, array $searchHosts = []): bool
     {
         return $this->write([
             'version' => $version,
             'fetched_at' => $this->now(),
             'hosts' => $hosts,
             'utmSources' => $utmSources,
+            'searchHosts' => $searchHosts,
         ]);
     }
 
@@ -154,15 +172,18 @@ final class AiReferrers implements ResetInterface
      * lookup normalises) mapped to a platform slug
      * ({@see PageViewRules::PLATFORM_PATTERN}) that is safe in a counter key and
      * on the wire. A block that is missing or not a pair of maps — a backend
-     * from before the list existed — reads as two empty lists.
+     * from before the list existed — reads as two empty lists. ``searchHosts``
+     * (since 2026-10-22) keeps its non-empty, lower-cased string patterns; a
+     * backend from before it reads as an empty list, which matches nothing.
      *
-     * @return array{hosts: array<string, string>, utmSources: array<string, string>}
+     * @return array{hosts: array<string, string>, utmSources: array<string, string>, searchHosts: list<string>}
      */
     public static function parse(mixed $block): array
     {
         return [
             'hosts' => self::parseMap(\is_array($block) ? $block['hosts'] ?? null : null),
             'utmSources' => self::parseMap(\is_array($block) ? $block['utmSources'] ?? null : null),
+            'searchHosts' => self::parseList(\is_array($block) ? $block['searchHosts'] ?? null : null),
         ];
     }
 
@@ -179,9 +200,37 @@ final class AiReferrers implements ResetInterface
         return rtrim($host, '.');
     }
 
+    /**
+     * Trimmed, lower-case, cut at the first ``?``: Copilot sends
+     * ``copilot.com?form=MG0AUO``, which is ``copilot.com``.
+     */
     private static function normalizeUtmSource(string $source): string
     {
-        return strtolower(trim($source));
+        $source = strtolower(trim($source));
+        $query = strpos($source, '?');
+
+        return false === $query ? $source : substr($source, 0, $query);
+    }
+
+    /**
+     * A bare pattern matches the host exactly; ``<name>.*`` matches
+     * ``<name>.`` and one or two TLD labels, so ``google.*`` is ``google.fr``
+     * and ``google.co.uk``, never ``gemini.google.com``. No pattern, no match.
+     *
+     * @param list<string> $patterns
+     */
+    private static function isSearchHost(string $host, array $patterns): bool
+    {
+        foreach ($patterns as $pattern) {
+            if (str_ends_with($pattern, '.*')
+                ? 1 === preg_match('/^'.preg_quote(substr($pattern, 0, -2), '/').self::ANY_TLD.'$/D', $host)
+                : $pattern === $host
+            ) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -205,7 +254,26 @@ final class AiReferrers implements ResetInterface
     }
 
     /**
-     * @return array{version: string, fetched_at: int, hosts: array<string, string>, utmSources: array<string, string>}|null
+     * @return list<string>
+     */
+    private static function parseList(mixed $list): array
+    {
+        if (!\is_array($list) || !array_is_list($list)) {
+            return [];
+        }
+
+        $parsed = [];
+        foreach ($list as $pattern) {
+            if (\is_string($pattern) && '' !== $pattern = strtolower(trim($pattern))) {
+                $parsed[] = $pattern;
+            }
+        }
+
+        return $parsed;
+    }
+
+    /**
+     * @return array{version: string, fetched_at: int, hosts: array<string, string>, utmSources: array<string, string>, searchHosts: list<string>}|null
      */
     private function fresh(): ?array
     {
@@ -218,7 +286,7 @@ final class AiReferrers implements ResetInterface
     }
 
     /**
-     * @return array{version: string, fetched_at: int, hosts: array<string, string>, utmSources: array<string, string>}|null
+     * @return array{version: string, fetched_at: int, hosts: array<string, string>, utmSources: array<string, string>, searchHosts: list<string>}|null
      */
     private function stored(): ?array
     {
@@ -242,12 +310,14 @@ final class AiReferrers implements ResetInterface
 
         // Our own file, written only from an already-parsed list: the parse
         // again is cheap at this size, and keeps a hand-edited file from
-        // putting anything but a slug into a counter key.
+        // putting anything but a slug into a counter key. A file from 0.10.x
+        // has no searchHosts: read as none, not discarded.
         return $this->loaded = [
             'version' => $decoded['version'],
             'fetched_at' => $decoded['fetched_at'],
             'hosts' => self::parseMap($decoded['hosts']),
             'utmSources' => self::parseMap($decoded['utmSources']),
+            'searchHosts' => self::parseList($decoded['searchHosts'] ?? null),
         ];
     }
 
@@ -255,7 +325,7 @@ final class AiReferrers implements ResetInterface
      * Written beside a temporary file and renamed over the old one, so the
      * beacon endpoint reading it never sees half a list.
      *
-     * @param array{version: string, fetched_at: int, hosts: array<string, string>, utmSources: array<string, string>} $list
+     * @param array{version: string, fetched_at: int, hosts: array<string, string>, utmSources: array<string, string>, searchHosts: list<string>} $list
      */
     private function write(array $list): bool
     {
@@ -269,6 +339,7 @@ final class AiReferrers implements ResetInterface
                 'fetched_at' => $list['fetched_at'],
                 'hosts' => (object) $list['hosts'],
                 'utmSources' => (object) $list['utmSources'],
+                'searchHosts' => $list['searchHosts'],
             ],
             \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE,
         );

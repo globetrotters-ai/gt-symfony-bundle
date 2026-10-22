@@ -29,7 +29,7 @@ final class VendorRangesTest extends TestCase
     /** The same document as gt-backend serves it since the AI referrer list joined it. */
     public const LIST_WITH_REFERRERS = '{"version":"3f2a9c1e0b7d","generatedAt":"2026-10-14T03:00:00Z","ranges":['
         .'{"platform":"chatgpt","start":"20.171.206.0","end":"20.171.206.255"}],'
-        .'"aiReferrers":{"hosts":{"chatgpt.com":"chatgpt","claude.ai":"claude"},"utmSources":{"perplexity":"perplexity"}}}';
+        .'"aiReferrers":{"hosts":{"chatgpt.com":"chatgpt","claude.ai":"claude"},"utmSources":{"perplexity":"perplexity","chatgpt.com":"chatgpt"},"searchHosts":["google.*"]}}';
 
     private string $dir;
     private FakeIngestTransport $transport;
@@ -201,6 +201,7 @@ final class VendorRangesTest extends TestCase
         self::assertSame($this->clock->now()->getTimestamp(), $referrers->fetchedAt());
         self::assertSame('claude', $referrers->match('claude.ai', ''));
         self::assertSame('perplexity', $referrers->match('', 'perplexity'));
+        self::assertSame('none', $referrers->match('google.fr', 'chatgpt.com'), 'searchHosts stored with the list');
         self::assertSame('', $this->ranges()->lastError());
     }
 

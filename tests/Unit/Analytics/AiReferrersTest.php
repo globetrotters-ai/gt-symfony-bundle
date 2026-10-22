@@ -27,8 +27,20 @@ final class AiReferrersTest extends TestCase
 
     public const UTM_SOURCES = [
         'chatgpt.com' => 'chatgpt',
+        'copilot.com' => 'copilot',
+        'gemini' => 'gemini',
+        'geminiforbusiness' => 'gemini',
         'perplexity' => 'perplexity',
         'perplexity.ai' => 'perplexity',
+    ];
+
+    public const SEARCH_HOSTS = [
+        'google.*',
+        'www.google.*',
+        'bing.com',
+        'www.bing.com',
+        'duckduckgo.com',
+        'www.duckduckgo.com',
     ];
 
     private string $dir;
@@ -73,6 +85,108 @@ final class AiReferrersTest extends TestCase
         yield 'a utm_source is not looked up as a host' => ['', 'claude.ai', 'none'];
         yield 'a parent domain is not a match' => ['openai.com', '', 'none'];
         yield 'a subdomain is not a match' => ['eu.chatgpt.com', '', 'none'];
+    }
+
+    /**
+     * The PRD's five probes: Copilot's suffixed tag, a ChatGPT tag carried
+     * behind a search engine, and the tags that arrive with no referrer.
+     *
+     * @return iterable<string, array{string, string, string}>
+     */
+    public static function referralSignals(): iterable
+    {
+        yield 'a suffixed copilot tag, no referrer' => ['', 'copilot.com?form=MG0AUO', 'copilot'];
+        yield 'a chatgpt tag behind google' => ['www.google.fr', 'chatgpt.com', 'none'];
+        yield 'a chatgpt tag, no referrer' => ['', 'chatgpt.com', 'chatgpt'];
+        yield 'a gemini tag' => ['', 'gemini', 'gemini'];
+        yield 'a chatgpt referrer and tag' => ['chatgpt.com', 'chatgpt.com', 'chatgpt'];
+        yield 'a tag that is only a query' => ['', '?form=MG0AUO', 'none'];
+        yield 'a cut tag is still matched exactly' => ['', 'copilot.co?form=x', 'none'];
+        yield 'a chatgpt tag behind bing' => ['www.bing.com', 'chatgpt.com', 'none'];
+        yield 'a chatgpt tag behind an unknown site' => ['news.example', 'chatgpt.com', 'chatgpt'];
+        yield 'a gemini referrer is not a google search' => ['gemini.google.com', 'chatgpt.com', 'gemini'];
+    }
+
+    #[DataProvider('referralSignals')]
+    public function testCatchesSuffixedTagsAndIgnoresTagsBehindSearch(string $host, string $utmSource, string $platform): void
+    {
+        $this->store();
+
+        self::assertSame($platform, $this->referrers()->match($host, $utmSource));
+    }
+
+    /**
+     * @return iterable<string, array{list<string>, string, bool}>
+     */
+    public static function searchHostPatterns(): iterable
+    {
+        yield 'name.* with one TLD' => [['google.*'], 'google.fr', true];
+        yield 'name.* with two TLD labels' => [['google.*'], 'google.co.uk', true];
+        yield 'name.* is not a subdomain' => [['google.*'], 'gemini.google.com', false];
+        yield 'name.* is not a suffix of another name' => [['google.*'], 'notgoogle.com', false];
+        yield 'name.* needs a TLD' => [['google.*'], 'google', false];
+        yield 'name.* takes at most two labels' => [['google.*'], 'google.co.uk.example', false];
+        yield 'name.* takes letters only' => [['google.*'], 'google.c0m', false];
+        yield 'name.* takes two letters or more' => [['google.*'], 'google.c', false];
+        yield 'www.name.*' => [['www.google.*'], 'www.google.de', true];
+        yield 'a bare host matches exactly' => [['bing.com'], 'bing.com', true];
+        yield 'a bare host is not a subdomain' => [['bing.com'], 'www.bing.com', false];
+        yield 'a dot in a pattern is literal' => [['bing.com'], 'bingxcom', false];
+        yield 'an empty list matches nothing' => [[], 'google.fr', false];
+        yield 'an empty list does not match the empty host' => [[], '', false];
+    }
+
+    /**
+     * @param list<string> $patterns
+     */
+    #[DataProvider('searchHostPatterns')]
+    public function testSearchHostPatterns(array $patterns, string $host, bool $isSearch): void
+    {
+        $this->referrers()->store('3f2a9c1e0b7d', [], ['chatgpt.com' => 'chatgpt'], $patterns);
+
+        self::assertSame($isSearch ? 'none' : 'chatgpt', $this->referrers()->match($host, 'chatgpt.com'));
+    }
+
+    /**
+     * A ranges document from before ``searchHosts``: a tag behind google
+     * still counts, as it did.
+     */
+    public function testWithoutSearchHostsATagBehindSearchStillCounts(): void
+    {
+        $referrers = AiReferrers::parse(['hosts' => self::HOSTS, 'utmSources' => self::UTM_SOURCES]);
+        self::assertSame([], $referrers['searchHosts']);
+
+        $this->referrers()->store('3f2a9c1e0b7d', $referrers['hosts'], $referrers['utmSources'], $referrers['searchHosts']);
+
+        self::assertSame('chatgpt', $this->referrers()->match('www.google.fr', 'chatgpt.com'));
+    }
+
+    /**
+     * A file written by 0.10.x has no ``searchHosts``: it still loads, as an
+     * empty list, rather than being discarded until the next daily fetch.
+     */
+    public function testAFileWithoutSearchHostsStillLoads(): void
+    {
+        file_put_contents(
+            $this->dir.'/'.AiReferrers::FILE,
+            json_encode([
+                'version' => '3f2a9c1e0b7d',
+                'fetched_at' => $this->clock->now()->getTimestamp(),
+                'hosts' => self::HOSTS,
+                'utmSources' => self::UTM_SOURCES,
+            ]),
+        );
+
+        $referrers = $this->referrers();
+        self::assertFalse($referrers->isStale());
+        self::assertSame('claude', $referrers->match('claude.ai', ''));
+        self::assertSame('chatgpt', $referrers->match('www.google.fr', 'chatgpt.com'));
+        self::assertSame('copilot', $referrers->match('', 'copilot.com?form=MG0AUO'));
+
+        self::assertTrue($referrers->restamp());
+        $decoded = json_decode((string) file_get_contents($this->dir.'/'.AiReferrers::FILE), true);
+        self::assertIsArray($decoded);
+        self::assertSame([], $decoded['searchHosts']);
     }
 
     #[DataProvider('visits')]
@@ -181,6 +295,7 @@ final class AiReferrersTest extends TestCase
             'fetched_at' => $this->clock->now()->getTimestamp(),
             'hosts' => self::HOSTS,
             'utmSources' => self::UTM_SOURCES,
+            'searchHosts' => self::SEARCH_HOSTS,
         ], $decoded);
         self::assertSame(0o660, fileperms($this->dir.'/'.AiReferrers::FILE) & 0o777, 'shared with the flush user');
         self::assertSame([AiReferrers::FILE], array_values(array_diff(scandir($this->dir) ?: [], ['.', '..'])), 'no temporary file left behind');
@@ -188,7 +303,7 @@ final class AiReferrersTest extends TestCase
         $referrers = $this->referrers();
         self::assertSame('3f2a9c1e0b7d', $referrers->version());
         self::assertSame(6, $referrers->hostCount());
-        self::assertSame(3, $referrers->utmSourceCount());
+        self::assertSame(6, $referrers->utmSourceCount());
         self::assertFalse($referrers->isStale());
     }
 
@@ -197,9 +312,9 @@ final class AiReferrersTest extends TestCase
      */
     public function testStoresEmptyListsAsObjects(): void
     {
-        self::assertTrue($this->referrers()->store('3f2a9c1e0b7d', [], []));
+        self::assertTrue($this->referrers()->store('3f2a9c1e0b7d', [], [], []));
 
-        self::assertStringContainsString('"hosts":{},"utmSources":{}', (string) file_get_contents($this->dir.'/'.AiReferrers::FILE));
+        self::assertStringContainsString('"hosts":{},"utmSources":{},"searchHosts":[]', (string) file_get_contents($this->dir.'/'.AiReferrers::FILE));
         self::assertSame(PageViewRules::PLATFORM_NONE, $this->referrers()->match('chatgpt.com', 'chatgpt.com'));
         self::assertFalse($this->referrers()->isStale(), 'a confirmed empty list is fresh, it just matches nothing');
     }
@@ -225,7 +340,7 @@ final class AiReferrersTest extends TestCase
         $worker = $this->referrers();
         self::assertSame('none', $worker->match('', 'newsletter'));
 
-        $this->referrers()->store('a1b2c3d4e5f6', self::HOSTS, ['newsletter' => 'claude']);
+        $this->referrers()->store('a1b2c3d4e5f6', self::HOSTS, ['newsletter' => 'claude'], self::SEARCH_HOSTS);
 
         self::assertSame('none', $worker->match('', 'newsletter'), 'held for the request');
         $worker->reset();
@@ -243,6 +358,7 @@ final class AiReferrersTest extends TestCase
             [
                 'hosts' => ['chatgpt.com' => 'chatgpt', 'claude.ai' => 'claude'],
                 'utmSources' => ['perplexity' => 'perplexity'],
+                'searchHosts' => ['google.*', 'bing.com'],
             ],
             AiReferrers::parse([
                 'hosts' => [
@@ -257,6 +373,7 @@ final class AiReferrersTest extends TestCase
                     'at.example' => 'chat@gpt',
                 ],
                 'utmSources' => ['perplexity' => 'perplexity', 'none' => ['x']],
+                'searchHosts' => ['Google.*', '', '  ', 7, ['bing.com'], ' bing.com '],
             ]),
         );
     }
@@ -269,18 +386,19 @@ final class AiReferrersTest extends TestCase
         yield 'missing' => [null];
         yield 'a string' => ['chatgpt.com'];
         yield 'a list' => [['chatgpt.com']];
-        yield 'lists not maps' => [['hosts' => 'chatgpt.com', 'utmSources' => 3]];
+        yield 'lists not maps' => [['hosts' => 'chatgpt.com', 'utmSources' => 3, 'searchHosts' => 'google.*']];
+        yield 'searchHosts a map' => [['searchHosts' => ['google' => 'google.*']]];
     }
 
     #[DataProvider('absentBlocks')]
     public function testParseReadsAMissingOrMalformedBlockAsEmptyLists(mixed $block): void
     {
-        self::assertSame(['hosts' => [], 'utmSources' => []], AiReferrers::parse($block));
+        self::assertSame(['hosts' => [], 'utmSources' => [], 'searchHosts' => []], AiReferrers::parse($block));
     }
 
     private function store(): bool
     {
-        return $this->referrers()->store('3f2a9c1e0b7d', self::HOSTS, self::UTM_SOURCES);
+        return $this->referrers()->store('3f2a9c1e0b7d', self::HOSTS, self::UTM_SOURCES, self::SEARCH_HOSTS);
     }
 
     private function referrers(): AiReferrers

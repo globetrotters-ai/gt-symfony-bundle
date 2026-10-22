@@ -164,7 +164,7 @@ final class VendorRanges implements ResetInterface
                 // Written second: if this write fails, the two versions differ
                 // and the next check is unconditional, so a 200 repairs it.
                 $referrers = AiReferrers::parse($decoded['aiReferrers'] ?? null);
-                if (!$this->aiReferrers->store($parsed['version'], $referrers['hosts'], $referrers['utmSources'])) {
+                if (!$this->aiReferrers->store($parsed['version'], $referrers['hosts'], $referrers['utmSources'], $referrers['searchHosts'])) {
                     $error = self::WRITE_ERROR;
                 }
             }
