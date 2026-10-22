@@ -29,7 +29,7 @@ final class VendorRangesTest extends TestCase
     /** The same document as gt-backend serves it since the AI referrer list joined it. */
     public const LIST_WITH_REFERRERS = '{"version":"3f2a9c1e0b7d","generatedAt":"2026-10-14T03:00:00Z","ranges":['
         .'{"platform":"chatgpt","start":"20.171.206.0","end":"20.171.206.255"}],'
-        .'"aiReferrers":{"hosts":{"chatgpt.com":"chatgpt","claude.ai":"claude"},"utmSources":{"perplexity":"perplexity"}}}';
+        .'"aiReferrers":{"hosts":{"chatgpt.com":"chatgpt","claude.ai":"claude"},"utmSources":{"perplexity":"perplexity","chatgpt.com":"chatgpt"},"searchHosts":["google.*"]}}';
 
     private string $dir;
     private FakeIngestTransport $transport;
@@ -201,6 +201,7 @@ final class VendorRangesTest extends TestCase
         self::assertSame($this->clock->now()->getTimestamp(), $referrers->fetchedAt());
         self::assertSame('claude', $referrers->match('claude.ai', ''));
         self::assertSame('perplexity', $referrers->match('', 'perplexity'));
+        self::assertSame('none', $referrers->match('google.fr', 'chatgpt.com'), 'searchHosts stored with the list');
         self::assertSame('', $this->ranges()->lastError());
     }
 
@@ -261,6 +262,60 @@ final class VendorRangesTest extends TestCase
         $this->transport->willReturnRanges(RangesFetch::http(304));
         $this->ranges()->refreshIfDue();
         self::assertSame('3f2a9c1e0b7d', $this->transport->rangeRequests[2]['version'], 'conditional again once both are stored');
+    }
+
+    /**
+     * The upgrade from 0.10.x: its list may already be stored at the ranges
+     * version that introduced ``searchHosts``, without the key. A conditional
+     * fetch would answer 304 until the backend's version next moved.
+     */
+    public function testAnAiReferrerListWithoutSearchHostsDropsIfNoneMatch(): void
+    {
+        $this->transport->willReturnRanges(RangesFetch::http(200, self::LIST_WITH_REFERRERS));
+        $this->ranges()->refreshIfDue();
+        $file = $this->dir.'/'.AiReferrers::FILE;
+        $legacy = (array) json_decode((string) file_get_contents($file), true);
+        unset($legacy['searchHosts']);
+        file_put_contents($file, json_encode($legacy));
+        self::assertSame('chatgpt', $this->referrers()->match('google.fr', 'chatgpt.com'), 'as 0.10.x stored it');
+
+        $this->clock->modify('+1 day');
+        $this->transport->willReturnRanges(RangesFetch::http(200, self::LIST_WITH_REFERRERS));
+        $this->ranges()->refreshIfDue();
+
+        self::assertSame('', $this->transport->rangeRequests[1]['version'], 'unconditional');
+        self::assertSame('none', $this->referrers()->match('google.fr', 'chatgpt.com'), 'the 200 brought searchHosts');
+
+        $this->clock->modify('+1 day');
+        $this->transport->willReturnRanges(RangesFetch::http(304));
+        $this->ranges()->refreshIfDue();
+        self::assertSame('3f2a9c1e0b7d', $this->transport->rangeRequests[2]['version'], 'conditional again once the key is stored');
+    }
+
+    /**
+     * A 304 to that unconditional request (a cache in between) still confirms
+     * the keyless list as fresh, so it keeps matching rather than going stale,
+     * and leaves it keyless, so the next sync stays unconditional.
+     */
+    public function testA304RestampsAnAiReferrerListWithoutSearchHosts(): void
+    {
+        $this->transport->willReturnRanges(RangesFetch::http(200, self::LIST_WITH_REFERRERS));
+        $this->ranges()->refreshIfDue();
+        $file = $this->dir.'/'.AiReferrers::FILE;
+        $legacy = (array) json_decode((string) file_get_contents($file), true);
+        unset($legacy['searchHosts']);
+        file_put_contents($file, json_encode($legacy));
+
+        $this->clock->modify('+20 days');
+        self::assertTrue($this->referrers()->isStale());
+        $this->transport->willReturnRanges(RangesFetch::http(304));
+        $this->ranges()->refreshIfDue();
+
+        self::assertSame('', $this->transport->rangeRequests[1]['version'], 'unconditional');
+        self::assertSame($this->clock->now()->getTimestamp(), $this->referrers()->fetchedAt());
+        self::assertSame('claude', $this->referrers()->match('claude.ai', ''), 'confirmed fresh, still matching');
+        self::assertNull($this->referrers()->version(), 'still keyless');
+        self::assertSame('', $this->ranges()->lastError());
     }
 
     /**
