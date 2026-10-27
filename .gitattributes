@@ -10,3 +10,10 @@
 /phpstan.neon.dist      export-ignore
 /phpunit.xml.dist       export-ignore
 /Makefile               export-ignore
+/CLAUDE.md              export-ignore
+/CLAUDE.local.md        export-ignore
+/.claude                export-ignore
+/.entire                export-ignore
+/.gitleaks.toml         export-ignore
+/CONTRIBUTING.md        export-ignore
+/SECURITY.md            export-ignore

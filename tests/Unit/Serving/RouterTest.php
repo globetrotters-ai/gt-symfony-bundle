@@ -31,12 +31,12 @@ final class RouterTest extends TestCase
     protected function setUp(): void
     {
         $pool = new ArrayAdapter();
-        $this->cache = new ArtefactCache($pool, 'https://nantes.globetrotters.ai');
+        $this->cache = new ArtefactCache($pool, 'https://acme.globetrotters.ai');
         $this->cache->store([
             'llms.txt' => 'llms body',
             '.well-known/mcp.json' => '{"m":1}',
         ], 'v1', 0);
-        $this->options = new Options($pool, 'https://nantes.globetrotters.ai', 'daily', '/');
+        $this->options = new Options($pool, 'https://acme.globetrotters.ai', 'daily', '/');
         $this->router = new Router($this->cache, $this->options, new Sitemap($this->options, $this->cache), new ApiCatalog($this->cache));
     }
 
@@ -163,7 +163,7 @@ final class RouterTest extends TestCase
 
     public function testColdCacheFallsThrough(): void
     {
-        $cold = new ArtefactCache(new ArrayAdapter(), 'https://nantes.globetrotters.ai');
+        $cold = new ArtefactCache(new ArrayAdapter(), 'https://acme.globetrotters.ai');
         $router = new Router($cold, $this->options, new Sitemap($this->options, $cold), new ApiCatalog($cold));
         $event = $this->event('/llms.txt');
         $router->onKernelRequest($event);
@@ -237,7 +237,7 @@ final class RouterTest extends TestCase
 
     public function testTheSitemapIsNotServedOnAColdCache(): void
     {
-        $cold = new ArtefactCache(new ArrayAdapter(), 'https://nantes.globetrotters.ai');
+        $cold = new ArtefactCache(new ArrayAdapter(), 'https://acme.globetrotters.ai');
         $router = new Router($cold, $this->options, new Sitemap($this->options, $cold), new ApiCatalog($cold));
         $event = $this->event('/'.Sitemap::PATH);
         $router->onKernelRequest($event);
@@ -253,9 +253,9 @@ final class RouterTest extends TestCase
     public function testTheSitemapIsNotServedWhenNoArtefactIsListable(): void
     {
         $pool = new ArrayAdapter();
-        $cache = new ArtefactCache($pool, 'https://nantes.globetrotters.ai');
+        $cache = new ArtefactCache($pool, 'https://acme.globetrotters.ai');
         $cache->store([ContentTypes::VERSION_MARKER => '{}'], 'v1', 0);
-        $options = new Options($pool, 'https://nantes.globetrotters.ai', 'daily', '/');
+        $options = new Options($pool, 'https://acme.globetrotters.ai', 'daily', '/');
         $event = $this->event('/'.Sitemap::PATH);
         (new Router($cache, $options, new Sitemap($options, $cache), new ApiCatalog($cache)))->onKernelRequest($event);
 
@@ -270,10 +270,10 @@ final class RouterTest extends TestCase
     public function testNothingFromAnotherSourceIsServedBeforeTheRefreshCatchesUp(): void
     {
         $pool = new ArrayAdapter();
-        (new ArtefactCache($pool, 'https://nantes.globetrotters.ai'))->store(['llms.txt' => 'llms body'], 'v1', 0);
-        $options = new Options($pool, 'https://lyon.globetrotters.ai', 'daily', '/');
+        (new ArtefactCache($pool, 'https://acme.globetrotters.ai'))->store(['llms.txt' => 'llms body'], 'v1', 0);
+        $options = new Options($pool, 'https://other.globetrotters.ai', 'daily', '/');
         $options->updateState(['indexnow_key' => self::INDEXNOW_KEY]);
-        $cache = new ArtefactCache($pool, 'https://lyon.globetrotters.ai');
+        $cache = new ArtefactCache($pool, 'https://other.globetrotters.ai');
         $router = new Router($cache, $options, new Sitemap($options, $cache), new ApiCatalog($cache));
 
         foreach (['/llms.txt', '/'.self::INDEXNOW_KEY.'.txt', '/ai-sitemap.xml'] as $uri) {
@@ -353,9 +353,9 @@ final class RouterTest extends TestCase
         // well-formed key file, and it is one decision away from being served
         // here. A path added to the map is covered by this test on its own.
         $pool = new ArrayAdapter();
-        $cache = new ArtefactCache($pool, 'https://nantes.globetrotters.ai');
+        $cache = new ArtefactCache($pool, 'https://acme.globetrotters.ai');
         $cache->store([$path => 'artefact body'], 'v1', 0);
-        $options = new Options($pool, 'https://nantes.globetrotters.ai', 'daily', '/');
+        $options = new Options($pool, 'https://acme.globetrotters.ai', 'daily', '/');
         $options->updateState(['indexnow_key' => self::INDEXNOW_KEY]);
 
         $event = $this->event('/'.$path);

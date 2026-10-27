@@ -84,7 +84,7 @@ final class HomepageLinkHeaderTest extends IntegrationTestCase
 
     public function testTheValueMatchesTheBackend(): void
     {
-        // gt-backend deploy_config_renderer.APEX_HOMEPAGE_LINK_RELS, in order:
+        // The backend's apex homepage link relations, in order:
         // the registered relations validators read first, ours after.
         self::assertSame([
             '.well-known/api-catalog' => 'api-catalog',

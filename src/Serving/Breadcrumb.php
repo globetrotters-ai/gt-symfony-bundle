@@ -27,9 +27,8 @@ namespace Globetrotters\AiPresenceBundle\Serving;
  *
  * The two candidates that do not work, so nobody re-litigates them:
  *
- * - The edge proxy's ``Link: <…>; rel="canonical"`` header is gated to HTML 200s
- *   (``apps/edge-proxy/app/main.py``, asserted by
- *   ``test_link_canonical_absent_on_non_html_artefact``). Every artefact this
+ * - The edge proxy's ``Link: <…>; rel="canonical"`` header is gated to HTML
+ *   200s. Every artefact this
  *   bundle fetches is text or JSON, so the header is never present on any of
  *   them, and {@see \Globetrotters\AiPresenceBundle\Client\FetchResult} carries
  *   no headers anyway.
@@ -45,7 +44,7 @@ final class Breadcrumb
 {
     /**
      * Opens the injected head block. Matches the Studio's copy-paste snippet
-     * verbatim (``serve-inbound-link.component.ts``) so a customer who pasted
+     * verbatim so a customer who pasted
      * the block by hand ends up with the same markup the bundle would inject.
      *
      * Not the double-injection guard — see {@see self::headGuards()}.

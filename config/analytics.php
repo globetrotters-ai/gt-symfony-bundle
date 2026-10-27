@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Symfony\Component\DependencyInjection\Loader\Configurator;
 
 use Globetrotters\AiPresenceBundle\Analytics\AiReferrers;
+use Globetrotters\AiPresenceBundle\Analytics\AiUserAgents;
 use Globetrotters\AiPresenceBundle\Analytics\AnalyticsOptions;
 use Globetrotters\AiPresenceBundle\Analytics\AnalyticsState;
 use Globetrotters\AiPresenceBundle\Analytics\BufferDirectory;
@@ -94,6 +95,12 @@ return static function (ContainerConfigurator $container): void {
         ->args([service(BufferDirectory::class), service('globetrotters_ai_presence.clock')])
         ->tag('kernel.reset', ['method' => 'reset']);
 
+    // The AI crawler registry robots.txt names, from the same fetch, in its
+    // own file: a robots.txt request never loads the vendor ranges.
+    $services->set(AiUserAgents::class)
+        ->args([service(BufferDirectory::class), service('globetrotters_ai_presence.clock')])
+        ->tag('kernel.reset', ['method' => 'reset']);
+
     $services->set(VendorRanges::class)
         ->args([
             service(BufferDirectory::class),
@@ -102,6 +109,7 @@ return static function (ContainerConfigurator $container): void {
             service(AnalyticsState::class),
             service('globetrotters_ai_presence.clock'),
             service(AiReferrers::class),
+            service(AiUserAgents::class),
         ])
         ->tag('kernel.reset', ['method' => 'reset']);
 

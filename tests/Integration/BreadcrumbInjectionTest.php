@@ -17,15 +17,15 @@ final class BreadcrumbInjectionTest extends IntegrationTestCase
     protected static bool $withBreadcrumb = true;
 
     /** A published ai.json, whose relatedFiles sit on the canonical GT origin. */
-    private const AI_JSON = '{"name":"Demo","url":"https://www.demo-tourisme.test","metadata":{"relatedFiles":['
+    private const AI_JSON = '{"name":"Demo","url":"https://www.example-destination.test","metadata":{"relatedFiles":['
         .'{"url":"https://demo.globetrotters.ai/llms.txt","type":"text/plain"},'
         .'{"url":"https://demo.globetrotters.ai/schema.json","type":"application/ld+json"}'
         .']}}';
 
     /** The same tenant after a custom hostname activates. */
-    private const AI_JSON_CUSTOM = '{"name":"Demo","url":"https://www.demo-tourisme.test","metadata":{"relatedFiles":['
-        .'{"url":"https://ai.demo-tourisme.test/llms.txt","type":"text/plain"},'
-        .'{"url":"https://ai.demo-tourisme.test/schema.json","type":"application/ld+json"}'
+    private const AI_JSON_CUSTOM = '{"name":"Demo","url":"https://www.example-destination.test","metadata":{"relatedFiles":['
+        .'{"url":"https://ai.example-destination.test/llms.txt","type":"text/plain"},'
+        .'{"url":"https://ai.example-destination.test/schema.json","type":"application/ld+json"}'
         .']}}';
 
     private function refreshWith(string $aiJson): void
@@ -140,7 +140,7 @@ final class BreadcrumbInjectionTest extends IntegrationTestCase
         $this->refreshWith(self::AI_JSON_CUSTOM);
 
         $link = $twig->createTemplate('{{ gt_ai_presence_breadcrumb_link() }}')->render();
-        self::assertStringContainsString('https://ai.demo-tourisme.test', $link);
+        self::assertStringContainsString('https://ai.example-destination.test', $link);
         self::assertStringNotContainsString('demo.globetrotters.ai', $link);
     }
 

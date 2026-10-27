@@ -11,7 +11,7 @@ use Symfony\Component\Cache\Adapter\ArrayAdapter;
 
 final class ArtefactCacheTest extends TestCase
 {
-    private const SOURCE = 'https://nantes.globetrotters.ai';
+    private const SOURCE = 'https://acme.globetrotters.ai';
 
     public function testEmptyCache(): void
     {
@@ -216,7 +216,7 @@ final class ArtefactCacheTest extends TestCase
         $pool = new ArrayAdapter();
         (new ArtefactCache($pool, self::SOURCE))->store(['llms.txt' => 'body'], 'v1', 1000);
 
-        $repointed = new ArtefactCache($pool, 'https://lyon.globetrotters.ai');
+        $repointed = new ArtefactCache($pool, 'https://other.globetrotters.ai');
 
         self::assertFalse($repointed->hasAny());
         self::assertNull($repointed->get('llms.txt'));
@@ -257,7 +257,7 @@ final class ArtefactCacheTest extends TestCase
         unset($manifest['source']);
         $pool->save($item->set($manifest));
 
-        $upgraded = new ArtefactCache($pool, 'https://lyon.globetrotters.ai');
+        $upgraded = new ArtefactCache($pool, 'https://other.globetrotters.ai');
         self::assertSame('body', $upgraded->get('llms.txt'));
         self::assertFalse($upgraded->holdsForeignBundle());
 
@@ -271,7 +271,7 @@ final class ArtefactCacheTest extends TestCase
         $pool = new ArrayAdapter();
         (new ArtefactCache($pool, self::SOURCE))->store(['llms.txt' => 'body'], 'v1', 1000);
 
-        (new ArtefactCache($pool, 'https://lyon.globetrotters.ai'))->clear();
+        (new ArtefactCache($pool, 'https://other.globetrotters.ai'))->clear();
 
         self::assertFalse($pool->getItem(ArtefactCache::ITEM)->isHit());
         self::assertSame([], array_values(array_filter(

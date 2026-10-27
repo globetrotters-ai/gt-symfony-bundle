@@ -15,7 +15,7 @@ use Symfony\Component\Clock\MockClock;
 
 final class AiReferrersTest extends TestCase
 {
-    /** The aiReferrers block of the ranges document, as gt-backend serves it. */
+    /** The aiReferrers block of the ranges document, as the backend serves it. */
     public const HOSTS = [
         'chatgpt.com' => 'chatgpt',
         'chat.openai.com' => 'chatgpt',
@@ -88,7 +88,7 @@ final class AiReferrersTest extends TestCase
     }
 
     /**
-     * The PRD's five probes: Copilot's suffixed tag, a ChatGPT tag carried
+     * The five probes: Copilot's suffixed tag, a ChatGPT tag carried
      * behind a search engine, and the tags that arrive with no referrer.
      *
      * @return iterable<string, array{string, string, string}>

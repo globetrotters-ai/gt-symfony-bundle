@@ -32,8 +32,8 @@ final class LinkHeader implements EventSubscriberInterface
 {
     /**
      * Apex path → relation, in served order: registered relations first (what
-     * validators read), ours after. Mirrors gt-backend
-     * ``deploy_config_renderer.APEX_HOMEPAGE_LINK_RELS`` and gt-wordpress-plugin.
+     * validators read), ours after. Mirrors the backend's apex homepage link
+     * relations and gt-wordpress-plugin.
      *
      * @var array<string, string>
      */

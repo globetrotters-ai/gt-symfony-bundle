@@ -8,7 +8,7 @@ namespace Globetrotters\AiPresenceBundle\Analytics;
  * What the page-view counter accepts and how it buckets a visitor: the path
  * rules the backend applies at ingest, and the coarse User-Agent split.
  *
- * The path rules mirror gt-backend's so a record this install counts is one
+ * The path rules mirror the backend's so a record this install counts is one
  * the backend keeps — a record it would drop is better never counted, since it
  * would only take a slot under the 2000-paths-a-day cap. Kept in step with
  * ``gt-wordpress-plugin``.
@@ -21,12 +21,12 @@ final class PageViewRules
     /**
      * The platform of a view no AI answer referred — and of every
      * ``ai_browser`` view, which says where it came from by its bucket. What
-     * gt-backend stores a missing or unknown platform as, too.
+     * the backend stores a missing or unknown platform as, too.
      */
     public const PLATFORM_NONE = 'none';
 
     /**
-     * What a platform may look like: gt-backend's ``agent_platform`` slugs
+     * What a platform may look like: the backend's agent platform slugs
      * (``chatgpt``, ``claude``, …). No tab, no ``@`` and nothing upper-case,
      * so one can never corrupt a counter key (``bucket@platform\tpath``).
      */

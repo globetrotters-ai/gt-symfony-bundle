@@ -4,12 +4,16 @@ declare(strict_types=1);
 
 namespace Globetrotters\AiPresenceBundle\Tests\Unit\Serving;
 
+use Globetrotters\AiPresenceBundle\Analytics\AiUserAgents;
+use Globetrotters\AiPresenceBundle\Analytics\BufferDirectory;
 use Globetrotters\AiPresenceBundle\Cache\ArtefactCache;
 use Globetrotters\AiPresenceBundle\Serving\RobotsFilter;
 use Globetrotters\AiPresenceBundle\Settings\Options;
 use Globetrotters\AiPresenceBundle\Settings\RobotsOptions;
+use Globetrotters\AiPresenceBundle\Tests\Support\TempDirectory;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Cache\Adapter\ArrayAdapter;
+use Symfony\Component\Clock\MockClock;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\Event\ExceptionEvent;
@@ -20,20 +24,53 @@ use Symfony\Component\HttpKernel\HttpKernelInterface;
 
 final class RobotsFilterTest extends TestCase
 {
-    private const BASE_URL = 'https://nantes.globetrotters.ai';
+    private const BASE_URL = 'https://acme.globetrotters.ai';
 
     /** The origin Request::create() gives a path-only URI — this site, not Globetrotters. */
     private const REQUEST_ORIGIN = 'http://localhost';
 
-    private function filter(bool $connected = true, bool $cached = true): RobotsFilter
+    private ?string $dir = null;
+
+    protected function tearDown(): void
+    {
+        if (null !== $this->dir) {
+            TempDirectory::remove($this->dir);
+        }
+    }
+
+    private function filter(bool $connected = true, bool $cached = true, ?AiUserAgents $agents = null): RobotsFilter
     {
         $pool = new ArrayAdapter();
-        $cache = new ArtefactCache($pool, 'https://nantes.globetrotters.ai');
+        $cache = new ArtefactCache($pool, 'https://acme.globetrotters.ai');
         if ($cached) {
             $cache->store(['llms.txt' => 'x'], 'v1', 0);
         }
 
-        return new RobotsFilter(new Options($pool, $connected ? self::BASE_URL : '', 'daily', '/'), $cache);
+        return new RobotsFilter(new Options($pool, $connected ? self::BASE_URL : '', 'daily', '/'), $cache, new RobotsOptions(), $agents);
+    }
+
+    /**
+     * A synced registry in a fresh buffer directory, stored ``$age`` seconds
+     * ago.
+     *
+     * @param list<mixed> $agents as the ranges document carries them
+     */
+    private function syncedAgents(array $agents, int $age = 0): AiUserAgents
+    {
+        $this->dir = TempDirectory::make();
+        $clock = new MockClock('2026-10-27 10:00:00', 'UTC');
+        $clock->modify('-'.$age.' seconds');
+        (new AiUserAgents(new BufferDirectory($this->dir), $clock))->store('v6', AiUserAgents::parse($agents));
+
+        return new AiUserAgents(new BufferDirectory($this->dir), new MockClock('2026-10-27 10:00:00', 'UTC'));
+    }
+
+    private function generated(RobotsFilter $filter): string
+    {
+        $response = $this->exceptionEvent($filter, new NotFoundHttpException())->getResponse();
+        self::assertNotNull($response);
+
+        return (string) $response->getContent();
     }
 
     private function responseEvent(RobotsFilter $filter, string $uri, Response $response): Response
@@ -63,18 +100,82 @@ final class RobotsFilterTest extends TestCase
     }
 
     /**
-     * The canonical copy is generated from the backend registry, not typed:
-     *
-     *     cd gt-backend/libs/globetrotters-business && uv run python -c \
-     *       "from globetrotters.business.presence.services.ai_user_agents \
-     *        import render_robots_groups; print(render_robots_groups(), end='')"
-     *
-     * Regenerate the fixture that way when the registry gains a name; this
-     * assertion is what turns a drifting hand-typed copy into a red build.
+     * The fixture is the backend registry's own rendering of the 26 names
+     * ``RobotsFilter::AI_BOTS`` was frozen at. It pins the **fallback**: the
+     * output with no synced registry must not move, so neither the constant
+     * nor the fixture is edited when the backend registry gains a name — that
+     * name arrives through the ranges document instead.
      */
     public function testAiUserAgentGroupsMatchTheCanonicalFixture(): void
     {
         self::assertSame(self::canonicalFixture(), RobotsFilter::aiUserAgentGroups(aiTrain: true));
+    }
+
+    /**
+     * A crawler the backend registry gained after this release is named from
+     * the synced list, with no bundle release.
+     */
+    public function testASyncedListNamesAnAgentTheConstantDoesNot(): void
+    {
+        $block = $this->generated($this->filter(agents: $this->syncedAgents([['name' => 'GPTBot'], ['name' => 'NewAI-Bot']])));
+
+        self::assertStringContainsString("User-agent: NewAI-Bot\nAllow: /\n", $block);
+        self::assertSame(2, substr_count($block, 'User-agent: '), 'the synced list replaces the constant');
+    }
+
+    public function testASyncedListIsPassedToBuildBlockInOrder(): void
+    {
+        $block = RobotsFilter::buildBlock(self::REQUEST_ORIGIN, '', new RobotsOptions(), false, [['name' => 'ZetaBot'], ['name' => 'AlphaBot']]);
+
+        self::assertSame(RobotsFilter::MARKER."\n".RobotsFilter::aiUserAgentGroups(false, ['ZetaBot', 'AlphaBot']).'Sitemap: '.self::REQUEST_ORIGIN."/ai-sitemap.xml\n", $block);
+    }
+
+    /**
+     * No list, a stale one, or one with nothing valid in it: the output is
+     * byte-identical to the compiled registry's.
+     *
+     * @param list<mixed> $agents
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('unusableSyncedLists')]
+    public function testAnUnusableSyncedListFallsBackToTheConstant(array $agents, int $age): void
+    {
+        $expected = $this->generated($this->filter());
+
+        self::assertSame($expected, $this->generated($this->filter(agents: $this->syncedAgents($agents, $age))));
+        self::assertSame(RobotsFilter::buildBlock(self::REQUEST_ORIGIN), $expected);
+    }
+
+    /**
+     * @return iterable<string, array{list<mixed>, int}>
+     */
+    public static function unusableSyncedLists(): iterable
+    {
+        yield 'none synced' => [[], 0];
+        yield 'stale' => [[['name' => 'NewAI-Bot']], AiUserAgents::STALE_AFTER_SECONDS + 1];
+        yield 'all invalid' => [[['name' => "Evil\nDisallow: /"], ['name' => 'Bot/1.0']], 0];
+    }
+
+    /**
+     * ``fallbackGroup`` carries the vendor fallback the constant hard-codes
+     * for Applebot, for any agent the backend sets it on.
+     */
+    public function testASyncedFallbackGroupIsHonoured(): void
+    {
+        $registry = AiUserAgents::parse([['name' => 'GPTBot'], ['name' => 'NewAI-Bot', 'fallbackGroup' => 'GPTBot'], ['name' => 'ClaudeBot']]);
+
+        $block = RobotsFilter::buildBlock(self::REQUEST_ORIGIN, "User-agent: GPTBot\nDisallow: /private\n", new RobotsOptions(), false, $registry);
+
+        self::assertStringNotContainsString('User-agent: NewAI-Bot', $block, 'it reads the GPTBot group the site wrote');
+        self::assertStringContainsString('User-agent: ClaudeBot', $block);
+    }
+
+    public function testWithoutASyncedFallbackGroupNoFallbackIsAssumed(): void
+    {
+        $registry = AiUserAgents::parse([['name' => 'Applebot'], ['name' => 'Googlebot']]);
+
+        $block = RobotsFilter::buildBlock(self::REQUEST_ORIGIN, "User-agent: Googlebot\nDisallow: /private\n", new RobotsOptions(), false, $registry);
+
+        self::assertStringContainsString('User-agent: Applebot', $block, 'the synced list, not FALLBACK_GROUPS, decides');
     }
 
     /**

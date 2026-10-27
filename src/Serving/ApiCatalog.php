@@ -12,7 +12,7 @@ use Globetrotters\AiPresenceBundle\Cache\ArtefactCache;
  * anchored on the homepage and points at the agent surface this install serves.
  *
  * **Generated locally, never fetched**, for the {@see Sitemap}'s reason: the
- * edge proxy renders the same document per host (``_serve_api_catalog``), so a
+ * edge proxy renders the same document per host, so a
  * fetched copy would name the Globetrotters host. Built from the request's own
  * origin and from the paths the cache would actually serve, it cannot list a
  * local URL this install does not answer. The one remote URL is the ``item``
@@ -38,7 +38,7 @@ final class ApiCatalog
 
     /**
      * Apex path → [relation, target media type], in served order. Mirrors the
-     * edge proxy's ``_serve_api_catalog``.
+     * edge proxy's catalog.
      *
      * The catalog is answered exactly when one of these is cached.
      * {@see LinkHeader} and {@see Sitemap} apply that rule to the cache reads
