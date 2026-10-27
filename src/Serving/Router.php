@@ -313,7 +313,7 @@ final class Router implements EventSubscriberInterface
         $request->attributes->set(self::ATTRIBUTE_KEY, true);
 
         // The body is the key and nothing else — no trailing newline, matching
-        // the edge proxy's serve_indexnow_key, which returns ``content=key``.
+        // the edge proxy's key route, which returns the key alone.
         $event->setResponse(new Response($key, 200, self::keyHeaders()));
     }
 

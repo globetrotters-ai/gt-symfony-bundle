@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Symfony\Component\DependencyInjection\Loader\Configurator;
 
 use Globetrotters\AiPresenceBundle\Analytics\AiReferrers;
+use Globetrotters\AiPresenceBundle\Analytics\AiUserAgents;
 use Globetrotters\AiPresenceBundle\Analytics\AnalyticsOptions;
 use Globetrotters\AiPresenceBundle\Analytics\AnalyticsState;
 use Globetrotters\AiPresenceBundle\Analytics\BufferDirectory;
@@ -153,7 +154,7 @@ return static function (ContainerConfigurator $container): void {
         ]);
 
     $services->set(RobotsFilter::class)
-        ->args([service(Options::class), service(ArtefactCache::class), service(RobotsOptions::class)])
+        ->args([service(Options::class), service(ArtefactCache::class), service(RobotsOptions::class), service(AiUserAgents::class)])
         ->tag('kernel.event_subscriber');
 
     $services->set(RefreshCommand::class)
@@ -181,6 +182,7 @@ return static function (ContainerConfigurator $container): void {
             service(AiReferrers::class),
             service(ServedVersion::class),
             service(RefreshFailure::class),
+            service(AiUserAgents::class),
         ])
         ->tag('console.command');
 };

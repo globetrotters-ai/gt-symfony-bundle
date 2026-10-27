@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/globetrotters-ai/gt-symfony-bundle/blob/main/SECURITY.md
+    about: Please do not open a public issue for a security problem; email security@globetrotters.ai as SECURITY.md describes.
+  - name: Questions about your Globetrotters account or presence
+    url: https://globetrotters.ai/contact
+    about: For Studio, billing or your published presence, contact Globetrotters directly.

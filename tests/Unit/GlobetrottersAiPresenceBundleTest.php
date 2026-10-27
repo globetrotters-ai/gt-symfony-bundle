@@ -150,15 +150,15 @@ final class GlobetrottersAiPresenceBundleTest extends TestCase
      */
     public static function refusedWebsiteUrls(): iterable
     {
-        yield 'cleartext' => ['http://nantes.globetrotters.ai'];
-        yield 'no scheme' => ['nantes.globetrotters.ai'];
+        yield 'cleartext' => ['http://acme.globetrotters.ai'];
+        yield 'no scheme' => ['acme.globetrotters.ai'];
     }
 
     public function testAnHttpsWebsiteUrlBuilds(): void
     {
-        $container = $this->build(['website_url' => 'https://nantes.globetrotters.ai/']);
+        $container = $this->build(['website_url' => 'https://acme.globetrotters.ai/']);
 
-        self::assertSame('https://nantes.globetrotters.ai/', $container->getParameter('globetrotters_ai_presence.website_url'));
+        self::assertSame('https://acme.globetrotters.ai/', $container->getParameter('globetrotters_ai_presence.website_url'));
     }
 
     /**

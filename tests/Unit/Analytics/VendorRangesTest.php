@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Globetrotters\AiPresenceBundle\Tests\Unit\Analytics;
 
 use Globetrotters\AiPresenceBundle\Analytics\AiReferrers;
+use Globetrotters\AiPresenceBundle\Analytics\AiUserAgents;
 use Globetrotters\AiPresenceBundle\Analytics\AnalyticsOptions;
 use Globetrotters\AiPresenceBundle\Analytics\AnalyticsState;
 use Globetrotters\AiPresenceBundle\Analytics\BufferDirectory;
@@ -26,10 +27,16 @@ final class VendorRangesTest extends TestCase
         .'{"platform":"claude","start":"2600:1f28:365:80b0::","end":"2600:1f28:365:80b0:ffff:ffff:ffff:ffff"},'
         .'{"platform":"broken","start":"not-an-ip","end":"1.2.3.4"}]}';
 
-    /** The same document as gt-backend serves it since the AI referrer list joined it. */
+    /** The same document as the backend serves it since the AI referrer list joined it. */
     public const LIST_WITH_REFERRERS = '{"version":"3f2a9c1e0b7d","generatedAt":"2026-10-14T03:00:00Z","ranges":['
         .'{"platform":"chatgpt","start":"20.171.206.0","end":"20.171.206.255"}],'
         .'"aiReferrers":{"hosts":{"chatgpt.com":"chatgpt","claude.ai":"claude"},"utmSources":{"perplexity":"perplexity","chatgpt.com":"chatgpt"},"searchHosts":["google.*"]}}';
+
+    /** The same document since the AI user-agent registry joined it. */
+    public const LIST_WITH_AGENTS = '{"version":"3f2a9c1e0b7d","generatedAt":"2026-10-27T03:00:00Z","ranges":['
+        .'{"platform":"chatgpt","start":"20.171.206.0","end":"20.171.206.255"}],'
+        .'"aiReferrers":{"hosts":{"chatgpt.com":"chatgpt"},"utmSources":{},"searchHosts":[]},'
+        .'"aiUserAgents":[{"name":"GPTBot"},{"name":"Applebot","fallbackGroup":"Googlebot"},{"name":"bad agent"}]}';
 
     private string $dir;
     private FakeIngestTransport $transport;
@@ -370,7 +377,88 @@ final class VendorRangesTest extends TestCase
         self::assertSame('claude', $this->referrers()->match('claude.ai', ''));
     }
 
-    private function ranges(bool $withReferrers = true): VendorRanges
+    /**
+     * A third file from the same fetch: robots.txt reads the registry and never
+     * pays for the ranges.
+     */
+    public function testA200WritesTheAiUserAgentListInItsOwnFile(): void
+    {
+        $this->transport->willReturnRanges(RangesFetch::http(200, self::LIST_WITH_AGENTS));
+
+        $this->ranges()->refreshIfDue();
+
+        self::assertFileExists($this->dir.'/'.AiUserAgents::FILE);
+        self::assertStringNotContainsString('GPTBot', (string) file_get_contents($this->dir.'/'.VendorRanges::FILE));
+        $agents = $this->userAgents();
+        self::assertSame('3f2a9c1e0b7d', $agents->version());
+        self::assertSame([['name' => 'GPTBot'], ['name' => 'Applebot', 'fallbackGroup' => 'Googlebot']], $agents->agents(), 'the invalid entry skipped');
+        self::assertSame('', $this->ranges()->lastError());
+    }
+
+    public function testA200WithoutAiUserAgentsStoresAnEmptyList(): void
+    {
+        $this->transport->willReturnRanges(RangesFetch::http(200, self::LIST_WITH_REFERRERS));
+
+        $this->ranges()->refreshIfDue();
+
+        self::assertSame('3f2a9c1e0b7d', $this->userAgents()->version());
+        self::assertNull($this->userAgents()->agents());
+    }
+
+    public function testA304RestampsTheAiUserAgentList(): void
+    {
+        $this->transport->willReturnRanges(RangesFetch::http(200, self::LIST_WITH_AGENTS));
+        $this->ranges()->refreshIfDue();
+
+        $this->clock->modify('+20 days');
+        self::assertNull($this->userAgents()->agents());
+        $this->transport->willReturnRanges(RangesFetch::http(304));
+        $this->ranges()->refreshIfDue();
+
+        self::assertSame('3f2a9c1e0b7d', $this->transport->rangeRequests[1]['version']);
+        self::assertSame($this->clock->now()->getTimestamp(), $this->userAgents()->fetchedAt());
+        self::assertNotNull($this->userAgents()->agents(), 'confirmed fresh');
+        self::assertSame('', $this->ranges()->lastError());
+    }
+
+    /**
+     * The upgrade from 0.11.x: the ranges and the referrer list are stored at
+     * a version the backend need not move, and the registry is not. A
+     * conditional fetch would answer 304 and the registry would never arrive.
+     */
+    public function testAMissingAiUserAgentListDropsIfNoneMatch(): void
+    {
+        $this->transport->willReturnRanges(RangesFetch::http(200, self::LIST_WITH_AGENTS));
+        $this->ranges(withAgents: false)->refreshIfDue();
+        self::assertFileDoesNotExist($this->dir.'/'.AiUserAgents::FILE, '0.11.x writes no registry');
+
+        $this->clock->modify('+1 day');
+        $this->transport->willReturnRanges(RangesFetch::http(200, self::LIST_WITH_AGENTS));
+        $this->ranges()->refreshIfDue();
+
+        self::assertSame('', $this->transport->rangeRequests[1]['version'], 'unconditional');
+        self::assertNotNull($this->userAgents()->agents());
+
+        $this->clock->modify('+1 day');
+        $this->transport->willReturnRanges(RangesFetch::http(304));
+        $this->ranges()->refreshIfDue();
+        self::assertSame('3f2a9c1e0b7d', $this->transport->rangeRequests[2]['version'], 'conditional again once all three are stored');
+    }
+
+    public function testAFailureKeepsThePreviousAiUserAgentList(): void
+    {
+        $this->transport->willReturnRanges(RangesFetch::http(200, self::LIST_WITH_AGENTS));
+        $this->ranges()->refreshIfDue();
+
+        $this->clock->modify('+1 day');
+        $this->transport->willReturnRanges(RangesFetch::http(500));
+        $this->ranges()->refreshIfDue();
+
+        self::assertSame('3f2a9c1e0b7d', $this->userAgents()->version());
+        self::assertCount(2, (array) $this->userAgents()->agents());
+    }
+
+    private function ranges(bool $withReferrers = true, bool $withAgents = true): VendorRanges
     {
         return new VendorRanges(
             new BufferDirectory($this->dir),
@@ -379,7 +467,13 @@ final class VendorRangesTest extends TestCase
             $this->state,
             $this->clock,
             $withReferrers ? $this->referrers() : null,
+            $withAgents ? $this->userAgents() : null,
         );
+    }
+
+    private function userAgents(): AiUserAgents
+    {
+        return new AiUserAgents(new BufferDirectory($this->dir), $this->clock);
     }
 
     private function referrers(): AiReferrers

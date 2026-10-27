@@ -18,8 +18,7 @@ namespace Globetrotters\AiPresenceBundle\Serving;
  * from the configured website URL — untrusted input like every other byte from
  * that origin. A value outside IndexNow's own grammar cannot verify a host
  * anyway, so it reads as *unconfigured* rather than as something to serve. That
- * is the same posture as the backend's ``_INDEXNOW_KEY_RE``
- * (``presence/apex/services/deploy_config_renderer.py``), which is what decides
+ * is the same posture as the backend's own key grammar, which is what decides
  * whether the field is put on the marker at all; matching it here means the two
  * ends agree on what counts as a key.
  */

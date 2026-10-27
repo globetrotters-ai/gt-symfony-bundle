@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Globetrotters\AiPresenceBundle\Command;
 
 use Globetrotters\AiPresenceBundle\Analytics\AiReferrers;
+use Globetrotters\AiPresenceBundle\Analytics\AiUserAgents;
 use Globetrotters\AiPresenceBundle\Analytics\AnalyticsOptions;
 use Globetrotters\AiPresenceBundle\Analytics\AnalyticsState;
 use Globetrotters\AiPresenceBundle\Analytics\BufferDirectory;
@@ -57,6 +58,7 @@ final class StatusCommand extends Command
         private readonly ?AiReferrers $aiReferrers = null,
         private readonly ?ServedVersion $servedVersion = null,
         private readonly ?RefreshFailure $refreshFailure = null,
+        private readonly ?AiUserAgents $aiUserAgents = null,
     ) {
         parent::__construct();
     }
@@ -255,6 +257,7 @@ final class StatusCommand extends Command
             ['AI vendor ranges', $this->rangesStatus()],
             ['Page views', $this->pageViewMode()],
             ['AI referrer list', $this->aiReferrersStatus()],
+            ['AI crawler registry', $this->aiUserAgentsStatus()],
             ['Page views pending', $usable && null !== $this->pageViews
                 ? \sprintf('%d record(s) sealed; %d view(s) counted on open days', $this->pageViews->pendingRecords(), $this->pageViews->openViews())
                 : '—'],
@@ -347,6 +350,35 @@ final class StatusCommand extends Command
             1 === $hosts ? '' : 's',
             $sources,
             1 === $sources ? '' : 's',
+            gmdate('Y-m-d H:i:s', $fetched),
+            $days,
+            1 === $days ? '' : 's',
+        );
+    }
+
+    /**
+     * The registry robots.txt names. Fetched with the vendor ranges, so a
+     * fetch error shows on that row; without a fresh one, the compiled list.
+     */
+    private function aiUserAgentsStatus(): string
+    {
+        if (null === $this->aiUserAgents) {
+            return '-';
+        }
+        $fetched = $this->aiUserAgents->fetchedAt();
+        if (null === $fetched) {
+            return 'not fetched yet, so robots.txt names the compiled list (fetched with the AI vendor ranges)';
+        }
+
+        $days = intdiv(max(0, time() - $fetched), 86400);
+        $count = $this->aiUserAgents->count();
+
+        return \sprintf(
+            '%s, version %s, %d agent%s, fetched %s UTC (%d day%s ago)',
+            $this->aiUserAgents->isStale() ? 'STALE or empty, so robots.txt names the compiled list' : 'fresh',
+            $this->aiUserAgents->version() ?? '-',
+            $count,
+            1 === $count ? '' : 's',
             gmdate('Y-m-d H:i:s', $fetched),
             $days,
             1 === $days ? '' : 's',

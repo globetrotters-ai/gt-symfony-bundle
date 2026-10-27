@@ -3,3 +3,6 @@
 /.phpunit.cache/
 /.php-cs-fixer.cache
 /tests/Fixtures/var/
+
+# Internal notes for local Claude Code sessions; never published.
+CLAUDE.local.md

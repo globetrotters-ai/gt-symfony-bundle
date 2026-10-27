@@ -10,7 +10,7 @@ use Symfony\Component\Cache\Adapter\ArrayAdapter;
 
 final class OptionsTest extends TestCase
 {
-    private function options(string $url = 'https://nantes.globetrotters.ai', string $interval = 'daily'): Options
+    private function options(string $url = 'https://acme.globetrotters.ai', string $interval = 'daily'): Options
     {
         return new Options(new ArrayAdapter(), $url, $interval, '/');
     }
@@ -25,15 +25,15 @@ final class OptionsTest extends TestCase
     public function testBaseUrlNormalizesConfiguredValue(): void
     {
         self::assertSame(
-            'https://nantes.globetrotters.ai',
-            $this->options('https://nantes.globetrotters.ai/ ')->baseUrl(),
+            'https://acme.globetrotters.ai',
+            $this->options('https://acme.globetrotters.ai/ ')->baseUrl(),
         );
     }
 
     public function testSlugIsFirstHostLabel(): void
     {
-        self::assertSame('nantes', $this->options()->slug());
-        self::assertSame('nantes', $this->options('https://NANTES.globetrotters.ai')->slug());
+        self::assertSame('acme', $this->options()->slug());
+        self::assertSame('acme', $this->options('https://ACME.globetrotters.ai')->slug());
         self::assertSame('', $this->options('')->slug());
     }
 

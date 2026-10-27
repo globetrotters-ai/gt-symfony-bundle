@@ -1,14 +1,40 @@
 name: CI
 
 on:
+  # Every branch, so a secret is caught the moment it is pushed; the lint and
+  # test jobs still run on a push only for main (and a release tag, through
+  # workflow_call), and on pull requests.
   push:
-    branches: [main]
   pull_request:
   workflow_call:
 
 jobs:
+  secrets:
+    name: Secrets scan
+    runs-on: ubuntu-latest
+    env:
+      # The binary, not gitleaks/gitleaks-action, which needs a paid license
+      # on organisation repositories. Pinned by version and checksum.
+      GITLEAKS_VERSION: 8.30.1
+      GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install gitleaks
+        run: |
+          curl -sSfL -o gitleaks.tar.gz "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  gitleaks.tar.gz" | sha256sum -c -
+          tar -xzf gitleaks.tar.gz -C "$RUNNER_TEMP" gitleaks
+          rm gitleaks.tar.gz
+      # The whole history, not only the new commits: a secret stays readable
+      # in any commit a public clone can reach.
+      - name: Scan the history
+        run: '"$RUNNER_TEMP/gitleaks" git --config .gitleaks.toml --redact --no-banner --verbose .'
+
   lint:
     name: Lint
+    if: github.event_name != 'push' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -24,6 +50,7 @@ jobs:
 
   tests:
     name: PHP ${{ matrix.php }} × Symfony ${{ matrix.symfony }}
+    if: github.event_name != 'push' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false

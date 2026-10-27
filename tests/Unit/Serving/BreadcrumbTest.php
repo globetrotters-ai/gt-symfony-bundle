@@ -17,15 +17,15 @@ final class BreadcrumbTest extends TestCase
     private const AI_JSON = <<<'JSON'
         {
           "$schema": "https://ai-json.org/schemas/v1.1.1/ai.json",
-          "name": "Nantes",
-          "organization": {"name": "Nantes", "url": "https://www.nantes-tourisme.com"},
-          "url": "https://www.nantes-tourisme.com",
+          "name": "Acme",
+          "organization": {"name": "Acme", "url": "https://www.acme-tourism.example"},
+          "url": "https://www.acme-tourism.example",
           "metadata": {
             "relatedFiles": [
-              {"url": "https://ai.nantes.fr/llms.txt", "type": "text/plain"},
-              {"url": "https://ai.nantes.fr/llms-full.txt", "type": "text/plain"},
-              {"url": "https://ai.nantes.fr/schema.json", "type": "application/ld+json"},
-              {"url": "https://ai.nantes.fr/content.md", "type": "text/markdown"}
+              {"url": "https://ai.acme.example/llms.txt", "type": "text/plain"},
+              {"url": "https://ai.acme.example/llms-full.txt", "type": "text/plain"},
+              {"url": "https://ai.acme.example/schema.json", "type": "application/ld+json"},
+              {"url": "https://ai.acme.example/content.md", "type": "text/markdown"}
             ]
           }
         }
@@ -33,7 +33,7 @@ final class BreadcrumbTest extends TestCase
 
     public function testOriginComesFromRelatedFiles(): void
     {
-        self::assertSame('https://ai.nantes.fr', Breadcrumb::originFrom(self::AI_JSON));
+        self::assertSame('https://ai.acme.example', Breadcrumb::originFrom(self::AI_JSON));
     }
 
     /**
@@ -42,18 +42,18 @@ final class BreadcrumbTest extends TestCase
      */
     public function testOriginIgnoresTheTopLevelUrlField(): void
     {
-        $json = '{"url":"https://www.nantes-tourisme.com","metadata":{"relatedFiles":[{"url":"https://nantes.globetrotters.ai/llms.txt"}]}}';
+        $json = '{"url":"https://www.acme-tourism.example","metadata":{"relatedFiles":[{"url":"https://acme.globetrotters.ai/llms.txt"}]}}';
 
-        self::assertSame('https://nantes.globetrotters.ai', Breadcrumb::originFrom($json));
+        self::assertSame('https://acme.globetrotters.ai', Breadcrumb::originFrom($json));
     }
 
     public function testOriginFollowsTheCustomHostAfterActivation(): void
     {
-        $before = '{"metadata":{"relatedFiles":[{"url":"https://nantes.globetrotters.ai/llms.txt"}]}}';
-        $after = '{"metadata":{"relatedFiles":[{"url":"https://ai.nantes.fr/llms.txt"}]}}';
+        $before = '{"metadata":{"relatedFiles":[{"url":"https://acme.globetrotters.ai/llms.txt"}]}}';
+        $after = '{"metadata":{"relatedFiles":[{"url":"https://ai.acme.example/llms.txt"}]}}';
 
-        self::assertSame('https://nantes.globetrotters.ai', Breadcrumb::originFrom($before));
-        self::assertSame('https://ai.nantes.fr', Breadcrumb::originFrom($after));
+        self::assertSame('https://acme.globetrotters.ai', Breadcrumb::originFrom($before));
+        self::assertSame('https://ai.acme.example', Breadcrumb::originFrom($after));
     }
 
     /**
@@ -64,17 +64,17 @@ final class BreadcrumbTest extends TestCase
     {
         $json = '{"metadata":{"relatedFiles":['
             .'{"url":"https://elsewhere.example/llms-full.txt"},'
-            .'{"url":"https://ai.nantes.fr/llms.txt"}'
+            .'{"url":"https://ai.acme.example/llms.txt"}'
             .']}}';
 
-        self::assertSame('https://ai.nantes.fr', Breadcrumb::originFrom($json));
+        self::assertSame('https://ai.acme.example', Breadcrumb::originFrom($json));
     }
 
     public function testOriginFallsBackToSchemaJsonEntry(): void
     {
-        $json = '{"metadata":{"relatedFiles":[{"url":"https://ai.nantes.fr/schema.json"}]}}';
+        $json = '{"metadata":{"relatedFiles":[{"url":"https://ai.acme.example/schema.json"}]}}';
 
-        self::assertSame('https://ai.nantes.fr', Breadcrumb::originFrom($json));
+        self::assertSame('https://ai.acme.example', Breadcrumb::originFrom($json));
     }
 
     /**
@@ -84,9 +84,9 @@ final class BreadcrumbTest extends TestCase
      */
     public function testOriginNormalisesSchemeAndHostCase(): void
     {
-        $json = '{"metadata":{"relatedFiles":[{"url":"HTTPS://AI.Nantes.FR/llms.txt"}]}}';
+        $json = '{"metadata":{"relatedFiles":[{"url":"HTTPS://AI.Acme.EXAMPLE/llms.txt"}]}}';
 
-        self::assertSame('https://ai.nantes.fr', Breadcrumb::originFrom($json));
+        self::assertSame('https://ai.acme.example', Breadcrumb::originFrom($json));
     }
 
     public function testOriginKeepsANonDefaultPort(): void
@@ -103,9 +103,9 @@ final class BreadcrumbTest extends TestCase
     {
         yield 'empty' => [''];
         yield 'not json' => ['not json at all'];
-        yield 'no metadata' => ['{"name":"Nantes"}'];
+        yield 'no metadata' => ['{"name":"Acme"}'];
         yield 'relative links (dev disk backend)' => ['{"metadata":{"relatedFiles":[{"url":"llms.txt"}]}}'];
-        yield 'unrelated basenames' => ['{"metadata":{"relatedFiles":[{"url":"https://ai.nantes.fr/content.md"}]}}'];
+        yield 'unrelated basenames' => ['{"metadata":{"relatedFiles":[{"url":"https://ai.acme.example/content.md"}]}}'];
         yield 'non-http scheme' => ['{"metadata":{"relatedFiles":[{"url":"javascript:alert(1)/llms.txt"}]}}'];
         yield 'hostless' => ['{"metadata":{"relatedFiles":[{"url":"https:///llms.txt"}]}}'];
         yield 'relatedFiles not a list' => ['{"metadata":{"relatedFiles":"nope"}}'];
@@ -130,8 +130,8 @@ final class BreadcrumbTest extends TestCase
             .'<link rel="ai-catalog" href="/.well-known/ai-catalog.json">'."\n"
             .'<link rel="mcp" href="/.well-known/mcp.json">'."\n"
             .'<link rel="agent-card" href="/.well-known/agent-card.json">'."\n"
-            .'<link rel="related" href="https://ai.nantes.fr/">'."\n",
-            Breadcrumb::headBlock('https://ai.nantes.fr', true),
+            .'<link rel="related" href="https://ai.acme.example/">'."\n",
+            Breadcrumb::headBlock('https://ai.acme.example', true),
         );
     }
 
@@ -144,13 +144,13 @@ final class BreadcrumbTest extends TestCase
     {
         foreach ([true, false] as $withAlternate) {
             self::assertStringContainsString(
-                '<link rel="related" href="https://ai.nantes.fr/">',
-                Breadcrumb::headBlock('https://ai.nantes.fr', $withAlternate),
+                '<link rel="related" href="https://ai.acme.example/">',
+                Breadcrumb::headBlock('https://ai.acme.example', $withAlternate),
             );
         }
         self::assertStringContainsString(
-            'href="https://ai.nantes.fr/">',
-            Breadcrumb::headBlock('https://ai.nantes.fr', true, static fn (string $path): bool => false),
+            'href="https://ai.acme.example/">',
+            Breadcrumb::headBlock('https://ai.acme.example', true, static fn (string $path): bool => false),
         );
     }
 
@@ -160,12 +160,12 @@ final class BreadcrumbTest extends TestCase
      */
     public function testLocallyServedRelationsAreRootRelative(): void
     {
-        $block = Breadcrumb::headBlock('https://ai.nantes.fr', true);
+        $block = Breadcrumb::headBlock('https://ai.acme.example', true);
 
         foreach (['schema.json', '.well-known/mcp.json', '.well-known/agent-card.json', '.well-known/ai-catalog.json'] as $path) {
             self::assertTrue(ContentTypes::has($path), $path.' is expected to be served locally');
             self::assertStringContainsString('href="/'.$path.'">', $block);
-            self::assertStringNotContainsString('href="https://ai.nantes.fr/'.$path.'"', $block);
+            self::assertStringNotContainsString('href="https://ai.acme.example/'.$path.'"', $block);
         }
     }
 
@@ -176,7 +176,7 @@ final class BreadcrumbTest extends TestCase
      */
     public function testAlternateIsOmittedOffTheHomepage(): void
     {
-        $block = Breadcrumb::headBlock('https://ai.nantes.fr', false);
+        $block = Breadcrumb::headBlock('https://ai.acme.example', false);
 
         self::assertStringNotContainsString('rel="alternate"', $block);
         self::assertStringContainsString('rel="ai-catalog"', $block);
@@ -193,22 +193,22 @@ final class BreadcrumbTest extends TestCase
     public function testAnchorRendersAVisibleLink(): void
     {
         self::assertSame(
-            '<a href="https://ai.nantes.fr">AI presence for Nantes</a>'."\n",
-            Breadcrumb::anchor('https://ai.nantes.fr', 'AI presence for Nantes'),
+            '<a href="https://ai.acme.example">AI presence for Acme</a>'."\n",
+            Breadcrumb::anchor('https://ai.acme.example', 'AI presence for Acme'),
         );
     }
 
     public function testAnchorEscapesTheText(): void
     {
-        $markup = Breadcrumb::anchor('https://ai.nantes.fr', 'Nantes & <script>alert(1)</script>');
+        $markup = Breadcrumb::anchor('https://ai.acme.example', 'Acme & <script>alert(1)</script>');
 
-        self::assertStringContainsString('Nantes &amp; &lt;script&gt;', $markup);
+        self::assertStringContainsString('Acme &amp; &lt;script&gt;', $markup);
         self::assertStringNotContainsString('<script>', $markup);
     }
 
     public function testAnchorEscapesTheOrigin(): void
     {
-        $markup = Breadcrumb::anchor('https://ai.nantes.fr/"><script>x</script>', 'Text');
+        $markup = Breadcrumb::anchor('https://ai.acme.example/"><script>x</script>', 'Text');
 
         self::assertStringNotContainsString('<script>', $markup);
         self::assertStringContainsString('&quot;', $markup);
@@ -217,12 +217,12 @@ final class BreadcrumbTest extends TestCase
     public function testAnchorIsEmptyWithoutTextOrOrigin(): void
     {
         self::assertSame('', Breadcrumb::anchor('', 'Text'));
-        self::assertSame('', Breadcrumb::anchor('https://ai.nantes.fr', '   '));
+        self::assertSame('', Breadcrumb::anchor('https://ai.acme.example', '   '));
     }
 
     public function testDefaultAnchorTextUsesTheDestinationName(): void
     {
-        self::assertSame('AI presence for Nantes', Breadcrumb::defaultAnchorText(self::AI_JSON));
+        self::assertSame('AI presence for Acme', Breadcrumb::defaultAnchorText(self::AI_JSON));
     }
 
     public function testDefaultAnchorTextFallsBackWhenNameIsMissing(): void

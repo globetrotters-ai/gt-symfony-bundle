@@ -88,7 +88,7 @@ final class Options implements ResetInterface
 
     /**
      * Marker slug derived from the first dot-label of the configured host,
-     * e.g. https://nantes.globetrotters.ai → "nantes".
+     * e.g. https://acme.globetrotters.ai → "acme".
      */
     public function slug(): string
     {

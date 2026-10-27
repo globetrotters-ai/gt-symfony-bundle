@@ -128,7 +128,7 @@ final class PageViewCounterTest extends IntegrationTestCase
     }
 
     /**
-     * The PRD's acceptance run, end to end on the kernel: a referred visit, a
+     * The acceptance run, end to end on the kernel: a referred visit, a
      * tagged visit and a plain one to the same page, matched against the list
      * the ranges sync stored, flushed the next day as 2 ``chatgpt`` views and
      * 1 ``none`` — and neither the referrer nor the parameter on disk.

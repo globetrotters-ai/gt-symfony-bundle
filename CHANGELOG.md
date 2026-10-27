@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **The robots.txt AI crawler registry is synced.** The ranges document now
+  carries the registry (`aiUserAgents`: `{name, fallbackGroup?}` in emission
+  order), and the daily ranges fetch stores it in its own file,
+  `ai-user-agents.json` in `reporting.buffer_dir`, so a crawler added upstream
+  is named in robots.txt with no bundle release. Names and fallback groups
+  must be robots.txt product tokens (`[A-Za-z_-]+`); an invalid entry is
+  skipped, a list over 64 entries is refused. With no list, a stale one (14
+  days) or nothing valid in it, robots.txt names the compiled list, byte for
+  byte as before; that list is now frozen at its 26 names. An upgraded install
+  sends its next ranges fetch unconditionally, so a `304` cannot keep the
+  registry from arriving. `gt:status` shows an "AI crawler registry" row.
+  Same change in the WordPress plugin.
+
+### Changed
+
+- **Ready for a public repository.** `SECURITY.md`, `CONTRIBUTING.md` and issue
+  templates; a gitleaks secrets scan in CI, which the release workflow runs
+  too; `CLAUDE.md` rewritten as a contributor guide and left out of the
+  Packagist dist, with `CLAUDE.local.md` ignored.
+
 ## [0.11.0] - 2026-10-22
 
 ### Changed
@@ -25,7 +47,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   no version, so the next sync sends no `If-None-Match` and its `200` brings
   the key: 0.10.x may already hold the list at the ranges version that
   introduced it, and `304`s would otherwise keep the old shape until the
-  backend's version next moved. Mirrors gt-backend #1479; same change in the
+  backend's version next moved. Mirrors the backend change; same change in the
   WordPress plugin.
 
 ## [0.10.0] - 2026-10-20
@@ -107,7 +129,7 @@ ignores the new `cacheExclusionUserAgents` member.
 
 - **Exa's crawler named in robots.txt.** `ExaSearchBot`, which indexes for
   Exa, the search API AI agents query, joins `RobotsFilter::AI_BOTS`, following
-  gt-backend's AI user-agent registry. As for every other agent, a site that
+  the Globetrotters AI user-agent registry. As for every other agent, a site that
   already names it keeps its own rules.
 
 ## [0.9.2] - 2026-10-17
@@ -117,7 +139,7 @@ ignores the new `cacheExclusionUserAgents` member.
 - **Five more AI agents named in robots.txt.** Meta's on-demand fetcher and
   AI search indexer (`meta-externalfetcher`, `meta-webindexer`) and xAI's
   Grok agents (`GrokBot`, `xAI-Grok`, `Grok-DeepSearch`) join
-  `RobotsFilter::AI_BOTS`, following gt-backend's AI user-agent registry. As
+  `RobotsFilter::AI_BOTS`, following the Globetrotters AI user-agent registry. As
   for every other agent, a site that already names one keeps its own rules.
 
 ## [0.9.1] - 2026-10-17
@@ -383,8 +405,8 @@ ignores the new `cacheExclusionUserAgents` member.
 ### Changed
 
 - **The AI user-agent allow-list is now the canonical registry.** `/robots.txt`
-  names 20 agents instead of 11, in the order and vendor casing of gt-backend's
-  `presence/services/ai_user_agents.py`, which every Globetrotters emitter now
+  names 20 agents instead of 11, in the order and vendor casing of the
+  Globetrotters AI user-agent registry, which every Globetrotters emitter now
   derives from. New names: `Claude-SearchBot`, `Perplexity-User`, `Googlebot`,
   `Bingbot`, `Applebot`, `Amazonbot`, `DuckAssistBot`, `Bytespider`,
   `cohere-ai`. `Anthropic-AI` is now spelled `anthropic-ai`, the vendor's own

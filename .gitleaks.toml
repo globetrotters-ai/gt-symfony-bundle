@@ -1,0 +1,14 @@
+# gitleaks configuration for the `secrets` job in .github/workflows/ci.yml.
+# The default rules, plus an allowlist of test fixtures only. Add a value here
+# only when it is a fixture that can never be a real credential, and match it
+# exactly: a pattern would wave through the real thing.
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Made-up IndexNow key the tests serve and store (IndexNow keys are public by design: they are published at the site root)"
+condition = "AND"
+paths = ['''^tests/''']
+regexTarget = "secret"
+regexes = ['''^e715a2e7bf3c4a1d8e0b6f9c2d5a7e14$''']

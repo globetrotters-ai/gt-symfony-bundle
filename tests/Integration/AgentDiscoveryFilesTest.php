@@ -11,8 +11,8 @@ use PHPUnit\Framework\Attributes\DataProvider;
 /**
  * The four agent discovery files 0.7.0 serves at the apex: the root agent
  * specs, the ARD catalog and the Agent Skills index. Each is the published
- * copy, byte for byte, with the content type gt-backend's
- * ``bundle_builder._FILE_CONTENT_TYPES`` gives it.
+ * copy, byte for byte, with the content type the Globetrotters bundle
+ * builder gives it.
  */
 final class AgentDiscoveryFilesTest extends IntegrationTestCase
 {

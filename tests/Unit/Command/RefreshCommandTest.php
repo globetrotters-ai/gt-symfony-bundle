@@ -21,7 +21,7 @@ use Symfony\Component\Console\Tester\CommandTester;
 
 final class RefreshCommandTest extends TestCase
 {
-    private const BASE_URL = 'https://nantes.globetrotters.ai';
+    private const BASE_URL = 'https://acme.globetrotters.ai';
 
     private const BODIES = [
         'llms.txt' => 'hello',
@@ -31,8 +31,8 @@ final class RefreshCommandTest extends TestCase
         '.well-known/agent-card.json' => '{"c":2}',
         '.well-known/ai-catalog.json' => '{"specVersion":"1.0"}',
         '.well-known/agent-skills/index.json' => '{"skills":[]}',
-        'agent.json' => '{"name":"Nantes"}',
-        'AGENTS.md' => "# Nantes\n",
+        'agent.json' => '{"name":"Acme"}',
+        'AGENTS.md' => "# Acme\n",
     ];
 
     /**
@@ -44,7 +44,7 @@ final class RefreshCommandTest extends TestCase
     {
         $pool = new ArrayAdapter();
         $clock = new MockClock('2026-09-10 10:00:00', 'UTC');
-        (new ArtefactCache($pool, 'https://lyon.globetrotters.ai'))->store(['llms.txt' => 'lyon'], 'lyon-v1', 0);
+        (new ArtefactCache($pool, 'https://other.globetrotters.ai'))->store(['llms.txt' => 'other'], 'other-v1', 0);
         $options = new Options($pool, self::BASE_URL, 'daily', '/');
         $options->updateState(['last_refresh' => $clock->now()->getTimestamp()]);
         $fetcher = (new FakeFetcher())->fallback(FetchResult::http(404, ''));

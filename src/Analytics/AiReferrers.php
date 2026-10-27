@@ -40,7 +40,7 @@ final class AiReferrers implements ResetInterface
 
     /**
      * What ``<name>.*`` in a search host pattern stands for: one or two TLD
-     * labels of two letters or more (gt-backend ``vendor_ranges._ANY_TLD``).
+     * labels of two letters or more, as the ranges contract defines it.
      */
     private const ANY_TLD = '\\.[a-z]{2,}(?:\\.[a-z]{2,})?';
 

@@ -18,7 +18,7 @@ use Symfony\Component\Clock\MockClock;
 
 final class ArtefactSyncTest extends TestCase
 {
-    private const BASE_URL = 'https://nantes.globetrotters.ai';
+    private const BASE_URL = 'https://acme.globetrotters.ai';
 
     private const BODIES = [
         'llms.txt' => 'hello',
@@ -28,15 +28,15 @@ final class ArtefactSyncTest extends TestCase
         '.well-known/agent-card.json' => '{"c":2}',
         '.well-known/ai-catalog.json' => '{"specVersion":"1.0"}',
         '.well-known/agent-skills/index.json' => '{"skills":[]}',
-        'agent.json' => '{"name":"Nantes"}',
-        'AGENTS.md' => "# Nantes\n",
+        'agent.json' => '{"name":"Acme"}',
+        'AGENTS.md' => "# Acme\n",
     ];
 
     /**
      * Computed with the backend canonical_hash implementation (hashlib, raw
      * inner digests) over BODIES — asserts byte-parity with the backend.
      */
-    private const EXPECTED_HASH = '86380143eceb4d659b3e0ad92443337ee09d9a2ca27cee6ee2243700dff5527b';
+    private const EXPECTED_HASH = '30b2e9f6dee4b43ea4f9e6c165de634ed5f908f4c5118a01034cbccdeadec0ef';
 
     /**
      * A key shaped like the ones the presence stack issues (32 hex chars).
@@ -78,11 +78,11 @@ final class ArtefactSyncTest extends TestCase
      */
     public function testAForeignBundleIsForgottenBeforePulling(): void
     {
-        $previous = new ArtefactCache($this->pool, 'https://lyon.globetrotters.ai');
-        $previous->store(['llms.txt' => 'lyon'], 'lyon-v1', 1000);
+        $previous = new ArtefactCache($this->pool, 'https://other.globetrotters.ai');
+        $previous->store(['llms.txt' => 'other'], 'other-v1', 1000);
         $this->options->updateState([
-            'installed_version' => 'lyon-v1',
-            'content_hash' => 'lyon-hash',
+            'installed_version' => 'other-v1',
+            'content_hash' => 'other-hash',
             'indexnow_key' => self::INDEXNOW_KEY,
             'last_refresh' => 1000,
             'content_changed_at' => 1000,
@@ -106,7 +106,7 @@ final class ArtefactSyncTest extends TestCase
 
     public function testTheNewSourceIsPulledAndServedAfterForgetting(): void
     {
-        (new ArtefactCache($this->pool, 'https://lyon.globetrotters.ai'))->store(['llms.txt' => 'lyon'], 'lyon-v1', 1000);
+        (new ArtefactCache($this->pool, 'https://other.globetrotters.ai'))->store(['llms.txt' => 'other'], 'other-v1', 1000);
         $this->serveRequiredFiles();
 
         self::assertTrue($this->sync()->run()->isSuccess());
@@ -178,7 +178,7 @@ final class ArtefactSyncTest extends TestCase
         $marker = json_decode((string) $this->cache->get(ContentTypes::VERSION_MARKER), true);
         self::assertIsArray($marker);
         self::assertSame('globetrotters-apex-symfony-bundle', $marker['generator']);
-        self::assertSame('nantes', $marker['destinationSlug']);
+        self::assertSame('acme', $marker['destinationSlug']);
         self::assertSame('2026-07-23-100000', $marker['version']);
         self::assertSame(self::EXPECTED_HASH, $marker['contentHash']);
         self::assertSame('synthesized', $marker['source']);
@@ -426,8 +426,8 @@ final class ArtefactSyncTest extends TestCase
      */
     public static function unfetchableBaseUrls(): iterable
     {
-        yield 'cleartext' => ['http://nantes.globetrotters.ai'];
-        yield 'no scheme' => ['nantes.globetrotters.ai'];
+        yield 'cleartext' => ['http://acme.globetrotters.ai'];
+        yield 'no scheme' => ['acme.globetrotters.ai'];
     }
 
     public function testUpstreamMarkerKeyIsStoredInState(): void
@@ -623,7 +623,7 @@ final class ArtefactSyncTest extends TestCase
     public function testTextArtefactsAreNotHeldToJson(): void
     {
         $this->serveRequiredFiles();
-        $this->fetcher->on('/llms.txt', FetchResult::http(200, "# Nantes\n\n> {not json} <b>markdown may carry markup</b>\n"));
+        $this->fetcher->on('/llms.txt', FetchResult::http(200, "# Acme\n\n> {not json} <b>markdown may carry markup</b>\n"));
 
         self::assertTrue($this->sync()->run()->isSuccess());
     }
