@@ -68,3 +68,26 @@ jobs:
           coverage: none
       - run: composer update --prefer-dist --no-interaction --no-progress
       - run: vendor/bin/phpunit
+
+  # Single required status check. The matrix job names carry the PHP and
+  # Symfony versions, so requiring them in branch protection would break every
+  # time the matrix moves; require THIS instead. It passes only when every
+  # needed job succeeded (one `tests` need covers the whole matrix). It carries
+  # the lint/test guard inside `always()`: on a non-main branch push it is
+  # skipped with them (the secrets scan still reports on its own), and wherever
+  # it runs every need runs too, so `skipped` counts as a failure. Under
+  # `workflow_call` (release.yml) it runs as `CI / ci-ok`.
+  ci-ok:
+    if: ${{ always() && (github.event_name != 'push' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) }}
+    needs: [secrets, lint, tests]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify required jobs succeeded
+        run: |
+          for r in ${{ join(needs.*.result, ' ') }}; do
+            if [[ "$r" != "success" ]]; then
+              echo "Required job result: $r — failing."
+              exit 1
+            fi
+          done
+          echo "All required jobs passed."
