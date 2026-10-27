@@ -26,7 +26,7 @@ use function Symfony\Component\DependencyInjection\Loader\Configurator\service_c
  */
 final class GlobetrottersAiPresenceBundle extends AbstractBundle
 {
-    public const VERSION = '0.11.0';
+    public const VERSION = '0.12.0';
 
     /** The bundle's own pool, and the cache_pool default. */
     public const CACHE_POOL = 'globetrotters_ai_presence.cache';
