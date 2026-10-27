@@ -500,7 +500,7 @@ The `Release` workflow then checks that the tag, `VERSION`, the branch alias and
 
 ## Contributing and security
 
-Issues are welcome; pull requests are by invitation, see [CONTRIBUTING.md](CONTRIBUTING.md). Report a vulnerability privately as [SECURITY.md](SECURITY.md) describes, never in a public issue.
+Issues are welcome; pull requests are by invitation, see [CONTRIBUTING.md](https://github.com/globetrotters-ai/gt-symfony-bundle/blob/main/CONTRIBUTING.md). Report a vulnerability privately as [SECURITY.md](https://github.com/globetrotters-ai/gt-symfony-bundle/blob/main/SECURITY.md) describes, never in a public issue.
 
 ## Related
 
