@@ -131,6 +131,37 @@
         "label": "Skill: code-review",
         "default_collapsed": true
       }
+    },
+    {
+      "id": "claude-skill-toolu_013WXyNP1wuZkzxokUVX5Jaz",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "dev-fix-pr-copilot-review"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "f08dd76d93a7",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 893,
+        "end": 894,
+        "entry_ids": [
+          "415386dd-041d-4865-996c-4e1452f24633"
+        ],
+        "tool_use_id": "toolu_013WXyNP1wuZkzxokUVX5Jaz"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_013WXyNP1wuZkzxokUVX5Jaz"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: dev-fix-pr-copilot-review",
+        "default_collapsed": true
+      }
     }
   ]
 }
