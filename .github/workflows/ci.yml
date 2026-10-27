@@ -3,8 +3,10 @@ name: CI
 on:
   # Every branch, so a secret is caught the moment it is pushed; the lint and
   # test jobs still run on a push only for main (and a release tag, through
-  # workflow_call), and on pull requests.
+  # workflow_call), and on pull requests. Branches only: release.yml already
+  # runs this workflow for a tag.
   push:
+    branches: ['**']
   pull_request:
   workflow_call:
 
