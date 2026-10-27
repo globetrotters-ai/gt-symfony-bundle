@@ -6,3 +6,7 @@
 
 # Internal notes for local Claude Code sessions; never published.
 CLAUDE.local.md
+
+# Entire is disabled in this repo; its config and Claude hooks stay local.
+.entire/
+.claude/settings.json
