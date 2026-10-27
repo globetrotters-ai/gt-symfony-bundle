@@ -53,6 +53,14 @@ final class RobotsSyncedRegistryTest extends IntegrationTestCase
         self::assertMatchesRegularExpression('/AI crawler registry\s+fresh, version 3f2a9c1e0b7d, 2 agents/', $this->runCommand('gt:status')->getDisplay());
     }
 
+    public function testStatusTellsAnEmptyRegistryFromAStaleOne(): void
+    {
+        $this->bootClient();
+        $this->agents()->store('3f2a9c1e0b7d', []);
+
+        self::assertMatchesRegularExpression('/AI crawler registry\s+empty \(no registry/', $this->runCommand('gt:status')->getDisplay());
+    }
+
     private function agents(): AiUserAgents
     {
         $kernel = static::$kernel;

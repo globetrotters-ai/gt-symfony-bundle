@@ -375,7 +375,8 @@ final class StatusCommand extends Command
 
         return \sprintf(
             '%s, version %s, %d agent%s, fetched %s UTC (%d day%s ago)',
-            $this->aiUserAgents->isStale() ? 'STALE or empty, so robots.txt names the compiled list' : 'fresh',
+            0 === $count ? 'empty (no registry in the ranges document), so robots.txt names the compiled list'
+                : ($this->aiUserAgents->isStale() ? 'STALE, so robots.txt names the compiled list' : 'fresh'),
             $this->aiUserAgents->version() ?? '-',
             $count,
             1 === $count ? '' : 's',
