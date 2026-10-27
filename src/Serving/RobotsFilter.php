@@ -336,7 +336,15 @@ final class RobotsFilter implements EventSubscriberInterface
     {
         $site = RobotsPolicy::parse($existing);
         $agents = [];
+        $seen = [];
         foreach (null === $registry || [] === $registry ? self::fallbackRegistry() : $registry as $agent) {
+            // Product tokens match case-insensitively, so a name repeated in any
+            // case is one agent: its first entry keeps its position and fallback.
+            $key = strtolower($agent['name']);
+            if (isset($seen[$key])) {
+                continue;
+            }
+            $seen[$key] = true;
             if (!self::isGovernedBySite($agent['name'], $agent['fallbackGroup'] ?? null, $site)) {
                 $agents[] = $agent['name'];
             }

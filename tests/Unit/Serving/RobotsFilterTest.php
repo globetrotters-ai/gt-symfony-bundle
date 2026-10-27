@@ -169,6 +169,21 @@ final class RobotsFilterTest extends TestCase
         self::assertStringContainsString('User-agent: ClaudeBot', $block);
     }
 
+    /**
+     * Product tokens match case-insensitively: a synced name repeated in any
+     * case is named once, and its first entry keeps its position and its
+     * fallback group.
+     */
+    public function testASyncedNameRepeatedInAnyCaseIsNamedOnceWithItsFirstFallback(): void
+    {
+        $registry = AiUserAgents::parse([['name' => 'NewAI-Bot', 'fallbackGroup' => 'GPTBot'], ['name' => 'newai-bot']]);
+
+        $block = RobotsFilter::buildBlock(self::REQUEST_ORIGIN, "User-agent: GPTBot\nDisallow: /private\n", new RobotsOptions(), false, $registry);
+
+        self::assertStringNotContainsStringIgnoringCase('User-agent: NewAI-Bot', $block, 'the first entry\'s fallback decides');
+        self::assertSame(1, substr_count(strtolower(RobotsFilter::buildBlock(self::REQUEST_ORIGIN, '', new RobotsOptions(), false, $registry)), 'user-agent: newai-bot'));
+    }
+
     public function testWithoutASyncedFallbackGroupNoFallbackIsAssumed(): void
     {
         $registry = AiUserAgents::parse([['name' => 'Applebot'], ['name' => 'Googlebot']]);
