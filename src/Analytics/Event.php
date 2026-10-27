@@ -7,8 +7,8 @@ namespace Globetrotters\AiPresenceBundle\Analytics;
 /**
  * One served artefact request, as this producer observed it.
  *
- * Mirrors ``ServerLogEvent`` in the backend contract
- * (gt-backend ``docs/contracts/presence-server-log-producer.md``). String
+ * Mirrors ``ServerLogEvent`` in the Globetrotters server-log producer
+ * contract. String
  * fields are clipped at {@see MAX_FIELD_CHARS} locally: the backend clips too
  * and still counts the event, but clipping here is what keeps the buffer's
  * 512KB bound honest — one pathological User-Agent must not be able to eat the

@@ -13,7 +13,7 @@ use Symfony\Component\Cache\Adapter\ArrayAdapter;
 
 final class ApiCatalogTest extends TestCase
 {
-    private const BASE_URL = 'https://nantes.globetrotters.ai';
+    private const BASE_URL = 'https://acme.globetrotters.ai';
 
     /**
      * @param array<string, string> $files
@@ -49,18 +49,18 @@ final class ApiCatalogTest extends TestCase
 
     public function testRendersAnRfc9727LinksetAnchoredOnTheRequestOrigin(): void
     {
-        $body = $this->catalog($this->fullSet())->render('https://www.provenceguide.com');
+        $body = $this->catalog($this->fullSet())->render('https://www.acme-guide.example');
 
         self::assertSame([
             'linkset' => [[
-                'anchor' => 'https://www.provenceguide.com/',
+                'anchor' => 'https://www.acme-guide.example/',
                 'service-doc' => [
-                    ['href' => 'https://www.provenceguide.com/llms.txt', 'type' => 'text/plain'],
+                    ['href' => 'https://www.acme-guide.example/llms.txt', 'type' => 'text/plain'],
                 ],
                 'service-desc' => [
-                    ['href' => 'https://www.provenceguide.com/.well-known/mcp.json', 'type' => 'application/json'],
-                    ['href' => 'https://www.provenceguide.com/.well-known/agent-card.json', 'type' => 'application/json'],
-                    ['href' => 'https://www.provenceguide.com/.well-known/ai-catalog.json', 'type' => 'application/json'],
+                    ['href' => 'https://www.acme-guide.example/.well-known/mcp.json', 'type' => 'application/json'],
+                    ['href' => 'https://www.acme-guide.example/.well-known/agent-card.json', 'type' => 'application/json'],
+                    ['href' => 'https://www.acme-guide.example/.well-known/ai-catalog.json', 'type' => 'application/json'],
                 ],
             ]],
         ], $this->decode($body));
@@ -68,7 +68,7 @@ final class ApiCatalogTest extends TestCase
 
     public function testNeverNamesTheGlobetrottersHost(): void
     {
-        $body = $this->catalog($this->fullSet())->render('https://www.provenceguide.com');
+        $body = $this->catalog($this->fullSet())->render('https://www.acme-guide.example');
 
         self::assertStringNotContainsString('globetrotters.ai', $body);
         // Slashes stay readable: the document is read by agents and people alike.
@@ -119,12 +119,12 @@ final class ApiCatalogTest extends TestCase
     public function testItemNamesTheMcpServerFromTheCachedCard(): void
     {
         $files = $this->fullSet();
-        $files['.well-known/mcp.json'] = '{"name":"ai.globetrotters/provence","remotes":[{"type":"streamable-http","url":"https://provence.globetrotters.ai/mcp"},{"type":"sse","url":"https://provence.globetrotters.ai/sse"}]}';
+        $files['.well-known/mcp.json'] = '{"name":"ai.globetrotters/acme-guide","remotes":[{"type":"streamable-http","url":"https://acme-guide.globetrotters.ai/mcp"},{"type":"sse","url":"https://acme-guide.globetrotters.ai/sse"}]}';
 
-        $linkset = $this->decode($this->catalog($files)->render('https://www.provenceguide.com'));
+        $linkset = $this->decode($this->catalog($files)->render('https://www.acme-guide.example'));
 
         self::assertSame(
-            [['href' => 'https://provence.globetrotters.ai/mcp', 'type' => 'application/json']],
+            [['href' => 'https://acme-guide.globetrotters.ai/mcp', 'type' => 'application/json']],
             $linkset['linkset'][0]['item'],
         );
         // service-doc and service-desc are untouched, and item comes last.

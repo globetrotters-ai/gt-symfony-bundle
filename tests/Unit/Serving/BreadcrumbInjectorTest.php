@@ -20,9 +20,9 @@ use Symfony\Component\HttpKernel\HttpKernelInterface;
 
 final class BreadcrumbInjectorTest extends TestCase
 {
-    private const AI_JSON = '{"name":"Nantes","url":"https://www.nantes-tourisme.com","metadata":{"relatedFiles":[{"url":"https://ai.nantes.fr/llms.txt"},{"url":"https://ai.nantes.fr/schema.json"}]}}';
+    private const AI_JSON = '{"name":"Acme","url":"https://www.acme-tourism.example","metadata":{"relatedFiles":[{"url":"https://ai.acme.example/llms.txt"},{"url":"https://ai.acme.example/schema.json"}]}}';
 
-    private const PAGE = '<html><head><title>Nantes</title></head><body><p>Bonjour</p></body></html>';
+    private const PAGE = '<html><head><title>Acme</title></head><body><p>Bonjour</p></body></html>';
 
     private ArtefactCache $cache;
     private Options $options;
@@ -30,11 +30,11 @@ final class BreadcrumbInjectorTest extends TestCase
     protected function setUp(): void
     {
         $pool = new ArrayAdapter();
-        $this->cache = new ArtefactCache($pool, 'https://nantes.globetrotters.ai');
+        $this->cache = new ArtefactCache($pool, 'https://acme.globetrotters.ai');
         // The whole served set, so each relation resolves to this apex.
         $files = array_fill_keys(\Globetrotters\AiPresenceBundle\Serving\ContentTypes::paths(), '{}');
         $this->cache->store(['ai.json' => self::AI_JSON] + $files, 'v1', 0);
-        $this->options = new Options($pool, 'https://nantes.globetrotters.ai', 'daily', '/');
+        $this->options = new Options($pool, 'https://acme.globetrotters.ai', 'daily', '/');
         $this->requests = new RequestStack();
     }
 
@@ -188,7 +188,7 @@ final class BreadcrumbInjectorTest extends TestCase
      */
     public function testDoesNotDoubleInjectWhenAMinifierStrippedTheMarkerComment(): void
     {
-        $placed = Breadcrumb::headBlock('https://ai.nantes.fr', true);
+        $placed = Breadcrumb::headBlock('https://ai.acme.example', true);
         $minified = str_replace(Breadcrumb::MARKER."\n", '', $placed);
         $page = '<html><head>'.$minified.'</head><body>x</body></html>';
 

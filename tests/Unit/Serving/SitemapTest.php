@@ -13,7 +13,7 @@ use Symfony\Component\Cache\Adapter\ArrayAdapter;
 
 final class SitemapTest extends TestCase
 {
-    private const BASE_URL = 'https://nantes.globetrotters.ai';
+    private const BASE_URL = 'https://acme.globetrotters.ai';
 
     /**
      * @param array<string, string> $files

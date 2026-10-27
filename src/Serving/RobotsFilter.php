@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Globetrotters\AiPresenceBundle\Serving;
 
+use Globetrotters\AiPresenceBundle\Analytics\AiUserAgents;
 use Globetrotters\AiPresenceBundle\Cache\ArtefactCache;
 use Globetrotters\AiPresenceBundle\Settings\Options;
 use Globetrotters\AiPresenceBundle\Settings\RobotsOptions;
@@ -65,6 +66,11 @@ use Symfony\Component\HttpKernel\KernelEvents;
  * {@see self::CAPTURE_PRIORITY}, and a HEAD response is described from that
  * copy: the same entity-tag and length as the decorated GET, and no body.
  *
+ * **The registry is synced.** The agents named are the backend's current
+ * registry ({@see AiUserAgents}, from the ranges document) while a fresh one is
+ * stored, else the compiled {@see self::AI_BOTS}. Without one the output is
+ * exactly what this class emitted before the sync existed.
+ *
  * Limitation (documented): a physical public/robots.txt is served by the web
  * server and never reaches the kernel, so it can't be decorated here.
  */
@@ -88,12 +94,14 @@ final class RobotsFilter implements EventSubscriberInterface
     private const ATTRIBUTE_HEAD_BODY = '_gt_robots_head_body';
 
     /**
-     * The canonical AI user-agent registry, mirrored by hand from
-     * gt-backend's
-     * `libs/globetrotters-business/globetrotters/business/presence/services/ai_user_agents.py`
-     * — names, order and vendor casing all follow it, because
-     * `tests/Fixtures/robots-ai-user-agent-groups.txt` is generated from that
-     * module and `RobotsFilterTest` fails on any drift.
+     * The offline floor of the AI user-agent registry: what robots.txt names
+     * when no synced list is fresh ({@see AiUserAgents}), including on every
+     * install without reporting configured.
+     *
+     * Frozen at the backend registry's 26 names of October 2026 and **no longer
+     * updated per crawler** — a new crawler reaches installs through the
+     * ranges document instead. `tests/Fixtures/robots-ai-user-agent-groups.txt`
+     * pins this fallback, names, order and vendor casing.
      */
     private const AI_BOTS = [
         'GPTBot',
@@ -131,6 +139,9 @@ final class RobotsFilter implements EventSubscriberInterface
      * Googlebot's instructions when robots.txt names Googlebot but not Applebot
      * (Apple's "About Applebot" page); adding an Applebot group there would take
      * it off the rules the site gave Googlebot.
+     *
+     * Part of the offline floor, like {@see self::AI_BOTS}: a synced registry
+     * carries its own (``fallbackGroup``), and only that one then applies.
      */
     private const FALLBACK_GROUPS = ['Applebot' => 'Googlebot'];
 
@@ -162,6 +173,7 @@ final class RobotsFilter implements EventSubscriberInterface
         private readonly Options $options,
         private readonly ArtefactCache $cache,
         private readonly RobotsOptions $robots = new RobotsOptions(),
+        private readonly ?AiUserAgents $aiUserAgents = null,
     ) {
     }
 
@@ -234,7 +246,7 @@ final class RobotsFilter implements EventSubscriberInterface
                 return;
             }
 
-            $decorated = rtrim($representation, "\n")."\n\n".self::buildBlock($origin, $representation, $this->robots, $this->servesCatalog());
+            $decorated = rtrim($representation, "\n")."\n\n".self::buildBlock($origin, $representation, $this->robots, $this->servesCatalog(), $this->aiUserAgents?->agents());
             self::rewrite($response, $request, $decorated, $isHead);
 
             return;
@@ -245,7 +257,7 @@ final class RobotsFilter implements EventSubscriberInterface
         if (404 === $status) {
             $response->setStatusCode(200);
             $response->headers->set('Content-Type', 'text/plain; charset=utf-8');
-            self::rewrite($response, $request, self::buildBlock($origin, '', $this->robots, $this->servesCatalog()), $isHead);
+            self::rewrite($response, $request, self::buildBlock($origin, '', $this->robots, $this->servesCatalog(), $this->aiUserAgents?->agents()), $isHead);
         }
     }
 
@@ -271,7 +283,7 @@ final class RobotsFilter implements EventSubscriberInterface
             return;
         }
 
-        $block = self::buildBlock($request->getSchemeAndHttpHost(), '', $this->robots, $this->servesCatalog());
+        $block = self::buildBlock($request->getSchemeAndHttpHost(), '', $this->robots, $this->servesCatalog(), $this->aiUserAgents?->agents());
         $response = new Response($block, 200, ['Content-Type' => 'text/plain; charset=utf-8']);
         if ('HEAD' === $request->getMethod()) {
             // prepare() is about to drop the body and keep only this length —
@@ -314,14 +326,21 @@ final class RobotsFilter implements EventSubscriberInterface
      *
      * `$agentmap` adds `Agentmap: /.well-known/ai-catalog.json` just before it:
      * pass it only while this install serves the catalog.
+     *
+     * `$registry` is the synced registry, already validated
+     * ({@see AiUserAgents::agents()}); null (or empty) names the compiled one.
+     *
+     * @param list<array{name: string, fallbackGroup?: string}>|null $registry
      */
-    public static function buildBlock(string $origin, string $existing = '', RobotsOptions $options = new RobotsOptions(), bool $agentmap = false): string
+    public static function buildBlock(string $origin, string $existing = '', RobotsOptions $options = new RobotsOptions(), bool $agentmap = false, ?array $registry = null): string
     {
         $site = RobotsPolicy::parse($existing);
-        $agents = array_values(array_filter(
-            self::AI_BOTS,
-            static fn (string $agent): bool => !self::isGovernedBySite($agent, $site),
-        ));
+        $agents = [];
+        foreach (null === $registry || [] === $registry ? self::fallbackRegistry() : $registry as $agent) {
+            if (!self::isGovernedBySite($agent['name'], $agent['fallbackGroup'] ?? null, $site)) {
+                $agents[] = $agent['name'];
+            }
+        }
 
         $block = self::MARKER."\n"
             .($site->endsInsideAGroup() ? self::SECTION_CLOSER."\n" : '')
@@ -412,15 +431,24 @@ final class RobotsFilter implements EventSubscriberInterface
         return implode("\n", $lines)."\n\n";
     }
 
-    private static function isGovernedBySite(string $agent, RobotsPolicy $site): bool
+    /**
+     * The compiled registry in the synced list's shape.
+     *
+     * @return list<array{name: string, fallbackGroup?: string}>
+     */
+    private static function fallbackRegistry(): array
     {
-        if ($site->names($agent)) {
-            return true;
-        }
+        return array_map(
+            static fn (string $agent): array => isset(self::FALLBACK_GROUPS[$agent])
+                ? ['name' => $agent, 'fallbackGroup' => self::FALLBACK_GROUPS[$agent]]
+                : ['name' => $agent],
+            self::AI_BOTS,
+        );
+    }
 
-        $fallback = self::FALLBACK_GROUPS[$agent] ?? null;
-
-        return null !== $fallback && $site->names($fallback);
+    private static function isGovernedBySite(string $agent, ?string $fallback, RobotsPolicy $site): bool
+    {
+        return $site->names($agent) || (null !== $fallback && $site->names($fallback));
     }
 
     /**

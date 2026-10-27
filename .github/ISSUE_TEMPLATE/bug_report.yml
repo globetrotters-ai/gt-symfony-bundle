@@ -1,0 +1,45 @@
+name: Bug report
+description: Something in the bundle does not work as documented.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Please redact your ingest token and anything else private. Security problems go to security@globetrotters.ai, never here.
+  - type: input
+    id: version
+    attributes:
+      label: Bundle version
+      description: "`composer show globetrotters-ai/symfony-bundle`"
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: PHP and Symfony versions
+      placeholder: PHP 8.3.12, Symfony 7.4.1
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened, and what you expected
+      description: The request (path, method), the response you got, and the one you expected.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+    validations:
+      required: true
+  - type: textarea
+    id: status
+    attributes:
+      label: "`bin/console gt:status` output"
+      render: text
+  - type: textarea
+    id: setup
+    attributes:
+      label: Anything unusual about the setup
+      description: Reverse proxy or CDN, cache pool, scheduling lane (cron or Scheduler), other bundles listening on kernel.request or kernel.response.

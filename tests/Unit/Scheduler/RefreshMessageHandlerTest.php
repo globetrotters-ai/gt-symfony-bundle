@@ -30,7 +30,7 @@ use Symfony\Component\Clock\MockClock;
  */
 final class RefreshMessageHandlerTest extends TestCase
 {
-    private const BASE_URL = 'https://nantes.globetrotters.ai';
+    private const BASE_URL = 'https://acme.globetrotters.ai';
 
     private const BODIES = [
         'llms.txt' => 'hello',
@@ -40,8 +40,8 @@ final class RefreshMessageHandlerTest extends TestCase
         '.well-known/agent-card.json' => '{"c":2}',
         '.well-known/ai-catalog.json' => '{"specVersion":"1.0"}',
         '.well-known/agent-skills/index.json' => '{"skills":[]}',
-        'agent.json' => '{"name":"Nantes"}',
-        'AGENTS.md' => "# Nantes\n",
+        'agent.json' => '{"name":"Acme"}',
+        'AGENTS.md' => "# Acme\n",
     ];
 
     private ArrayAdapter $pool;

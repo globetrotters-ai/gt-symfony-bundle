@@ -29,7 +29,7 @@ final class IndexNowKeyTest extends TestCase
     /**
      * A key outside IndexNow's own grammar cannot verify a host, so it reads as
      * unconfigured rather than as something to serve — the same posture as the
-     * backend's ``deploy_config_renderer._INDEXNOW_KEY_RE``.
+     * backend's own key grammar.
      */
     #[\PHPUnit\Framework\Attributes\DataProvider('unusableKeys')]
     public function testAnUnusableKeySanitizesToEmpty(mixed $raw): void

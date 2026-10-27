@@ -36,6 +36,11 @@ use Symfony\Contracts\Service\ResetInterface;
  * under the same version — otherwise a ``304`` would confirm a list this
  * install does not have (the upgrade from 0.8.x, where the backend's version
  * need not have moved) and it would never arrive.
+ *
+ * The AI crawler registry (``aiUserAgents``) is the third list in the
+ * document, stored the same way through {@see AiUserAgents} for robots.txt,
+ * and under the same rule: a conditional fetch needs all three files at one
+ * version (the upgrade from 0.11.x, which stores no registry).
  */
 final class VendorRanges implements ResetInterface
 {
@@ -78,6 +83,7 @@ final class VendorRanges implements ResetInterface
         private readonly AnalyticsState $state,
         private readonly ClockInterface $clock,
         private readonly ?AiReferrers $aiReferrers = null,
+        private readonly ?AiUserAgents $aiUserAgents = null,
     ) {
     }
 
@@ -126,16 +132,17 @@ final class VendorRanges implements ResetInterface
     }
 
     /**
-     * One fetch, conditional when both lists are stored under one version. On
+     * One fetch, conditional when every list is stored under one version. On
      * a 200 the new lists replace the old (a document without ``aiReferrers``
-     * stores two empty ones); on a 304 both are re-stamped as fresh; on
-     * anything else both are kept as they are.
+     * or ``aiUserAgents`` stores empty ones); on a 304 all are re-stamped as
+     * fresh; on anything else all are kept as they are.
      */
     public function refresh(): void
     {
         $current = $this->stored();
         $conditional = null !== $current
-            && (null === $this->aiReferrers || $this->aiReferrers->version() === $current['version']);
+            && (null === $this->aiReferrers || $this->aiReferrers->version() === $current['version'])
+            && (null === $this->aiUserAgents || $this->aiUserAgents->version() === $current['version']);
         $result = $this->transport->fetchRanges(
             $this->url(),
             $this->options->ingestToken(),
@@ -152,6 +159,7 @@ final class VendorRanges implements ResetInterface
             // stored, and is restamped as it is.
             if (!$this->write($current)
                 || (null !== $this->aiReferrers && null !== $this->aiReferrers->fetchedAt() && !$this->aiReferrers->restamp())
+                || (null !== $this->aiUserAgents && null !== $this->aiUserAgents->fetchedAt() && !$this->aiUserAgents->restamp())
             ) {
                 $error = self::WRITE_ERROR;
             }
@@ -169,6 +177,13 @@ final class VendorRanges implements ResetInterface
                 if (!$this->aiReferrers->store($parsed['version'], $referrers['hosts'], $referrers['utmSources'], $referrers['searchHosts'])) {
                     $error = self::WRITE_ERROR;
                 }
+            }
+            // Same rule: written after the ranges, so a failed write leaves the
+            // versions apart and the next check unconditional.
+            if ('' === $error && null !== $this->aiUserAgents
+                && !$this->aiUserAgents->store($parsed['version'], AiUserAgents::parse($decoded['aiUserAgents'] ?? null))
+            ) {
+                $error = self::WRITE_ERROR;
             }
         } else {
             $error = '' !== $result->errorMessage() ? $result->errorMessage() : 'unexpected response';
