@@ -12,7 +12,8 @@ namespace Globetrotters\AiPresenceBundle\Analytics;
  * fields are clipped at {@see MAX_FIELD_CHARS} locally: the backend clips too
  * and still counts the event, but clipping here is what keeps the buffer's
  * 512KB bound honest — one pathological User-Agent must not be able to eat the
- * whole allowance.
+ * whole allowance. The ``signature`` members (contract v7) are the exception,
+ * clipped at {@see Signature::MAX_CHARS}: a signed line can reach a few KB.
  *
  * The buffered line and the wire payload are the same shape on purpose, so the
  * buffer's byte size *is* its wire size and no per-event size estimate has to
@@ -60,7 +61,8 @@ final class Event
 
     /**
      * The Web Bot Auth headers as received (contract v7), on either kind;
-     * null when the request was not signed.
+     * null when the request was not signed. Already validated and clipped
+     * by {@see Signature} (from the request, or from a buffered line).
      *
      * @var array{agent: string, input: string, value: string, authority: string}|null
      */
@@ -80,7 +82,7 @@ final class Event
         private readonly int $bytes,
         ?array $signature = null,
     ) {
-        $this->signature = Signature::fromBuffered($signature);
+        $this->signature = $signature;
         $this->ua = self::clip($ua);
         $this->ip = self::clip($ip);
         $this->referer = self::clip($referer);
