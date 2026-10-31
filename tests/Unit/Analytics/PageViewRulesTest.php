@@ -91,4 +91,14 @@ final class PageViewRulesTest extends TestCase
     {
         self::assertSame($expected, PageViewRules::bucket($userAgent));
     }
+
+    public function testASignedBeaconCountsAsAnAiBrowser(): void
+    {
+        $chrome = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36';
+
+        self::assertSame(PageViewRules::BUCKET_AI_BROWSER, PageViewRules::bucket($chrome, signed: true));
+        self::assertSame(PageViewRules::BUCKET_BROWSER, PageViewRules::bucket($chrome, signed: false));
+        self::assertNull(PageViewRules::bucket('Meta-WebIndexer/1.1 (+https://developers.facebook.com/docs/sharing/webmasters/crawler)', signed: true), 'a bot stays uncounted');
+        self::assertNull(PageViewRules::bucket('', signed: true));
+    }
 }

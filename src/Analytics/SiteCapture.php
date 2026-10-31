@@ -22,7 +22,9 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
  * the final status, the byte count when known, and whether the client IP fell
  * in a synced AI vendor range ({@see VendorRanges}). The IP is resolved with
  * the same trusted-proxy rules as artefact events, matched in memory, and
- * dropped: it is never written to the buffer nor sent.
+ * dropped: it is never written to the buffer nor sent. A request carrying a
+ * ``Signature-Agent`` header passes the gate whatever its User-Agent, and its
+ * Web Bot Auth headers ride the event as received ({@see Signature}).
  */
 final class SiteCapture
 {
@@ -133,7 +135,9 @@ final class SiteCapture
                 return false;
             }
             $userAgent = (string) $request->headers->get('User-Agent', '');
-            if (!self::isProbableBot($userAgent)) {
+            // A signed request (contract v7) passes whatever its User-Agent:
+            // Meta Muse signs while sending a stock Chrome one.
+            if (!self::isProbableBot($userAgent) && !Signature::isSigned($request)) {
                 return false;
             }
             if (!$this->buffer->isUsable()) {
@@ -152,6 +156,7 @@ final class SiteCapture
                 self::bytes($request, $response),
                 $match['verified'],
                 $match['vendor'],
+                Signature::fromRequest($request),
             ));
         } catch (\Throwable) {
             return false;

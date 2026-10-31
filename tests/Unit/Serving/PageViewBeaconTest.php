@@ -40,6 +40,7 @@ final class PageViewBeaconTest extends TestCase
         self::assertStringNotContainsStringIgnoringCase('globetrotters.ai', $script);
         self::assertStringNotContainsString('document.cookie', $script);
         self::assertStringNotContainsString('localStorage', $script);
+        self::assertStringNotContainsStringIgnoringCase('signature', $script, 'only the agent\'s own browser may sign the beacon (contract v7)');
         self::assertSame(1, preg_match_all("#sendBeacon\\('([^']*)'#", $script, $targets));
         self::assertSame([PageViewBeacon::PATH], $targets[1]);
         self::assertStringStartsWith('/', $targets[1][0]);

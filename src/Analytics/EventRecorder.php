@@ -73,6 +73,7 @@ final class EventRecorder
             (string) $request->headers->get('Referer', ''),
             $status,
             $bytes,
+            Signature::fromRequest($request),
         );
     }
 

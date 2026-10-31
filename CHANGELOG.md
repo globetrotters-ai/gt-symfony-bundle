@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-10-31
+
+### Added
+
+- **Signed agent requests are captured (server-log producer contract v7).**
+  Some agents drive an ordinary browser and send a stock browser User-Agent,
+  but sign their requests with Web Bot Auth (RFC 9421 HTTP Message
+  Signatures): Meta Muse does since October 2026. The bundle verifies
+  nothing; it forwards, and Globetrotters verifies at ingest.
+  - A request with a non-empty `Signature-Agent` header passes the site
+    capture gate whatever its User-Agent. Still a header check before
+    anything is copied, so a human page load costs what it did.
+  - When `Signature-Agent`, `Signature-Input` and `Signature` are all present,
+    the site event and the artefact event carry a `signature` object:
+    `agent`, `input` and `value` as received (whitespace trimmed, quotes
+    kept) and `authority`, the host the request was served on, each clipped
+    at 1024 characters. With any of the three missing the object is left
+    out. Still no IP on a site event.
+  - A page-view beacon carrying `Signature-Agent` counts in the `ai_browser`
+    bucket, not `browser`. Unverified and coarse, like the User-Agent rule;
+    an obvious bot is still not counted.
+
+  Same change in the WordPress plugin.
+
 ## [0.12.0] - 2026-10-27
 
 ### Added
