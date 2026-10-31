@@ -12,7 +12,8 @@ namespace Globetrotters\AiPresenceBundle\Analytics;
  * fields are clipped at {@see MAX_FIELD_CHARS} locally: the backend clips too
  * and still counts the event, but clipping here is what keeps the buffer's
  * 512KB bound honest — one pathological User-Agent must not be able to eat the
- * whole allowance.
+ * whole allowance. The ``signature`` members (contract v7) are the exception,
+ * clipped at {@see Signature::MAX_CHARS}: a signed line can reach a few KB.
  *
  * The buffered line and the wire payload are the same shape on purpose, so the
  * buffer's byte size *is* its wire size and no per-event size estimate has to
@@ -58,6 +59,18 @@ final class Event
     private ?bool $verified = null;
     private ?string $vendor = null;
 
+    /**
+     * The Web Bot Auth headers as received (contract v7), on either kind;
+     * null when the request was not signed. Already validated and clipped
+     * by {@see Signature} (from the request, or from a buffered line).
+     *
+     * @var array{agent: string, input: string, value: string, authority: string}|null
+     */
+    private readonly ?array $signature;
+
+    /**
+     * @param array{agent: string, input: string, value: string, authority: string}|null $signature
+     */
     public function __construct(
         private readonly string $id,
         private readonly string $ts,
@@ -67,7 +80,9 @@ final class Event
         string $referer,
         private readonly int $status,
         private readonly int $bytes,
+        ?array $signature = null,
     ) {
+        $this->signature = $signature;
         $this->ua = self::clip($ua);
         $this->ip = self::clip($ip);
         $this->referer = self::clip($referer);
@@ -76,10 +91,12 @@ final class Event
     /**
      * One site page fetched by a probable bot. Carries no IP by construction:
      * there is no parameter to pass one through.
+     *
+     * @param array{agent: string, input: string, value: string, authority: string}|null $signature
      */
-    public static function site(string $id, string $ts, string $path, string $ua, int $status, ?int $bytes, ?bool $verified, ?string $vendor): self
+    public static function site(string $id, string $ts, string $path, string $ua, int $status, ?int $bytes, ?bool $verified, ?string $vendor, ?array $signature = null): self
     {
-        $event = new self($id, $ts, $path, $ua, '', '', $status, $bytes ?? 0);
+        $event = new self($id, $ts, $path, $ua, '', '', $status, $bytes ?? 0, $signature);
         $event->site = true;
         $event->siteBytes = $bytes;
         $event->verified = $verified;
@@ -109,6 +126,7 @@ final class Event
                 \is_int($bytes) ? $bytes : null,
                 \is_bool($verified) ? $verified : null,
                 \is_string($vendor) ? $vendor : null,
+                Signature::fromBuffered($row['signature'] ?? null),
             );
         }
 
@@ -121,6 +139,7 @@ final class Event
             self::str($row, 'referer'),
             (int) ($row['status'] ?? 0),
             (int) ($row['bytes'] ?? 0),
+            Signature::fromBuffered($row['signature'] ?? null),
         );
     }
 
@@ -128,11 +147,25 @@ final class Event
      * Wire representation, per the contract.
      *
      * Empty optional fields go out as ``null`` rather than ``""``: the contract
-     * models them as nullable, and a null is smaller on the wire.
+     * models them as nullable, and a null is smaller on the wire. ``signature``
+     * is left out entirely on an unsigned request, as the contract asks.
      *
      * @return array<string, mixed>
      */
     public function toPayload(): array
+    {
+        $payload = $this->basePayload();
+        if (null !== $this->signature) {
+            $payload['signature'] = $this->signature;
+        }
+
+        return $payload;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function basePayload(): array
     {
         if ($this->site) {
             return [
@@ -187,6 +220,14 @@ final class Event
     public function vendor(): ?string
     {
         return $this->vendor;
+    }
+
+    /**
+     * @return array{agent: string, input: string, value: string, authority: string}|null
+     */
+    public function signature(): ?array
+    {
+        return $this->signature;
     }
 
     public function id(): string

@@ -169,6 +169,30 @@ final class PageViewCounterTest extends IntegrationTestCase
         self::assertStringNotContainsString('chatgpt.com', $this->transport()->sent[0]['json']);
     }
 
+    public function testASignedBeaconCountsAsAnAiBrowserAndIsNeverAttributed(): void
+    {
+        $client = $this->bootClient();
+        (new AiReferrers(new BufferDirectory($this->bufferDir()), new NativeClock()))
+            ->store('3f2a9c1e0b7d', ['chatgpt.com' => 'chatgpt'], ['chatgpt.com' => 'chatgpt']);
+
+        foreach (['"https://www.meta.com"', ''] as $agent) {
+            $client->request('POST', PageViewBeacon::PATH, server: [
+                'HTTP_HOST' => self::HOST,
+                'HTTP_ORIGIN' => 'https://'.self::HOST,
+                'HTTP_USER_AGENT' => self::CHROME,
+                'HTTP_SIGNATURE_AGENT' => $agent,
+                'CONTENT_TYPE' => 'text/plain;charset=UTF-8',
+            ], content: '{"p":"/x","r":"chatgpt.com"}');
+            self::assertSame(204, $client->getResponse()->getStatusCode());
+        }
+
+        self::assertSame(
+            ["ai_browser\t/x" => 1, "browser@chatgpt\t/x" => 1],
+            $this->counter()->counts(gmdate('Y-m-d')),
+            'signed: ai_browser, no platform; an empty Signature-Agent is not signed',
+        );
+    }
+
     public function testStatusShowsTheAiReferrerList(): void
     {
         $this->bootClient();

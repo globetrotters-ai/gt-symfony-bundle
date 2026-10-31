@@ -8,6 +8,7 @@ use Globetrotters\AiPresenceBundle\Analytics\AiReferrers;
 use Globetrotters\AiPresenceBundle\Analytics\PageViewCounter;
 use Globetrotters\AiPresenceBundle\Analytics\PageViewOptions;
 use Globetrotters\AiPresenceBundle\Analytics\PageViewRules;
+use Globetrotters\AiPresenceBundle\Analytics\Signature;
 use Symfony\Component\Clock\ClockInterface;
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
 use Symfony\Component\HttpFoundation\Request;
@@ -35,7 +36,8 @@ use Symfony\Component\HttpKernel\KernelEvents;
  *   ({@see PageViewRules::normalizePath()}). An unpaired surrogate (half an
  *   emoji) in one value costs that value, not the view.
  * - Matches the User-Agent against two coarse patterns and keeps the bucket,
- *   never the string. An obvious bot is not counted at all.
+ *   never the string. An obvious bot is not counted at all; a beacon with a
+ *   ``Signature-Agent`` header counts as ``ai_browser``.
  * - For a ``browser`` view, matches the referrer host ``r`` and the
  *   ``utm_source`` value ``u`` against the synced AI referrer list
  *   ({@see AiReferrers}) and keeps the platform, never either value: they are
@@ -107,7 +109,7 @@ final class PageViewEndpoint implements EventSubscriberInterface
             return;
         }
 
-        $bucket = PageViewRules::bucket((string) $request->headers->get('User-Agent', ''));
+        $bucket = PageViewRules::bucket((string) $request->headers->get('User-Agent', ''), Signature::isSigned($request));
         if (null === $bucket) {
             return;
         }

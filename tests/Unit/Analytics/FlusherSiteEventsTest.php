@@ -198,6 +198,46 @@ final class FlusherSiteEventsTest extends TestCase
         self::assertFalse($neverRuns->toArray()['pageViewCounter']);
     }
 
+    public function testASignatureGoesOutOnBothKindsAndOnlyWhenSigned(): void
+    {
+        $signature = ['agent' => '"https://www.meta.com"', 'input' => 'sig1=("@authority");tag="web-bot-auth"', 'value' => 'sig1=:dGVzdA==:', 'authority' => 'www.acme-guide.example'];
+        $this->buffer->append(new Event('a1', '2026-10-15T09:59:00Z', '/llms.txt', 'Mozilla/5.0 Chrome', '157.240.1.1', '', 200, 10, $signature));
+        $this->buffer->append(Event::site('s1', '2026-10-15T09:59:30Z', '/visiter', 'Mozilla/5.0 Chrome', 200, 1234, false, null, $signature));
+        $this->buffer->append(Event::site('s2', '2026-10-15T09:59:40Z', '/', 'GPTBot', 200, null, null, null));
+
+        self::assertSame(FlushOutcome::Accepted, $this->flusher->run(AnalyticsState::LANE_COMMAND));
+
+        $envelope = $this->transport->envelopes()[0];
+        self::assertSame($signature, $envelope['events'][0]['signature']);
+        self::assertSame($signature, $envelope['siteEvents'][0]['signature']);
+        self::assertArrayNotHasKey('signature', $envelope['siteEvents'][1], 'omitted, not null');
+    }
+
+    public function testASignedLineSurvivesTheBufferRoundTripClipped(): void
+    {
+        $signature = ['agent' => '"https://www.meta.com"', 'input' => 'sig1=("@authority");tag="web-bot-auth"', 'value' => 'sig1=:x:', 'authority' => 'www.acme-guide.example'];
+        $site = Event::site('s1', '2026-10-15T09:59:30Z', '/visiter', 'Mozilla/5.0 Chrome', 200, null, null, null, $signature);
+        $artefact = new Event('a1', '2026-10-15T09:59:00Z', '/llms.txt', 'Mozilla/5.0 Chrome', '157.240.1.1', '', 200, 10, $signature);
+
+        foreach ([$site, $artefact] as $event) {
+            $decoded = json_decode($event->toLine(), true);
+            self::assertIsArray($decoded);
+            self::assertSame($event->toPayload(), Event::fromArray($decoded)->toPayload());
+
+            // A tampered line is clipped on the way back in.
+            $decoded['signature']['input'] = str_repeat('i', 1500);
+            self::assertSame(1024, \strlen(Event::fromArray($decoded)->signature()['input'] ?? ''));
+        }
+
+        // A buffered line with a malformed signature reads back as unsigned.
+        $decoded = json_decode($site->toLine(), true);
+        self::assertIsArray($decoded);
+        $decoded['signature'] = ['agent' => 'x'];
+        self::assertArrayNotHasKey('signature', Event::fromArray($decoded)->toPayload());
+        $decoded['signature'] = ['agent' => ' ', 'input' => '', 'value' => '', 'authority' => ''];
+        self::assertArrayNotHasKey('signature', Event::fromArray($decoded)->toPayload(), 'blank members are no signature');
+    }
+
     public function testASiteLineSurvivesTheBufferRoundTrip(): void
     {
         $event = Event::site('s1', '2026-10-15T09:59:30Z', '/visiter', 'GPTBot', 200, null, false, null);

@@ -92,14 +92,19 @@ final class PageViewRules
      *
      * The string is only ever matched here and then forgotten: the counter
      * stores the bucket, never the User-Agent.
+     *
+     * A beacon carrying a ``Signature-Agent`` header (``$signed``, contract
+     * v7) counts as ``ai_browser`` whatever browser it claims to be: an agent
+     * that signs, like Meta Muse, sends a stock browser User-Agent.
+     * Unverified and coarse, like the pattern; a bot stays uncounted.
      */
-    public static function bucket(string $userAgent): ?string
+    public static function bucket(string $userAgent, bool $signed = false): ?string
     {
         if ('' === trim($userAgent) || 1 === preg_match(self::BOT_PATTERN, $userAgent)) {
             return null;
         }
 
-        return 1 === preg_match(self::AI_BROWSER_PATTERN, $userAgent)
+        return $signed || 1 === preg_match(self::AI_BROWSER_PATTERN, $userAgent)
             ? self::BUCKET_AI_BROWSER
             : self::BUCKET_BROWSER;
     }
