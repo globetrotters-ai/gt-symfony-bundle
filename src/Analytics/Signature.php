@@ -59,7 +59,8 @@ final class Signature
 
     /**
      * The ``signature`` object read back from a buffered line, or null when
-     * it is absent or not the expected shape.
+     * it is absent, not the expected shape, or has a blank ``agent``,
+     * ``input`` or ``value``.
      *
      * @return array{agent: string, input: string, value: string, authority: string}|null
      */
@@ -73,6 +74,13 @@ final class Signature
         $value = $row['value'] ?? null;
         $authority = $row['authority'] ?? null;
         if (!\is_string($agent) || !\is_string($input) || !\is_string($value) || !\is_string($authority)) {
+            return null;
+        }
+        // The rule fromRequest() applies: a blank header is no signature.
+        $agent = trim($agent);
+        $input = trim($input);
+        $value = trim($value);
+        if ('' === $agent || '' === $input || '' === $value) {
             return null;
         }
 

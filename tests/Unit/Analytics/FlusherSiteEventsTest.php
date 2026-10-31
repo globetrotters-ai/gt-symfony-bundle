@@ -231,6 +231,8 @@ final class FlusherSiteEventsTest extends TestCase
         self::assertIsArray($decoded);
         $decoded['signature'] = ['agent' => 'x'];
         self::assertArrayNotHasKey('signature', Event::fromArray($decoded)->toPayload());
+        $decoded['signature'] = ['agent' => ' ', 'input' => '', 'value' => '', 'authority' => ''];
+        self::assertArrayNotHasKey('signature', Event::fromArray($decoded)->toPayload(), 'blank members are no signature');
     }
 
     public function testASiteLineSurvivesTheBufferRoundTrip(): void
